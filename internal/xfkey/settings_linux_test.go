@@ -1,0 +1,512 @@
+package xfkey
+
+import (
+	"bytes"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"reflect"
+	"testing"
+	"time"
+)
+
+// Synthetic device state machine. No hardware handles are used.
+type settingsTransport struct {
+	current, staged configuration
+	identity        []byte
+	packets         []vendorPacket
+	reply           []byte
+	failAt          int
+	failure         string
+	mismatch        bool
+	waits           []bool
+	deadlines       []time.Time
+}
+
+func syntheticSettings() configuration {
+	c := configuration{0, 1, 0, 1, 0x28}
+	for i := 5; i < 124; i++ {
+		c[i] = byte(i * 7)
+	}
+	copy(c[124:], []byte{1, 255, 255, 255})
+	return c
+}
+func newSettingsTransport() *settingsTransport {
+	id := make([]byte, 64)
+	copy(id, []byte{0xaf, 1, 1, 0x12, 0x10, 0x14, 0xbe, 7, 0x7b, 0xa2})
+	return &settingsTransport{current: syntheticSettings(), identity: id}
+}
+func (f *settingsTransport) Validate() error {
+	if f.failAt == len(f.packets)+1 && f.failure == "guard" {
+		return fmt.Errorf("target changed")
+	}
+	return nil
+}
+func (f *settingsTransport) Wait(write bool, deadline time.Time) error {
+	f.waits = append(f.waits, write)
+	f.deadlines = append(f.deadlines, deadline)
+	index := len(f.packets)
+	if write {
+		index++
+	}
+	if index == f.failAt && ((write && f.failure == "write-deadline") || (!write && f.failure == "read-deadline")) {
+		return os.ErrDeadlineExceeded
+	}
+	return nil
+}
+func (f *settingsTransport) StartWrite(b []byte, _ time.Time) (<-chan writeResult, error) {
+	if len(b) != 65 || b[0] != 0 {
+		return nil, fmt.Errorf("invalid hidraw output")
+	}
+	var p vendorPacket
+	copy(p[:], b[1:])
+	f.packets = append(f.packets, p)
+	fail := f.failAt == len(f.packets)
+	if fail && f.failure == "start" {
+		return nil, io.ErrClosedPipe
+	}
+	if fail && f.failure == "stall" {
+		return make(chan writeResult), nil
+	}
+	ch := make(chan writeResult, 1)
+	if fail && f.failure == "write-error" {
+		ch <- writeResult{0, io.ErrClosedPipe}
+		return ch, nil
+	}
+	if fail && f.failure == "short-write" {
+		ch <- writeResult{64, nil}
+		return ch, nil
+	}
+	f.reply = append([]byte(nil), p[:]...)
+	switch p[1] {
+	case 1:
+		f.reply = append([]byte(nil), f.identity...)
+	case 6:
+		copy(f.reply[2:], f.current[:62])
+	case 7:
+		copy(f.reply[2:], f.current[62:124])
+	case 8:
+		copy(f.reply[2:6], f.current[124:])
+	case 2:
+		index := len(f.packets) - 5
+		offsets := []int{0, 60, 120}
+		lengths := []int{60, 60, 8}
+		if index < 0 || index > 2 || int(p[2]) != offsets[index] || int(p[3]) != lengths[index] {
+			return nil, fmt.Errorf("bad upload sequence")
+		}
+		copy(f.staged[offsets[index]:offsets[index]+lengths[index]], p[4:4+lengths[index]])
+	case 4:
+		if len(f.packets) != 8 {
+			return nil, fmt.Errorf("early commit")
+		}
+		f.current = f.staged
+		if f.mismatch {
+			f.current[63] ^= 1
+		}
+	default:
+		return nil, fmt.Errorf("unexpected command")
+	}
+	if fail && f.failure == "echo" {
+		f.reply[63] ^= 1
+	}
+	if fail && f.failure == "header" {
+		f.reply[1] ^= 1
+	}
+	if fail && f.failure == "short-reply" {
+		f.reply = f.reply[:63]
+	}
+	if fail && f.failure == "long-reply" {
+		f.reply = append(f.reply, 0)
+	}
+	ch <- writeResult{65, nil}
+	return ch, nil
+}
+func (f *settingsTransport) Read(b []byte) (int, error) {
+	if len(f.packets) == f.failAt && f.failure == "read-error" {
+		return copy(b, f.reply), io.ErrUnexpectedEOF
+	}
+	return copy(b, f.reply), nil
+}
+func settingsTarget() ApplyTarget { return ApplyTarget{"be077ba2", "1014"} }
+func settingsDir(t *testing.T) string {
+	t.Helper()
+	dir, err := newCapture(t.TempDir(), Candidate{PhysicalPath: "synthetic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+func checkNoUpload(t *testing.T, f *settingsTransport) {
+	t.Helper()
+	for _, p := range f.packets {
+		if p[1] == 2 || p[1] == 4 {
+			t.Fatal("unexpected configuration write", f.packets)
+		}
+	}
+}
+func checkOutcome(t *testing.T, dir string, expected ApplyResult) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(dir, "apply-outcome.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved ApplyResult
+	if err := json.Unmarshal(raw, &saved); err != nil || saved != expected {
+		t.Fatal(saved, expected, err)
+	}
+}
+
+func TestCaptureAncestorDurability(t *testing.T) {
+	for _, layout := range []string{"missing", "precreated", "symlink-parent"} {
+		t.Run(layout, func(t *testing.T) {
+			base, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			rootFor := func(at int) string {
+				return filepath.Join(base, fmt.Sprintf("attempt-%d", at), "state", "captures")
+			}
+			chain := func(root string) []string {
+				var paths []string
+				for path := root; ; path = filepath.Dir(path) {
+					paths = append(paths, path)
+					if filepath.Dir(path) == path {
+						break
+					}
+				}
+				return append(paths, root)
+			}
+			for failAt := 0; failAt <= len(chain(rootFor(0))); failAt++ {
+				t.Run(fmt.Sprintf("sync-failure-%d", failAt), func(t *testing.T) {
+					root := rootFor(failAt)
+					requested := root
+					if layout == "precreated" {
+						if err := os.MkdirAll(root, 0700); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if layout == "symlink-parent" {
+						alias := filepath.Join(base, fmt.Sprintf("alias-%d", failAt))
+						if err := os.Symlink(base, alias); err != nil {
+							t.Fatal(err)
+						}
+						requested = filepath.Join(alias, fmt.Sprintf("attempt-%d", failAt), "state", "captures")
+					}
+					injected := errors.New("injected directory sync failure")
+					var synced []string
+					f := newSettingsTransport()
+					dir, err := newCaptureWithSync(requested, Candidate{PhysicalPath: "synthetic"}, func(path string) error {
+						synced = append(synced, path)
+						if len(synced) == failAt {
+							return injected
+						}
+						return syncDir(path)
+					})
+					// Use the same pre-transport error gate as liveApply, with a synthetic device.
+					if err == nil {
+						_, err = applySettings(f, dir, settingsTarget(), Changes{"key": 0x68}, true, time.Second)
+					}
+					want := chain(root)
+					if failAt != 0 {
+						want = want[:failAt]
+						if !errors.Is(err, injected) {
+							t.Fatalf("sync failure not returned: %v", err)
+						}
+						checkNoUpload(t, f)
+						if len(f.packets) != 0 {
+							t.Fatal("device query after capture setup failure")
+						}
+					} else if err != nil || len(f.packets) != 11 {
+						t.Fatalf("successful setup did not complete synthetic apply: %v, %d packets", err, len(f.packets))
+					}
+					if !reflect.DeepEqual(synced, want) {
+						t.Fatalf("sync order: got %v, want %v", synced, want)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestApplySuccessAndNoOp(t *testing.T) {
+	for name, changes := range map[string]Changes{
+		"RGB-only":          {"rgb-mode": 1, "red": 0, "green": 0, "blue": 255},
+		"key-only":          {"key": 0x68},
+		"modifiers-trigger": {"modifiers": 3, "trigger": 2},
+		"no-op":             {"key": 0x28},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newSettingsTransport()
+			original := f.current
+			wanted, err := changeConfiguration(original, changes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := settingsDir(t)
+			result, err := applySettings(f, dir, settingsTarget(), changes, true, time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			checkOutcome(t, dir, result)
+			if result.PersistenceVerified {
+				t.Fatal("claimed reconnect persistence")
+			}
+			if name == "no-op" {
+				if result.Outcome != "no-op" || len(f.packets) != 4 || result.CommitEcho {
+					t.Fatal(result, f.packets)
+				}
+				checkNoUpload(t, f)
+			} else {
+				if result.Outcome != "readback-verified" || !result.ReadbackVerified || !result.CommitEcho || len(f.packets) != 11 || f.current != wanted {
+					t.Fatal(result, f.packets)
+				}
+				packets := preview(wanted)
+				for i, p := range packets[1:] {
+					if f.packets[i+4] != p {
+						t.Fatal("wrong framing")
+					}
+				}
+				for _, file := range []string{"write-1-reply.bin", "write-2-reply.bin", "write-3-reply.bin", "write-4-reply.bin", "post-configuration.bin"} {
+					if _, err := os.Stat(filepath.Join(dir, file)); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			_, backedUp, err := loadCapture(dir)
+			if err != nil || backedUp != original {
+				t.Fatal("bad backup", err)
+			}
+			for i := 0; i < len(f.deadlines); i += 2 {
+				if !f.waits[i] || f.waits[i+1] || f.deadlines[i] != f.deadlines[i+1] {
+					t.Fatal("deadline not shared")
+				}
+			}
+		})
+	}
+}
+
+func TestApplyEveryUploadAndCommitFailure(t *testing.T) {
+	for at := 5; at <= 8; at++ {
+		for _, failure := range []string{"guard", "write-deadline", "read-deadline", "start", "stall", "write-error", "short-write", "echo", "header", "short-reply", "long-reply", "read-error"} {
+			t.Run(fmt.Sprintf("%d/%s", at, failure), func(t *testing.T) {
+				f := newSettingsTransport()
+				f.failAt, f.failure = at, failure
+				dir := settingsDir(t)
+				result, err := applySettings(f, dir, settingsTarget(), Changes{"key": 0x68}, true, 5*time.Millisecond)
+				if err == nil {
+					t.Fatal("accepted failure")
+				}
+				expected := at
+				if failure == "guard" || failure == "write-deadline" {
+					expected--
+				}
+				if len(f.packets) != expected || result.CommitEcho || result.ReadbackVerified {
+					t.Fatal("continued after failure", result, len(f.packets), expected)
+				}
+				if at < 8 {
+					for _, p := range f.packets {
+						if p[1] == 4 {
+							t.Fatal("commit after failed chunk")
+						}
+					}
+				}
+				checkOutcome(t, dir, result)
+			})
+		}
+	}
+}
+
+func TestApplyBackupAndStorageFailures(t *testing.T) {
+	for _, name := range []string{"reply-01.bin", "reply-06.bin", "reply-07.bin", "reply-08.bin", "configuration.bin", ".result.json.pending", "result.json", "plan.json", "intended-configuration.bin", "write-1-request.bin"} {
+		t.Run(name, func(t *testing.T) {
+			dir := settingsDir(t)
+			if err := saveExclusive(dir, name, []byte("do not overwrite")); err != nil {
+				t.Fatal(err)
+			}
+			f := newSettingsTransport()
+			result, err := applySettings(f, dir, settingsTarget(), Changes{"key": 0x68}, true, time.Second)
+			if err == nil {
+				t.Fatal("ignored backup/storage failure")
+			}
+			checkNoUpload(t, f)
+			checkOutcome(t, dir, result)
+			b, _ := os.ReadFile(filepath.Join(dir, name))
+			if string(b) != "do not overwrite" {
+				t.Fatal("overwrote existing backup")
+			}
+		})
+	}
+	for _, name := range []string{"write-1-reply.bin", "write-2-request.bin", "write-2-reply.bin", "write-3-request.bin", "write-3-reply.bin", "write-4-request.bin"} {
+		t.Run(name, func(t *testing.T) {
+			dir := settingsDir(t)
+			if err := saveExclusive(dir, name, []byte("collision")); err != nil {
+				t.Fatal(err)
+			}
+			f := newSettingsTransport()
+			if _, err := applySettings(f, dir, settingsTarget(), Changes{"key": 0x68}, true, time.Second); err == nil {
+				t.Fatal("ignored journal failure")
+			}
+			for _, p := range f.packets {
+				if p[1] == 4 {
+					t.Fatal("committed after storage failure")
+				}
+			}
+		})
+	}
+}
+
+func TestApplyUnsupportedAndExplicitGuard(t *testing.T) {
+	for name, mutate := range map[string]func(*settingsTransport){
+		"model":             func(f *settingsTransport) { f.identity[2], f.identity[3] = 0x12, 1 },
+		"identifier":        func(f *settingsTransport) { f.identity[6] ^= 1 },
+		"version":           func(f *settingsTransport) { f.identity[5] ^= 1 },
+		"layout":            func(f *settingsTransport) { f.current[0] = 1 },
+		"multi-key":         func(f *settingsTransport) { f.current[3] = 2 },
+		"unknown-key":       func(f *settingsTransport) { f.current[4] = 0xff },
+		"unknown-trigger":   func(f *settingsTransport) { f.current[1] = 0 },
+		"unknown-modifiers": func(f *settingsTransport) { f.current[2] = 0x80 },
+		"unknown-rgb":       func(f *settingsTransport) { f.current[124] = 0 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newSettingsTransport()
+			mutate(f)
+			if _, err := applySettings(f, settingsDir(t), settingsTarget(), Changes{"blue": 0}, true, time.Second); err == nil {
+				t.Fatal("accepted unsupported current state")
+			}
+			checkNoUpload(t, f)
+		})
+	}
+	f := newSettingsTransport()
+	if _, err := applySettings(f, settingsDir(t), settingsTarget(), Changes{"key": 0x68}, false, time.Second); !errors.Is(err, errWriteRequired) || len(f.packets) != 0 {
+		t.Fatal(err)
+	}
+	for _, changes := range []Changes{nil, {}, {"key": 0}, {"blue": -1}, {"rgb-mode": 8}, {"trigger": 4}, {"modifiers": 16}, {"raw": 2}} {
+		if _, err := applySettings(f, settingsDir(t), settingsTarget(), changes, true, time.Second); err == nil || len(f.packets) != 0 {
+			t.Fatal(changes, err)
+		}
+	}
+	for _, target := range []ApplyTarget{{}, {"be077ba2", ""}, {"zz077ba2", "1014"}} {
+		if _, err := applySettings(f, settingsDir(t), target, Changes{"key": 0x68}, true, time.Second); err == nil || len(f.packets) != 0 {
+			t.Fatal(target, err)
+		}
+	}
+}
+
+func TestApplyPostWriteComparisonAndFailures(t *testing.T) {
+	f := newSettingsTransport()
+	f.mismatch = true
+	dir := settingsDir(t)
+	result, err := applySettings(f, dir, settingsTarget(), Changes{"key": 0x68}, true, time.Second)
+	if err == nil || result.Outcome != "readback-mismatch" || !result.CommitEcho || result.ReadbackVerified || len(f.packets) != 11 {
+		t.Fatal(result, err)
+	}
+	checkOutcome(t, dir, result)
+	for at := 9; at <= 11; at++ {
+		for _, failure := range []string{"read-deadline", "short-reply", "header", "read-error", "stall"} {
+			t.Run(fmt.Sprintf("%d/%s", at, failure), func(t *testing.T) {
+				f := newSettingsTransport()
+				f.failAt, f.failure = at, failure
+				result, err := applySettings(f, settingsDir(t), settingsTarget(), Changes{"key": 0x68}, true, 5*time.Millisecond)
+				if err == nil || !result.CommitEcho || result.ReadbackVerified || len(f.packets) != at {
+					t.Fatal(result, err, len(f.packets))
+				}
+			})
+		}
+	}
+	dir = settingsDir(t)
+	if err := saveExclusive(dir, "apply-outcome.json", []byte("collision")); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := applySettings(newSettingsTransport(), dir, settingsTarget(), Changes{"key": 0x68}, true, time.Second); err == nil || !result.ReadbackVerified {
+		t.Fatal("outcome storage failure was hidden", result, err)
+	}
+}
+
+func TestPartialPlanPreservesEveryUnspecifiedByte(t *testing.T) {
+	current := syntheticSettings()
+	for name, value := range map[string]int{"key": 0x68, "modifiers": 15, "trigger": 3, "rgb-mode": 7, "red": 0, "green": 1, "blue": 2} {
+		next, err := changeConfiguration(current, Changes{name: value})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := range current {
+			if i != settingsFields[name].offset && current[i] != next[i] {
+				t.Fatal(name, "changed unspecified byte", i)
+			}
+		}
+		plan := settingsPlan(current, next)
+		if !reflect.DeepEqual(plan.ChangedOffsets, []int{settingsFields[name].offset}) {
+			t.Fatal(plan)
+		}
+	}
+}
+
+func TestPlanSavedCaptureAndValidation(t *testing.T) {
+	dir := settingsDir(t)
+	f := newSettingsTransport()
+	if _, err := captureQueries(f, dir, true); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := Run([]string{"plan", "--capture", dir, "--key", "f13"}, &output, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	var plan SettingsPlan
+	if err := json.Unmarshal(output.Bytes(), &plan); err != nil || !reflect.DeepEqual(plan.ChangedOffsets, []int{4}) {
+		t.Fatal(plan, err)
+	}
+	for _, args := range [][]string{
+		{"apply"}, {"apply", "--key", "f13"}, {"apply", "--write=false", "--key", "f13"},
+		{"apply", "--write"}, {"apply", "--write", "--key", "f13"}, {"apply", "--write", "--capture", dir, "--key", "f13"},
+		{"plan", "--capture", dir}, {"plan", "--capture", dir, "--key", ""}, {"plan", "--capture", dir, "--blue", "-1"},
+		{"plan", "--capture", dir, "--write", "--blue", "0"}, {"plan", "--capture", dir, "--path", "x", "--blue", "0"},
+	} {
+		if err := Run(args, io.Discard, io.Discard); err == nil {
+			t.Fatal("accepted", args)
+		}
+	}
+	for _, name := range []string{"result.json", "reply-01.bin", "reply-06.bin", "reply-07.bin", "reply-08.bin", "configuration.bin"} {
+		t.Run(name, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join(dir, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, name), []byte("corrupt"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := loadCapture(dir); err == nil {
+				t.Fatal("accepted corrupt backup")
+			}
+			if err := os.WriteFile(filepath.Join(dir, name), raw, 0600); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	if err := os.Remove(filepath.Join(dir, "configuration.bin")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "reply-01.bin"), filepath.Join(dir, "configuration.bin")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := loadCapture(dir); err == nil {
+		t.Fatal("accepted symlink")
+	}
+}
+
+func TestAuthenticCaptureFixture(t *testing.T) {
+	result, config, err := loadCapture("testdata/hardware-20260911")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !settingsTarget().matches(result.Identity) || hex.EncodeToString(config[:5]) != "0001000128" || hex.EncodeToString(config[124:]) != "01ffffff" {
+		t.Fatal("fixture differs from labelled capture")
+	}
+	next, err := changeConfiguration(config, Changes{"rgb-mode": 1, "red": 0, "green": 0, "blue": 255})
+	if err != nil || !bytes.Equal(config[:124], next[:124]) || hex.EncodeToString(next[124:]) != "020000ff" {
+		t.Fatal(next, err)
+	}
+}
