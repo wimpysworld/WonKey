@@ -69,11 +69,11 @@
         </dl>
       </section>
       <section class="install section-rule" aria-labelledby="install-title">
-        <div><p class="eyebrow">Get started</p><h2 id="install-title">Build from source</h2><p>Requires Linux and Go 1.23 or later. WonKey uses only the Go standard library.</p></div>
+        <div><p class="eyebrow">Get started</p><h2 id="install-title">Build from source</h2><p>Requires Linux, Go 1.23 or later, and <a href="https://just.systems/">just</a>. WonKey uses only the Go standard library.</p></div>
         <div>
           <h3>Build WonKey</h3>
           <p>Get the <a href="https://github.com/wimpysworld/WonKey">source code</a>, then run this command from the project root. It replaces any existing <code>wonkey</code> file.</p>
-          <pre><code>go build -buildvcs=false -o wonkey ./cmd/wonkey</code></pre>
+          <pre><code>just build</code></pre>
           <p>Start with the <a href="https://github.com/wimpysworld/WonKey?tab=readme-ov-file#get-started">offline plan example</a>. Read the <a href="https://github.com/wimpysworld/WonKey/blob/HEAD/wiki/hardware.md">hardware guide</a> before device operations.</p>
         </div>
       </section>

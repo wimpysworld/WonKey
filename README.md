@@ -14,16 +14,15 @@ Other settings and devices remain unverified. Device selection requires exact de
 
 ## Get started
 
-Requires Linux and Go 1.23 or later. Run commands from the project root.
+Requires Linux, Go 1.23 or later, and [just](https://just.systems/). Run commands from the project root.
 
 ```sh
-go build -buildvcs=false -o ./wonkey ./cmd/wonkey
+just build
 ./wonkey plan --capture internal/xfkey/testdata/hardware-20260911 --key f13
 ```
 
-The build disables VCS stamping, so it also works without VCS metadata.
-If you have [just](https://just.systems/), `just build` runs the same build.
-Both build commands replace `./wonkey`. See [AGENTS.md](AGENTS.md#build-and-test) for a temporary-output build.
+The build disables VCS stamping and replaces `./wonkey`.
+See [AGENTS.md](AGENTS.md#build-and-test) for a temporary-output build.
 
 The plan example reads the included capture. It does not open a device or change settings.
 Only explicit fields change in a plan. A saved plan never authorises a write.
