@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="wonkey-title">
+  <title id="wonkey-title">WonKey: a tilted W key with an RGB edge</title>
+  <defs>
+    <linearGradient id="wonkey-rgb" x1="10" y1="16" x2="54" y2="54" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff6492"/>
+      <stop offset=".25" stop-color="#ffd166"/>
+      <stop offset=".5" stop-color="#6ee7b7"/>
+      <stop offset=".75" stop-color="#56ccff"/>
+      <stop offset="1" stop-color="#b58aff"/>
+    </linearGradient>
+    <linearGradient id="wonkey-face" x1="16" y1="10" x2="48" y2="50" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#334155"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+  </defs>
+  <g transform="rotate(-8 32 32)">
+    <rect x="10" y="16" width="44" height="42" rx="11" fill="#0b1120"/>
+    <rect x="10" y="12" width="44" height="42" rx="11" fill="url(#wonkey-rgb)"/>
+    <rect x="10" y="8" width="44" height="42" rx="11" fill="url(#wonkey-face)" stroke="#64748b" stroke-width="1.5"/>
+    <path d="M17 19a5 5 0 0 1 5-5h20" fill="none" stroke="#94a3b8" stroke-opacity=".4" stroke-width="2" stroke-linecap="round"/>
+    <path d="m20 23 5 15 7-10 7 10 5-15" fill="none" stroke="#f8fafc" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta name="description" content="WonKey is a Linux command-line tool for key assignments and RGB settings on the XFKEY One Key Max, model 0112. One key. Your rules.">
+    <title>WonKey</title>
+    <link rel="icon" href="icon.svg" type="image/svg+xml">
+    <script src="theme.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css">
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="container site-header">
+      <a class="brand" href="./" aria-label="WonKey home">
+        <img class="brand-mark" src="icon.svg" alt="" width="40" height="40">
+        WonKey
+      </a>
+      <nav aria-label="Main navigation">
+        <ul>
+          <!-- tailor:navigation:start -->
+          <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/wimpysworld/WonKey?tab=readme-ov-file">Overview</a></li>
+          <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/wimpysworld/WonKey/wiki">Documentation</a></li>
+          <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/wimpysworld/WonKey/releases">Download</a></li>
+          <!-- tailor:navigation:end -->
+        </ul>
+      </nav>
+      <div class="header-tools">
+        <a class="icon-button" target="_blank" rel="noopener noreferrer" href="https://github.com/wimpysworld/WonKey" aria-label="WonKey on GitHub" title="WonKey on GitHub">
+          <span class="octicon github-icon" aria-hidden="true"></span>
+        </a>
+        <button id="theme-toggle" class="icon-button" type="button" aria-label="Switch theme" hidden>
+          <span id="theme-sun" class="octicon" aria-hidden="true"></span>
+          <span id="theme-moon" class="octicon" aria-hidden="true" hidden></span>
+        </button>
+      </div>
+    </header>
+
+    <main id="main" class="container">
+
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow">Open source on GitHub</p>
+          <h1 id="hero-title">WonKey</h1>
+          <p class="lead">One key. Your rules.</p>
+          <p>A Linux command-line tool for the XFKEY One Key Max, model <code>0112</code>. Change stored key assignments and RGB settings, not executable firmware.</p>
+          <div class="hero-actions">
+            <a href="#install-title" role="button">Build from source <span class="octicon inline-icon arrow-down" aria-hidden="true"></span></a>
+            <a class="text-link" href="https://github.com/wimpysworld/WonKey?tab=readme-ov-file#get-started">Read the getting-started guide <span class="octicon inline-icon link-external" aria-hidden="true"></span></a>
+          </div>
+        </div>
+        <div>
+          <h2>Early-stage software</h2>
+          <p>WonKey is still young and will change. F13 key output and steady-blue RGB persisted after reconnect on one user-tested unit. Other settings and devices remain unverified.</p>
+        </div>
+      </section>
+      <section class="features section-rule" aria-labelledby="features-title">
+        <div>
+          <p class="eyebrow">Features</p>
+          <h2 id="features-title">What you can do</h2>
+          <p>Set up the key and light from Linux.</p>
+        </div>
+        <dl class="feature-list">
+          <div><dt><span class="feature-number" aria-hidden="true">01</span> Key remapping</dt><dd>Change the stored key assignment, for example to F13.</dd></div>
+          <div><dt><span class="feature-number" aria-hidden="true">02</span> RGB settings</dt><dd>Choose RGB settings, including a steady colour.</dd></div>
+          <div><dt><span class="feature-number" aria-hidden="true">03</span> Plans, backups and readback</dt><dd>Plan changes offline from a settings capture. Apply takes a fresh settings backup and checks readback after a write.</dd></div>
+        </dl>
+      </section>
+      <section class="install section-rule" aria-labelledby="install-title">
+        <div><p class="eyebrow">Get started</p><h2 id="install-title">Build from source</h2><p>Requires Linux and Go 1.23 or later. WonKey uses only the Go standard library.</p></div>
+        <div>
+          <h3>Build WonKey</h3>
+          <p>Get the <a href="https://github.com/wimpysworld/WonKey">source code</a>, then run this command from the project root. It replaces any existing <code>wonkey</code> file.</p>
+          <pre><code>go build -buildvcs=false -o wonkey ./cmd/wonkey</code></pre>
+          <p>Start with the <a href="https://github.com/wimpysworld/WonKey?tab=readme-ov-file#get-started">offline plan example</a>. Read the <a href="https://github.com/wimpysworld/WonKey/blob/HEAD/wiki/hardware.md">hardware guide</a> before device operations.</p>
+        </div>
+      </section>
+
+    </main>
+
+    <footer class="container site-footer">
+      <div class="footer-main">
+        <div class="footer-brand">
+          <a class="brand" href="./" aria-label="WonKey home">
+            <img class="brand-mark" src="icon.svg" alt="" width="40" height="40">
+            WonKey
+          </a>
+          <p>One key. Your rules. 1️⃣</p>
+        </div>
+        <nav class="footer-links" aria-label="Footer navigation">
+          <div><h3>Resources</h3><ul>
+            <!-- tailor:footer-navigation:start -->
+            <li><a href="https://github.com/wimpysworld/WonKey?tab=readme-ov-file">Overview</a></li>
+            <li><a href="https://github.com/wimpysworld/WonKey/wiki">Documentation</a></li>
+            <li><a href="https://github.com/wimpysworld/WonKey/blob/HEAD/SUPPORT.md">Support</a></li>
+            <!-- tailor:footer-navigation:end -->
+          </ul></div>
+          <div><h3>Project</h3><ul>
+            <li><a href="https://github.com/wimpysworld/WonKey">Source code</a></li>
+            <li><a href="https://github.com/wimpysworld/WonKey/releases">Releases</a></li>
+            <!-- tailor:license:start -->
+            <li><a href="https://github.com/wimpysworld/WonKey?tab=BlueOak-1.0.0-1-ov-file">License</a></li>
+            <!-- tailor:license:end -->
+          </ul></div>
+          <div><h3>Community</h3><ul>
+            <li><a href="https://github.com/wimpysworld/WonKey?tab=coc-ov-file">Code of Conduct</a></li>
+            <li><a href="https://github.com/wimpysworld/WonKey?tab=contributing-ov-file">Contributing</a></li>
+            <li><a href="https://github.com/wimpysworld/WonKey?tab=security-ov-file">Security</a></li>
+          </ul></div>
+        </nav>
+      </div>
+      <div class="footer-bottom">
+        <!-- Replace the copyright holder and add a profile link if appropriate. -->
+        <p><small>© <span id="copyright-year">2026</span> Project contributors</small></p>
+        <!-- tailor:links:start -->
+        <nav class="connection-links" aria-label="Connect" style="display:flex;flex-wrap:wrap;gap:0.4rem">
+          <a class="icon-button" href="https://wimpys.world/" aria-label="Website" title="Website" style="display:inline-flex;padding:10px;color:inherit"><span aria-hidden="true" style="display:block;width:24px;height:24px;background-color:currentColor;-webkit-mask:url('https://cdn.jsdelivr.net/npm/@primer/octicons@19.36.0/build/svg/globe-24.svg') center/contain no-repeat;mask:url('https://cdn.jsdelivr.net/npm/@primer/octicons@19.36.0/build/svg/globe-24.svg') center/contain no-repeat"></span></a>
+          <a class="icon-button" href="https://bsky.app/profile/wimpys.world" aria-label="Bluesky" title="Bluesky" style="display:inline-flex;padding:10px;color:inherit"><span aria-hidden="true" style="display:block;width:24px;height:24px;background-color:currentColor;-webkit-mask:url('https://cdn.jsdelivr.net/npm/simple-icons@16.30.0/icons/bluesky.svg') center/contain no-repeat;mask:url('https://cdn.jsdelivr.net/npm/simple-icons@16.30.0/icons/bluesky.svg') center/contain no-repeat"></span></a>
+          <a class="icon-button" href="https://wimpysworld.social/@martin" aria-label="Mastodon" title="Mastodon" style="display:inline-flex;padding:10px;color:inherit"><span aria-hidden="true" style="display:block;width:24px;height:24px;background-color:currentColor;-webkit-mask:url('https://cdn.jsdelivr.net/npm/simple-icons@16.30.0/icons/mastodon.svg') center/contain no-repeat;mask:url('https://cdn.jsdelivr.net/npm/simple-icons@16.30.0/icons/mastodon.svg') center/contain no-repeat"></span></a>
+          <a class="icon-button" href="https://linkedin.com/in/martinwimpress" aria-label="LinkedIn" title="LinkedIn" style="display:inline-flex;padding:10px;color:inherit"><span aria-hidden="true" style="display:block;width:24px;height:24px;background-color:currentColor;-webkit-mask:url('https://cdn.jsdelivr.net/npm/@primer/octicons@19.36.0/build/svg/briefcase-24.svg') center/contain no-repeat;mask:url('https://cdn.jsdelivr.net/npm/@primer/octicons@19.36.0/build/svg/briefcase-24.svg') center/contain no-repeat"></span></a>
+          <a class="icon-button" href="https://discord.com/invite/vUsydfP" aria-label="Discord" title="Discord" style="display:inline-flex;padding:10px;color:inherit"><span aria-hidden="true" style="display:block;width:24px;height:24px;background-color:currentColor;-webkit-mask:url('https://cdn.jsdelivr.net/npm/simple-icons@16.30.0/icons/discord.svg') center/contain no-repeat;mask:url('https://cdn.jsdelivr.net/npm/simple-icons@16.30.0/icons/discord.svg') center/contain no-repeat"></span></a>
+          <a class="icon-button" href="https://linuxmatters.sh" aria-label="Podcast" title="Podcast" style="display:inline-flex;padding:10px;color:inherit"><span aria-hidden="true" style="display:block;width:24px;height:24px;background-color:currentColor;-webkit-mask:url('https://cdn.jsdelivr.net/npm/@primer/octicons@19.36.0/build/svg/broadcast-24.svg') center/contain no-repeat;mask:url('https://cdn.jsdelivr.net/npm/@primer/octicons@19.36.0/build/svg/broadcast-24.svg') center/contain no-repeat"></span></a>
+          <a class="icon-button" href="https://github.com/sponsors/flexiondotorg" aria-label="GitHub Sponsors" title="GitHub Sponsors" style="display:inline-flex;padding:10px;color:inherit"><span aria-hidden="true" style="display:block;width:24px;height:24px;background-color:currentColor;-webkit-mask:url('https://cdn.jsdelivr.net/npm/simple-icons@16.30.0/icons/githubsponsors.svg') center/contain no-repeat;mask:url('https://cdn.jsdelivr.net/npm/simple-icons@16.30.0/icons/githubsponsors.svg') center/contain no-repeat"></span></a>
+        </nav>
+        <!-- tailor:links:end -->
+      </div>
+    </footer>
+  </body>
+</html>
