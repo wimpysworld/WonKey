@@ -6,7 +6,7 @@
 - Use WonKey/`wonkey` for project branding and the executable, not for genuine hardware or compatibility identifiers.
 - Preserve `XFKEY`, One Key Max, `internal/xfkey`, upstream URLs, and captured metadata.
 - Preserve the `XFKEY_CAPTURE_ROOT` fallback and default `$HOME/.local/state/xfkey-captures` when changing capture configuration.
-- Keep protocol changes grounded in the [protocol and source evidence](README.md#evidence). The upstream TECH.md has known descriptor/layout errors.
+- Keep protocol changes grounded in the [protocol and source evidence](wiki/protocol.md#evidence). The upstream TECH.md has known descriptor/layout errors.
 
 ## Build and test
 
@@ -66,6 +66,6 @@ shellcheck capture-settings.sh check-key.sh
 - Do not infer identity from hidraw numbering or the shared `XFKEY` serial. Reinspect after reconnecting or moving the device.
 - Stop on transaction errors without automatic retries or rollback. A timed-out submitted write can still complete in the kernel.
 - Retain the private duplicate descriptor until its submitted output syscall finishes. `O_NONBLOCK` does not bound that syscall.
-- Read [apply safety and records](README.md#apply-safety-and-records) before changing transaction order or capture completion semantics.
+- Read [apply safety and records](wiki/hardware.md#apply-safety-and-records) before changing transaction order or capture completion semantics.
 - If keyd holds an exclusive input grab, another event viewer can see no events. Do not treat silence as failed configuration.
 - Obtain separate authority before stopping keyd or changing its configuration to test input events.
