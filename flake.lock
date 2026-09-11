@@ -1,0 +1,48 @@
+{
+  "nodes": {
+    "nix-packages": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1788459146,
+        "narHash": "sha256-WcpPxpXOfwxjvJdEj4MRiX+lm5mPuxrfwFC7qhaOd28=",
+        "owner": "wimpysworld",
+        "repo": "nix-packages",
+        "rev": "e925b31a7761d0b7282cdf344228def97be325c3",
+        "type": "github"
+      },
+      "original": {
+        "owner": "wimpysworld",
+        "repo": "nix-packages",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1789090104,
+        "narHash": "sha256-aYuIOkjWlA2YvXzx9NVgwHtGZqA+J6G7Dt3wbuuGwlg=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "b378e416ccd4a9d27aba331c8f51a7c985dea1a0",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixpkgs-26.05-darwin",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "nix-packages": "nix-packages",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
