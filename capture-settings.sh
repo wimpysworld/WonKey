@@ -11,7 +11,7 @@ readback | apply)
   shift
   ;;
 *)
-  echo 'Usage: ./capture-settings.sh readback | apply --write --expect-identifier HEX --expect-version HEX [settings]' >&2
+  echo 'Usage: ./capture-settings.sh readback | apply --write --expect-identifier HEX --expect-version HEX [--lighting NAME] [--colour RRGGBB] [settings]' >&2
   exit 2
   ;;
 esac

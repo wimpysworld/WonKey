@@ -6,16 +6,16 @@
 A settings capture is not a firmware backup or a proven restore image.
 Read the conditions below before device access. Run all commands from the project root.
 
-## Inspect the device
+## Find the device path
 
 Build WonKey as described in the [project overview](https://github.com/wimpysworld/WonKey/blob/main/README.md#get-started).
-The path below identifies the captured unit. Inspect your mapping before using the fixed-path wrapper.
+A device path identifies one physical USB connection. Find the current device path before using the fixed-path wrapper.
 
 ```sh
-./wonkey inspect --path 1-1.2
+./wonkey devices
 ```
 
-`inspect` reads sysfs and node metadata without opening hidraw. It reports mode and owner, not effective ACL access.
+`devices` reads sysfs and device-node metadata without opening a HID device. It reports mode and owner, not effective ACL access.
 Selection requires VID/PID `af88:6688`, revision `0100`, exact USB/configuration bytes, all four exact report descriptors, interfaces 0–3, and one vendor hidraw mapping on interface 3.
 Report descriptor lengths are 62, 114, 25 and 34 bytes. The vendor interface has usage page `FF00`, usage `01`, endpoints `84`/`04`, 64-byte payloads, and no report IDs.
 The shared serial `XFKEY` is not unique. Reinspect after moving or reconnecting the device.
@@ -26,7 +26,7 @@ Run the wrapper as your normal user, **not through sudo**. It builds the current
 It builds `wonkey` in a private `wonkey-build-*` directory and does not use an existing `/tmp/wonkey`. Dependencies are Go, sudo, Python 3, `getfacl`, `setfacl`, `stat`, and `cmp`.
 
 The wrapper is fixed to physical path `1-1.2` and `/dev/hidraw4`. It checks the descriptor-verified mapping before granting access.
-If either value changes, inspect first and update the two constants. Do not guess a node from its number.
+If either value changes, find the device path first and update the two constants. Do not guess a node from its number.
 
 The privileged shell saves the existing ACL, grants access only to the invoking UID on this node, and runs the tool as that UID.
 It checks node identity before access and restoration, restores with `setfacl -P`, and compares the saved/restored ACLs.
@@ -46,12 +46,12 @@ Optional query only, with no settings upload or commit:
 
 ### 1. Static blue, preserving Enter
 
-**This command changes RGB settings when executed.** It preserves the current key, modifiers, trigger, and every unrelated byte.
+**This command changes lighting settings when executed.** It preserves the current key, modifiers, trigger, and every unrelated byte.
 Run it only after inspection confirms the fixed path and node. The expected version and identifier come from the original capture.
 
 ```sh
 ./capture-settings.sh apply --write --expect-identifier be077ba2 --expect-version 1014 \
-  --rgb-mode 1 --red 0 --green 0 --blue 255
+  --lighting steady --colour 0000ff
 ```
 
 Stop if the command fails. Do not retry automatically. A failure after upload starts leaves device state uncertain.
@@ -76,26 +76,30 @@ It preserves all other current bytes. It does not restore firmware or copy a com
 
 ```sh
 ./capture-settings.sh apply --write --expect-identifier be077ba2 --expect-version 1014 \
-  --key enter --modifiers 0 --trigger 1 --rgb-mode 0 --red 255 --green 255 --blue 255
+  --key enter --modifiers none --trigger press --lighting gradient --colour ffffff
 ```
 
 ### Persistence is a separate check
 
-A successful apply reports `all_128_bytes_readback_verified: true` and `persistence_after_reconnect_verified: false`.
-After a successful test, manually reconnect the device, inspect the mapping again, and run the query-only wrapper.
+A successful JSON apply reports `readback_verified: true` and `persistence_after_reconnect_verified: false`.
+After a successful test, manually reconnect the device, find the device path again, and run the query-only wrapper.
 Compare `configuration.bin` from that new capture against `intended-configuration.bin` from the relevant apply capture.
 Only a matching reconnect capture establishes persistence for that test. The tool never reconnects or resets the device automatically.
 
 ## Apply safety and records
 
-Direct use requires `apply --write --path ... --capture-root ... --expect-identifier ... --expect-version ...` plus explicit settings.
-The model must be `0112`. Missing write permission, target flags, or settings fail before device access.
+Direct use starts with `show`, which queries settings in memory and returns a target token without creating files. A target token binds a device path and verified identity.
+Apply requires `apply --write --target ...` plus explicit settings. The model must be `0112`.
+Missing write permission, a target token, or settings fail before device access.
+
+The fixed-path wrapper is a compatibility path. It still passes the hidden `--path`, `--expect-identifier`, and `--expect-version` flags after descriptor checks. Hidden numeric setting flags remain accepted for existing scripts. Do not mix numeric values with friendly `--lighting` and `--colour` values.
 The tool creates missing capture-root directories with mode `0700`, without changing existing permissions.
 It resolves the root path and synchronises every directory from that root up to `/`, including existing ancestors.
 Any synchronisation failure stops before device access. This also covers roots created by an earlier interrupted attempt.
-Apply then creates a new private, exclusive capture directory and synchronises its parent before querying identity and all three readback replies.
+Apply holds one capture-root lock, then creates a private backup named `YYYYMMDD-HHMMSS-XXXX` with a random hexadecimal suffix.
 It synchronises the raw identity/replies, current 128-byte configuration, completion marker, and directories before uploading.
-It reopens and checks that backup, checks the expected identity/version and supported current layout, and saves the intended configuration and plan durably.
+It reopens and checks the backup and expected identity before it writes a strict `backup.json` ownership record.
+It then checks the supported layout and saves the intended configuration and plan durably.
 Backup validation or storage failure sends no configuration writes. A no-op still takes a backup but sends no upload or commit.
 
 For configuration `C`, upload uses exactly:
@@ -122,6 +126,7 @@ Only the selected vendor node opens, never keyboard input nodes. Identify also p
 | Record | Meaning |
 |---|---|
 | `provenance.json`, `reply-01.bin`, `reply-06/07/08.bin`, `configuration.bin`, `result.json` | New backup of current query state. `result.json` completes the backup only. |
+| `backup.json` | Strict ownership, device identity, directory name, and UTC creation record for retention |
 | `plan.json`, `intended-configuration.bin` | Exact intended bytes before upload |
 | `write-1/2/3/4-request.bin`, corresponding `*-reply.bin` | Upload/commit evidence, including malformed replies when available |
 | `post-reply-06/07/08.bin`, `post-configuration.bin` | Available post-commit evidence |
@@ -131,4 +136,8 @@ Files use exclusive creation and file/directory synchronisation. Existing record
 A storage failure after a device command can prevent complete records. The command reports that failure, not a durable success.
 Missing `apply-outcome.json` never proves success. No software can guarantee recording after power loss or a failed storage device.
 
-See [usage and configuration](usage.md) for field limits and [protocol evidence](protocol.md#evidence) for sources.
+After a durable `no-op` or `readback-verified` outcome, WonKey keeps the newest 10 owned backups for the same model and identifier.
+Retention ignores legacy, incomplete, malformed, foreign, linked, and uncertain directories. It never uses the version or physical path to group backups.
+A cleanup failure adds a warning but keeps the successful apply result. Do not retry a successful apply because of this warning.
+
+See [usage and configuration](usage.md) for setting values and [protocol evidence](protocol.md#evidence) for sources.

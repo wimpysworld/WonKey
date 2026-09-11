@@ -29,9 +29,18 @@ func (changes Changes) validate() error {
 	if len(changes) == 0 {
 		return fmt.Errorf("at least one explicit settings field is required")
 	}
+	for _, name := range settingOrder {
+		value, present := changes[name]
+		if !present {
+			continue
+		}
+		spec := settingsFields[name]
+		if value < spec.min || value > spec.max || (name == "key" && value != 0x28 && value != 0x68) {
+			return fmt.Errorf("unsupported setting %s=%d", name, value)
+		}
+	}
 	for name, value := range changes {
-		spec, ok := settingsFields[name]
-		if !ok || value < spec.min || value > spec.max || (name == "key" && value != 0x28 && value != 0x68) {
+		if _, ok := settingsFields[name]; !ok {
 			return fmt.Errorf("unsupported setting %s=%d", name, value)
 		}
 	}

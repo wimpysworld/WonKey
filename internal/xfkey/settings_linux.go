@@ -34,18 +34,38 @@ func (target ApplyTarget) matches(identity deviceIdentity) bool {
 	return identity.Model == 0x0112 && identity.Identifier == hex.EncodeToString(id) && identity.Version == uint16(version[0])<<8|uint16(version[1])
 }
 
+type submissionTrackingTransport struct {
+	queryTransport
+	submitted *bool
+}
+
+func (t submissionTrackingTransport) StartWrite(b []byte, deadline time.Time) (<-chan writeResult, error) {
+	result, err := t.queryTransport.StartWrite(b, deadline)
+	if err == nil {
+		*t.submitted = true
+	}
+	return result, err
+}
+
 type ApplyResult struct {
-	Directory           string `json:"capture_directory"`
-	Outcome             string `json:"outcome"`
-	CommitEcho          bool   `json:"commit_echo_received"`
-	ReadbackVerified    bool   `json:"all_128_bytes_readback_verified"`
-	PersistenceVerified bool   `json:"persistence_after_reconnect_verified"`
-	Error               string `json:"error,omitempty"`
-	Warning             string `json:"warning"`
+	Directory           string       `json:"capture_directory"`
+	Outcome             string       `json:"outcome"`
+	Changes             []changeView `json:"changes"`
+	CommitEcho          bool         `json:"commit_echo_received"`
+	ReadbackVerified    bool         `json:"all_128_bytes_readback_verified"`
+	WriteAttempted      bool         `json:"write_attempted"`
+	PersistenceVerified bool         `json:"persistence_after_reconnect_verified"`
+	Error               string       `json:"error,omitempty"`
+	Warning             string       `json:"warning"`
+	CleanupWarning      string       `json:"cleanup_warning,omitempty"`
 }
 
 // This transaction is the only live configuration path. Query permissions stay unchanged.
-func applySettings(t queryTransport, dir string, target ApplyTarget, changes Changes, write bool, timeout time.Duration) (result ApplyResult, err error) {
+func applySettings(t queryTransport, dir string, target ApplyTarget, changes Changes, write bool, timeout time.Duration) (ApplyResult, error) {
+	return applySettingsConfirmed(t, dir, target, changes, write, timeout, func(configuration, configuration, string) (bool, error) { return true, nil })
+}
+
+func applySettingsConfirmed(t queryTransport, dir string, target ApplyTarget, changes Changes, write bool, timeout time.Duration, confirm func(configuration, configuration, string) (bool, error)) (result ApplyResult, err error) {
 	result = ApplyResult{Directory: dir, Outcome: "failed-before-upload", Warning: "No automatic retry or rollback. Readback verifies current state only, not persistence after reconnect. A timed-out submitted write can still complete in the kernel."}
 	if !write {
 		return result, errWriteRequired
@@ -79,10 +99,14 @@ func applySettings(t queryTransport, dir string, target ApplyTarget, changes Cha
 	if !target.matches(backup.Identity) {
 		return result, fmt.Errorf("current identity differs from explicitly expected target")
 	}
+	if err = saveBackupRecord(dir, backup.Identity); err != nil {
+		return result, err
+	}
 	intended, err := changeConfiguration(current, changes)
 	if err != nil {
 		return result, err
 	}
+	result.Changes = settingViews(current, intended)
 	plan := settingsPlan(current, intended)
 	b, err := json.MarshalIndent(plan, "", "  ")
 	if err != nil {
@@ -98,14 +122,28 @@ func applySettings(t queryTransport, dir string, target ApplyTarget, changes Cha
 		result.Outcome = "no-op"
 		return result, nil
 	}
+	confirmed, confirmErr := confirm(current, intended, dir)
+	if confirmErr != nil {
+		return result, confirmErr
+	}
+	if !confirmed {
+		result.Outcome = "cancelled"
+		return result, nil
+	}
 	packets := preview(intended)
 	for i, packet := range packets[1:] {
 		name := fmt.Sprintf("write-%d", i+1)
 		if err = saveExclusive(dir, name+"-request.bin", packet[:]); err != nil {
 			return result, err
 		}
-		result.Outcome = "failed-state-unknown"
-		reply, exchangeErr := exchange(t, packet, timeout)
+		transport := queryTransport(t)
+		if i == 0 {
+			transport = submissionTrackingTransport{queryTransport: t, submitted: &result.WriteAttempted}
+		}
+		reply, exchangeErr := exchange(transport, packet, timeout)
+		if result.WriteAttempted {
+			result.Outcome = "failed-state-unknown"
+		}
 		if len(reply) > 0 {
 			if err = saveExclusive(dir, name+"-reply.bin", reply); err != nil {
 				return result, errors.Join(exchangeErr, err)
@@ -152,8 +190,7 @@ func applySettings(t queryTransport, dir string, target ApplyTarget, changes Cha
 	return result, nil
 }
 
-func liveApply(path, root string, target ApplyTarget, changes Changes, write bool) (ApplyResult, error) {
-	var result ApplyResult
+func liveApply(path, root string, target ApplyTarget, changes Changes, write bool, confirm func(configuration, configuration, string) (bool, error)) (result ApplyResult, err error) {
 	if !write {
 		return result, errWriteRequired
 	}
@@ -166,6 +203,19 @@ func liveApply(path, root string, target ApplyTarget, changes Changes, write boo
 	if err := changes.validate(); err != nil {
 		return result, err
 	}
+	lifecycle, err := lockCaptureRoot(root)
+	if err != nil {
+		return result, err
+	}
+	defer func() {
+		if closeErr := lifecycle.close(); closeErr != nil && err == nil {
+			warning := fmt.Sprintf("release backup lifecycle lock: %v", closeErr)
+			if result.CleanupWarning != "" {
+				warning = result.CleanupWarning + "; " + warning
+			}
+			result.CleanupWarning = warning
+		}
+	}()
 	candidates, err := discover("/sys/bus/usb/devices", "/dev")
 	if err != nil {
 		return result, err
@@ -174,7 +224,7 @@ func liveApply(path, root string, target ApplyTarget, changes Changes, write boo
 	if err != nil {
 		return result, err
 	}
-	dir, err := newCapture(root, *selected)
+	dir, err := newCaptureInRoot(lifecycle.root, *selected, syncDir)
 	result.Directory = dir
 	if err != nil {
 		return result, err
@@ -184,9 +234,14 @@ func liveApply(path, root string, target ApplyTarget, changes Changes, write boo
 		return result, fmt.Errorf("backup %s: %w", dir, err)
 	}
 	defer t.Close()
-	result, err = applySettings(t, dir, target, changes, write, transactionTimeout)
+	result, err = applySettingsConfirmed(t, dir, target, changes, write, transactionTimeout, confirm)
 	if err != nil {
 		return result, fmt.Errorf("backup/transaction %s: %w", dir, err)
+	}
+	if result.Outcome == "no-op" || result.Outcome == "readback-verified" {
+		if cleanupErr := lifecycle.retainBackups("0112", target.Identifier, 10); cleanupErr != nil {
+			result.CleanupWarning = "backup retention failed: " + cleanupErr.Error()
+		}
 	}
 	return result, nil
 }

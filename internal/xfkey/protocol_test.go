@@ -186,7 +186,7 @@ func TestCLIValidationAndPreview(t *testing.T) {
 	if !bytes.Contains(output.Bytes(), []byte("0002030168")) {
 		t.Fatal(output.String())
 	}
-	for _, args := range [][]string{nil, {"raw"}, {"preview"}, {"preview", "--apply"}, append(append([]string{}, good...), "stray"), {"parse-identify", "--hex", "af01"}, {"parse-readback"}} {
+	for _, args := range [][]string{{"raw"}, {"preview"}, {"preview", "--apply"}, append(append([]string{}, good...), "stray"), {"parse-identify", "--hex", "af01"}, {"parse-readback"}} {
 		if err := Run(args, io.Discard, io.Discard); err == nil {
 			t.Fatalf("accepted %v", args)
 		}
