@@ -1,21 +1,23 @@
 # Protocol and evidence
 
-[Wiki index](README.md) · [Project overview](https://github.com/wimpysworld/WonKey/blob/main/README.md)
+[Wiki home](Home) · [Development](development)
 
-`key COMBINATION`, `rgb MODE [RGB]`, and `restore [capture-directory]` can upload and commit settings after confirmation.
-Bare `key` and `rgb` only read settings.
-There is no arbitrary packet sender, firmware writer, reset, or bootloader command.
+WonKey reads and writes settings through the device's vendor HID interface.
+This reference records reply layouts and the evidence behind the implementation.
+
+[Hardware verification](#hardware-verification) · [Reply layout](#reply-layout) · [Source evidence](#evidence)
+
+See [device selection](hardware#device-selection-and-access) for descriptor requirements and [apply safety](hardware#apply-safety-and-records) for upload framing.
+
+## Hardware verification
 
 The authentic user capture in `internal/xfkey/testdata/hardware-20260911` confirms identify/readback framing on this unit:
 model `0112`, version `1014`, identifier `be077ba2`, Enter on press without modifiers, and RGB API mode 0 with channels `255,255,255`.
 The four report descriptors also match. Separate user-run tests confirmed upload/commit echoes and full 128-byte readback after F13 and steady-blue changes.
-The user confirmed F13 press/release events, steady-blue RGB, and persistence of both settings after reconnect. Other settings and devices remain unverified.
-The parser's conservative `host-derived, hardware-unverified` status remains in existing output and capture metadata. The included query fixture does not record those later upload tests.
-Restore uses the supported saved fields and preserves all other current bytes.
-A settings capture is not a firmware backup.
-
-See [device selection](hardware.md#device-selection-and-access) for descriptor requirements.
-See [apply safety](hardware.md#apply-safety-and-records) for upload framing.
+The user confirmed F13 press/release events, steady-blue RGB, and persistence of both settings after reconnect.
+Other settings and devices remain unverified.
+Existing parser output and capture metadata retain the status `host-derived, hardware-unverified`.
+The included query fixture does not record the later upload tests.
 
 ## Reply layout
 
@@ -28,7 +30,7 @@ Readback copies `RX6[2:64]` to `C[0:62]`, `RX7[2:64]` to `C[62:124]`, and `RX8[2
 Saved captures retain all raw replies, including unused RX8 bytes.
 Internal parsing retains unknown RGB values, labelled `unknown`.
 
-See [lighting](usage.md#lighting) for vendor modes and [configuration fields](usage.md#supported-configuration-fields) for writable offsets.
+See [lighting](usage#lighting) for vendor modes and [configuration fields](usage#supported-configuration-fields) for writable offsets.
 
 ## Evidence
 
