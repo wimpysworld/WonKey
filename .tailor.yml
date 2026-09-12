@@ -45,7 +45,7 @@ actions:
     approval_policy: first_time_contributors
 
 code_scanning:
-  state: not-configured
+  state: configured
   query_suite: default
   threat_model: remote
   # An empty list means GitHub detects the languages. Valid values:
