@@ -65,10 +65,7 @@ func saveExclusive(dir, name string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	n, err := f.Write(data)
-	if err == nil && n != len(data) {
-		err = fmt.Errorf("short capture write")
-	}
+	_, err = f.Write(data)
 	if err == nil {
 		err = f.Sync()
 	}
@@ -250,10 +247,7 @@ func queryCapture(t queryTransport, readback bool) (captureQuery, error) {
 		if err != nil {
 			return q, err
 		}
-		q.config, err = hex.DecodeString(parsed.Configuration)
-		if err != nil {
-			return q, err
-		}
+		q.config, _ = hex.DecodeString(parsed.Configuration)
 		q.result.Readback = &parsed
 		q.result.KeyPrefix = hex.EncodeToString(q.config[:5])
 	}

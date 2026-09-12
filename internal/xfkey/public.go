@@ -198,9 +198,6 @@ func (c publicCommand) parseValues(positional []string, on string) (publicComman
 	if err != nil {
 		return c, fmt.Errorf("invalid %s value: %s", c.name, strings.ReplaceAll(err.Error(), "--", ""))
 	}
-	if len(c.changes) == 0 {
-		return c, fmt.Errorf("empty setting")
-	}
 	return c, nil
 }
 
