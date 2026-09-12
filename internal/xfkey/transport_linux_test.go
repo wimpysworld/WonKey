@@ -29,6 +29,7 @@ func (f *fakeTransport) Validate() error {
 	}
 	return nil
 }
+
 func (f *fakeTransport) Wait(write bool, d time.Time) error {
 	f.waits = append(f.waits, write)
 	f.deadlines = append(f.deadlines, d)
@@ -37,12 +38,14 @@ func (f *fakeTransport) Wait(write bool, d time.Time) error {
 	}
 	return nil
 }
+
 func (f *fakeTransport) StartWrite(b []byte, _ time.Time) (<-chan writeResult, error) {
 	n, err := f.Write(b)
 	result := make(chan writeResult, 1)
 	result <- writeResult{n, err}
 	return result, nil
 }
+
 func (f *fakeTransport) Write(b []byte) (int, error) {
 	if len(b) != 65 || b[0] != 0 || b[1] != 0xaf || !bytes.Equal(b[3:], make([]byte, 62)) {
 		return 0, fmt.Errorf("unexpected packet %x", b)
@@ -53,6 +56,7 @@ func (f *fakeTransport) Write(b []byte) (int, error) {
 	}
 	return 65, nil
 }
+
 func (f *fakeTransport) Read(b []byte) (int, error) {
 	if len(f.replies) == 0 {
 		return 0, io.EOF
@@ -61,6 +65,7 @@ func (f *fakeTransport) Read(b []byte) (int, error) {
 	f.replies = f.replies[1:]
 	return copy(b, reply), nil
 }
+
 func validReplies() [][]byte {
 	identify := syntheticReply(1)
 	identify[2], identify[3] = 1, 0x12
@@ -116,7 +121,7 @@ func TestCaptureSequenceAndExclusiveFiles(t *testing.T) {
 }
 
 func TestCaptureStopsOnBadReplies(t *testing.T) {
-	for index := 0; index < 4; index++ {
+	for index := range 4 {
 		for _, kind := range []string{"short", "long", "header", "prefix", "timeout"} {
 			t.Run(fmt.Sprintf("%d-%s", index, kind), func(t *testing.T) {
 				replies := validReplies()

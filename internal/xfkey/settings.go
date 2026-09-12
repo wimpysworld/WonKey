@@ -67,7 +67,11 @@ func changeConfiguration(current configuration, changes Changes) (configuration,
 	intended := current
 	for name, value := range changes {
 		spec := settingsFields[name]
-		intended[spec.offset] = byte(value + spec.shift)
+		stored := value + spec.shift
+		if stored < 0 || stored > 255 {
+			return current, fmt.Errorf("unsupported stored setting %s=%d", name, stored)
+		}
+		intended[spec.offset] = byte(stored)
 	}
 	return intended, nil
 }

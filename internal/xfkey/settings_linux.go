@@ -147,7 +147,7 @@ func applySettingsWithCapture(t queryTransport, dir string, target ApplyTarget, 
 		if err = saveExclusive(dir, name+"-request.bin", packet[:]); err != nil {
 			return result, err
 		}
-		transport := queryTransport(t)
+		transport := t
 		if i == 0 {
 			transport = submissionTrackingTransport{queryTransport: t, submitted: &result.WriteAttempted}
 		}
@@ -168,37 +168,42 @@ func applySettingsWithCapture(t queryTransport, dir string, target ApplyTarget, 
 		}
 	}
 	result.CommitEcho = true
+	err = verifyAppliedSettings(t, dir, intended, timeout, &result)
+	return result, err
+}
+
+func verifyAppliedSettings(t queryTransport, dir string, intended configuration, timeout time.Duration, result *ApplyResult) error {
 	var replies [3][]byte
 	for i := range replies {
 		reply, queryErr := queryWithTimeout(t, byte(6+i), timeout)
 		if len(reply) > 0 {
-			if err = saveExclusive(dir, fmt.Sprintf("post-reply-%02x.bin", i+6), reply); err != nil {
-				return result, errors.Join(queryErr, err)
+			if err := saveExclusive(dir, fmt.Sprintf("post-reply-%02x.bin", i+6), reply); err != nil {
+				return errors.Join(queryErr, err)
 			}
 		}
 		if queryErr != nil {
-			return result, fmt.Errorf("post-commit readback: %w; no rollback", queryErr)
+			return fmt.Errorf("post-commit readback: %w; no rollback", queryErr)
 		}
 		replies[i] = reply
 	}
 	observed, err := parseReadback(replies)
 	if err != nil {
-		return result, err
+		return err
 	}
 	raw, err := hex.DecodeString(observed.Configuration)
 	if err != nil {
-		return result, err
+		return err
 	}
 	if err = saveExclusive(dir, "post-configuration.bin", raw); err != nil {
-		return result, err
+		return err
 	}
 	if observed.Configuration != hex.EncodeToString(intended[:]) {
 		result.Outcome = "readback-mismatch"
-		return result, fmt.Errorf("post-commit configuration differs from intended bytes; no rollback, persistence unverified")
+		return fmt.Errorf("post-commit configuration differs from intended bytes; no rollback, persistence unverified")
 	}
 	result.Outcome = "readback-verified"
 	result.ReadbackVerified = true
-	return result, nil
+	return nil
 }
 
 func liveApplyBound(path, root string, target ApplyTarget, changes Changes, write bool, confirm func(configuration, configuration, string) (bool, error), pinned *Candidate, checkNoOp ...bool) (result ApplyResult, err error) {
@@ -253,7 +258,7 @@ func liveApplyBound(path, root string, target ApplyTarget, changes Changes, writ
 		return result, fmt.Errorf("backup/transaction %s: %w", result.Directory, err)
 	}
 	if result.Outcome == "no-op" || result.Outcome == "readback-verified" {
-		if cleanupErr := lifecycle.retainBackups("0112", target.Identifier, 10); cleanupErr != nil {
+		if cleanupErr := lifecycle.retainBackups(target.Identifier, 10); cleanupErr != nil {
 			result.CleanupWarning = "backup retention failed: " + cleanupErr.Error()
 		}
 	}

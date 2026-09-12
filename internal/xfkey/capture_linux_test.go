@@ -2,6 +2,7 @@ package xfkey
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -102,10 +103,10 @@ func TestRetentionKeepsNewestTenPerDevice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	create := func(index int, identifier string) string {
+	create := func(index int, identifier string) {
 		name := fmt.Sprintf("20260911-123456-%04x", index)
 		dir := filepath.Join(root, name)
-		if err := os.Mkdir(dir, 0700); err != nil {
+		if err := os.Mkdir(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
 		if err := saveExclusive(dir, "provenance.json", []byte(`{}`)); err != nil {
@@ -121,9 +122,8 @@ func TestRetentionKeepsNewestTenPerDevice(t *testing.T) {
 		if _, err := applySettings(transport, dir, target, Changes{"key": 0x28}, true, time.Second); err != nil {
 			t.Fatal(err)
 		}
-		return name
 	}
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		create(i, "be077ba2")
 	}
 	for i := 100; i < 111; i++ {
@@ -133,10 +133,10 @@ func TestRetentionKeepsNewestTenPerDevice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lock.retainBackups("0112", "be077ba2", 10); err != nil {
+	if err := lock.retainBackups("be077ba2", 10); err != nil {
 		t.Fatal(err)
 	}
-	if err := lock.retainBackups("0112", "01020304", 10); err != nil {
+	if err := lock.retainBackups("01020304", 10); err != nil {
 		t.Fatal(err)
 	}
 	if err := lock.close(); err != nil {
@@ -168,7 +168,7 @@ func TestRetentionKeepsNewestTenPerDevice(t *testing.T) {
 func createOwnedTestBackup(t *testing.T, root, name string) string {
 	t.Helper()
 	dir := filepath.Join(root, name)
-	if err := os.Mkdir(dir, 0700); err != nil {
+	if err := os.Mkdir(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := saveExclusive(dir, "provenance.json", []byte(`{}`)); err != nil {
@@ -195,7 +195,7 @@ func TestRetentionRejectsSymlinksAndIncompleteOutcomes(t *testing.T) {
 		}},
 		{"incomplete outcome", func(t *testing.T, dir string) {
 			outcome := fmt.Sprintf(`{"capture_directory":%q,"outcome":"no-op"}`, dir)
-			if err := os.WriteFile(filepath.Join(dir, "apply-outcome.json"), []byte(outcome), 0600); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, "apply-outcome.json"), []byte(outcome), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}},
@@ -212,7 +212,7 @@ func TestRetentionRejectsSymlinksAndIncompleteOutcomes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := lock.retainBackups("0112", "be077ba2", 0); err != nil {
+			if err := lock.retainBackups("be077ba2", 0); err != nil {
 				t.Fatal(err)
 			}
 			if err := lock.close(); err != nil {
@@ -237,7 +237,7 @@ func TestRetentionRevalidatesAfterRename(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer lock.close()
-	backup, _, ok := classifyOwnedBackupAt(lock.rootFD, lock.root, name, "0112", "be077ba2")
+	backup, ok := classifyOwnedBackupAt(lock.rootFD, lock.root, name, "0112", "be077ba2")
 	if !ok {
 		t.Fatal("valid backup was not classified")
 	}
@@ -247,7 +247,7 @@ func TestRetentionRevalidatesAfterRename(t *testing.T) {
 		if err := unix.Renameat2(oldDirFD, oldPath, newDirFD, newPath, flags); err != nil {
 			return err
 		}
-		return os.WriteFile(filepath.Join(root, newPath, "unexpected"), []byte("foreign"), 0600)
+		return os.WriteFile(filepath.Join(root, newPath, "unexpected"), []byte("foreign"), 0o600)
 	}
 	if err := lock.removeBackup(backup, "0112", "be077ba2"); err == nil {
 		t.Fatal("removed a backup that changed after rename")
@@ -298,7 +298,7 @@ func TestCompletionPublication(t *testing.T) {
 		t.Fatal(string(got), err)
 	}
 	info, err := os.Stat(marker)
-	if err != nil || info.Mode().Perm() != 0600 {
+	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatal(info, err)
 	}
 
@@ -317,7 +317,13 @@ func TestCompletionPublication(t *testing.T) {
 
 func TestFailedCompletionWriteLeavesNoMarker(t *testing.T) {
 	if os.Getenv("WONKEY_TEST_FILE_LIMIT") != "1" {
-		cmd := exec.Command(os.Args[0], "-test.run=^TestFailedCompletionWriteLeavesNoMarker$")
+		executable, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, executable, "-test.run=^TestFailedCompletionWriteLeavesNoMarker$")
 		cmd.Env = append(os.Environ(), "WONKEY_TEST_FILE_LIMIT=1")
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("isolated file-limit test: %v\n%s", err, output)

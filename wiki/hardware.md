@@ -80,7 +80,7 @@ Apply holds one capture-root lock, then creates a private backup.
 
 New captures use `YYMMDD-HHMMSS_key-KEY_rgb-MODE-COLOUR`, with a UTC start time.
 An example is `260912-083853_key-ctrl-alt-f13_rgb-steady-0000ff`.
-Names describe the captured bytes, not the requested settings. Names are lowercase, with modifiers ordered `ctrl-shift-alt-gui` and six RGB hex digits without `#`.
+Names describe the captured bytes, not the requested settings. Names are lowercase, with modifiers ordered `ctrl-shift-alt-super` and six RGB hex digits without `#`.
 Collisions add `-2`, `-3`, and so on, with an exclusive limit of 100 candidates. Existing directories are never overwritten.
 Before settings arrive, the new directory uses `key-unknown_rgb-unknown-unknown`. Identity-only and failed queries retain this fallback.
 After a complete settings query, WonKey labels only the new unfinished directory.

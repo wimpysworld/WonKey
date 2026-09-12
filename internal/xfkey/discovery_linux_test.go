@@ -10,10 +10,10 @@ import (
 
 func put(t *testing.T, path string, b []byte) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, b, 0600); err != nil {
+	if err := os.WriteFile(path, b, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -38,7 +38,7 @@ func fixture(t *testing.T, root, name string) string {
 		}
 		put(t, filepath.Join(interfaceDir, "0003:AF88:6688.synthetic", "report_descriptor"), descriptor)
 		if i == 3 {
-			if err := os.MkdirAll(filepath.Join(interfaceDir, "0003:AF88:6688.synthetic", "hidraw", "hidraw99"), 0700); err != nil {
+			if err := os.MkdirAll(filepath.Join(interfaceDir, "0003:AF88:6688.synthetic", "hidraw", "hidraw99"), 0o700); err != nil {
 				t.Fatal(err)
 			}
 		}

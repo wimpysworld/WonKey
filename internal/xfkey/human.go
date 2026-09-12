@@ -54,6 +54,7 @@ func (h human) style(code, text string) string {
 	}
 	return text
 }
+
 func (h human) line(code, text string) {
 	text = escapeHuman(text)
 	for h.width > 0 && len([]rune(text)) > h.width {
@@ -72,10 +73,12 @@ func (h human) line(code, text string) {
 	}
 	fmt.Fprintln(h.out, h.style(code, text))
 }
+
 func (h human) heading(text string) {
 	h.line("35", "WonKey")
 	h.line("36", text)
 }
+
 func (h human) field(label, value string) {
 	if h.width > 0 && h.width < 60 {
 		fmt.Fprintf(h.out, "  %s\n    %s\n", escapeHuman(label), escapeHuman(value))
@@ -83,6 +86,7 @@ func (h human) field(label, value string) {
 	}
 	fmt.Fprintf(h.out, "  %-10s %s\n", escapeHuman(label), escapeHuman(value))
 }
+
 func (h human) rgb(value string) string {
 	text := escapeHuman(value)
 	if h.trueColour && len(value) == 7 && value[0] == '#' {
@@ -93,6 +97,7 @@ func (h human) rgb(value string) string {
 	}
 	return text
 }
+
 func (h human) changes(views []changeView) {
 	if len(views) == 0 {
 		h.line("", "No changes needed.")

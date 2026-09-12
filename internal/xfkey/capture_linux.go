@@ -41,13 +41,15 @@ type backupRecord struct {
 	Identifier    string `json:"identifier"`
 }
 
-var backupNamePattern = regexp.MustCompile(`^([0-9]{8})-([0-9]{6})-([0-9a-f]{4})$`)
-var captureNow = func() time.Time { return time.Now().UTC() }
-var labelledBackupNamePattern = regexp.MustCompile(`^([0-9]{6})-([0-9]{6})_key-[a-z0-9-]+_rgb-[a-z0-9-]+-([0-9a-f]{6}|unknown)(-[2-9]|-[1-9][0-9]+)?$`)
-var renameCapture = unix.Renameat2
-var renameBackup = unix.Renameat2
-var unlinkBackup = unix.Unlinkat
-var syncRootFD = unix.Fsync
+var (
+	backupNamePattern         = regexp.MustCompile(`^([0-9]{8})-([0-9]{6})-([0-9a-f]{4})$`)
+	captureNow                = func() time.Time { return time.Now().UTC() }
+	labelledBackupNamePattern = regexp.MustCompile(`^([0-9]{6})-([0-9]{6})_key-[a-z0-9-]+_rgb-[a-z0-9-]+-([0-9a-f]{6}|unknown)(-[2-9]|-[1-9][0-9]+)?$`)
+	renameCapture             = unix.Renameat2
+	renameBackup              = unix.Renameat2
+	unlinkBackup              = unix.Unlinkat
+	syncRootFD                = unix.Fsync
+)
 
 func syncDir(path string) error {
 	f, err := os.Open(path)
@@ -59,7 +61,7 @@ func syncDir(path string) error {
 }
 
 func saveExclusive(dir, name string, data []byte) error {
-	f, err := os.OpenFile(filepath.Join(dir, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	f, err := os.OpenFile(filepath.Join(dir, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
@@ -100,7 +102,7 @@ func prepareCaptureRoot(root string, syncDirectory func(string) error) (string, 
 	if !filepath.IsAbs(root) {
 		return "", fmt.Errorf("--capture-root must be an absolute directory")
 	}
-	if err := os.MkdirAll(root, 0700); err != nil {
+	if err := os.MkdirAll(root, 0o700); err != nil {
 		return "", err
 	}
 	resolved, err := filepath.EvalSymlinks(root)
@@ -136,7 +138,7 @@ func newCaptureInRoot(root string, target Candidate, syncDirectory func(string) 
 	base := started.Format("060102-150405") + "_key-unknown_rgb-unknown-unknown"
 	for attempts := 1; attempts <= 100; attempts++ {
 		candidate := filepath.Join(root, captureCollisionName(base, attempts))
-		if err := os.Mkdir(candidate, 0700); err != nil {
+		if err := os.Mkdir(candidate, 0o700); err != nil {
 			if errors.Is(err, os.ErrExist) {
 				continue
 			}
@@ -238,11 +240,12 @@ func queryCapture(t queryTransport, readback bool) (captureQuery, error) {
 			if err != nil {
 				return q, err
 			}
-		} else {
-			replies[i-1] = reply
 		}
 	}
 	if readback {
+		for i := range replies {
+			replies[i] = q.replies[byte(i+6)]
+		}
 		parsed, err := parseReadback(replies)
 		if err != nil {
 			return q, err
@@ -299,11 +302,13 @@ func captureQueries(t queryTransport, dir string, readback bool) (CaptureResult,
 	return result, persistErr
 }
 
-var liveDiscover = discover
-var liveOpenTarget = func(target Candidate) (queryTransport, io.Closer, error) {
-	t, err := openTarget(target)
-	return t, t, err
-}
+var (
+	liveDiscover   = discover
+	liveOpenTarget = func(target Candidate) (queryTransport, io.Closer, error) {
+		t, err := openTarget(target)
+		return t, t, err
+	}
+)
 
 func querySelected(target Candidate, readback bool) (CaptureResult, error) {
 	t, closer, err := liveOpenTarget(target)
@@ -331,7 +336,7 @@ func lockCaptureRoot(root string) (*captureRootLock, error) {
 	if err != nil {
 		return nil, err
 	}
-	lockFD, err := unix.Openat(rootFD, ".wonkey-lifecycle.lock", unix.O_RDWR|unix.O_CREAT|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0600)
+	lockFD, err := unix.Openat(rootFD, ".wonkey-lifecycle.lock", unix.O_RDWR|unix.O_CREAT|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
 	if err == nil {
 		err = unix.Flock(lockFD, unix.LOCK_EX)
 	}
@@ -470,7 +475,7 @@ func directoryEntries(dirFD int) (map[string]fileIdentity, error) {
 		if !allowedBackupFiles[name] || unix.Fstatat(dirFD, name, &stat, unix.AT_SYMLINK_NOFOLLOW) != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG {
 			return nil, fmt.Errorf("unexpected backup entry: %s", name)
 		}
-		entries[name] = fileIdentity{uint64(stat.Dev), stat.Ino}
+		entries[name] = fileIdentity{stat.Dev, stat.Ino}
 	}
 	return entries, nil
 }
@@ -509,6 +514,10 @@ func loadCaptureAt(dirFD int) (CaptureResult, configuration, error) {
 	return result, config, nil
 }
 
+func validOutcomeChange(change outcomeChangeOwnership) bool {
+	return change.Setting != nil && change.Before != nil && change.After != nil && *change.Setting != "" && *change.Before != "" && *change.After != "" && *change.Before != *change.After
+}
+
 func validateOutcome(data []byte, dir string) bool {
 	var outcome outcomeOwnership
 	if decodeStrict(data, &outcome) != nil || outcome.Directory == nil || outcome.Outcome == nil || outcome.Changes == nil || outcome.CommitEcho == nil || outcome.ReadbackVerified == nil || outcome.WriteAttempted == nil || outcome.PersistenceVerified == nil || outcome.Warning == nil {
@@ -518,7 +527,7 @@ func validateOutcome(data []byte, dir string) bool {
 		return false
 	}
 	for _, change := range *outcome.Changes {
-		if change.Setting == nil || change.Before == nil || change.After == nil || *change.Setting == "" || *change.Before == "" || *change.After == "" || *change.Before == *change.After {
+		if !validOutcomeChange(change) {
 			return false
 		}
 	}
@@ -532,17 +541,18 @@ func validateOutcome(data []byte, dir string) bool {
 	}
 }
 
-func classifyOwnedBackupAt(rootFD int, root, name, model, identifier string) (ownedBackup, map[string]fileIdentity, bool) {
+func classifyOwnedBackupAt(rootFD int, root, name, model, identifier string) (ownedBackup, bool) {
 	_, ok := parseBackupName(name)
 	if !ok {
-		return ownedBackup{}, nil, false
+		return ownedBackup{}, false
 	}
 	dirFD, err := unix.Openat(rootFD, name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
-		return ownedBackup{}, nil, false
+		return ownedBackup{}, false
 	}
 	defer unix.Close(dirFD)
-	return classifyOwnedBackupFD(dirFD, root, name, model, identifier)
+	backup, _, ok := classifyOwnedBackupFD(dirFD, root, name, model, identifier)
+	return backup, ok
 }
 
 func classifyOwnedBackup(root, name, model, identifier string) (ownedBackup, bool) {
@@ -551,18 +561,18 @@ func classifyOwnedBackup(root, name, model, identifier string) (ownedBackup, boo
 		return ownedBackup{}, false
 	}
 	defer unix.Close(rootFD)
-	backup, _, ok := classifyOwnedBackupAt(rootFD, root, name, model, identifier)
-	return backup, ok
+	return classifyOwnedBackupAt(rootFD, root, name, model, identifier)
 }
 
-func (l *captureRootLock) retainBackups(model, identifier string, keep int) error {
+func (l *captureRootLock) retainBackups(identifier string, keep int) error {
+	const model = "0112"
 	entries, err := directoryEntriesForRoot(l.rootFD)
 	if err != nil {
 		return err
 	}
 	var backups []ownedBackup
 	for _, name := range entries {
-		if backup, _, ok := classifyOwnedBackupAt(l.rootFD, l.root, name, model, identifier); ok {
+		if backup, ok := classifyOwnedBackupAt(l.rootFD, l.root, name, model, identifier); ok {
 			backups = append(backups, backup)
 		}
 	}
@@ -619,7 +629,7 @@ func (l *captureRootLock) removeBackup(backup ownedBackup, model, identifier str
 	}
 	defer unix.Close(dirFD)
 	var stat unix.Stat_t
-	if err := unix.Fstat(dirFD, &stat); err != nil || backup.identity != (fileIdentity{uint64(stat.Dev), stat.Ino}) {
+	if err := unix.Fstat(dirFD, &stat); err != nil || backup.identity != (fileIdentity{stat.Dev, stat.Ino}) {
 		return fmt.Errorf("backup directory identity changed")
 	}
 	validated, entries, ok := classifyOwnedBackupFD(dirFD, l.root, backup.name, model, identifier)
@@ -627,7 +637,7 @@ func (l *captureRootLock) removeBackup(backup ownedBackup, model, identifier str
 		return fmt.Errorf("backup changed after retention classification")
 	}
 	for child, identity := range entries {
-		if err := unix.Fstatat(dirFD, child, &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil || identity != (fileIdentity{uint64(stat.Dev), stat.Ino}) || stat.Mode&unix.S_IFMT != unix.S_IFREG {
+		if err := unix.Fstatat(dirFD, child, &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil || identity != (fileIdentity{stat.Dev, stat.Ino}) || stat.Mode&unix.S_IFMT != unix.S_IFREG {
 			return fmt.Errorf("backup entry changed before deletion: %s", child)
 		}
 		if err := unlinkBackup(dirFD, child, 0); err != nil {
@@ -670,5 +680,5 @@ func classifyOwnedBackupFD(dirFD int, root, name, model, identifier string) (own
 	if err != nil || !validateOutcome(outcomeRaw, dir) {
 		return ownedBackup{}, nil, false
 	}
-	return ownedBackup{name, created, fileIdentity{uint64(dirStat.Dev), dirStat.Ino}}, entries, true
+	return ownedBackup{name, created, fileIdentity{dirStat.Dev, dirStat.Ino}}, entries, true
 }

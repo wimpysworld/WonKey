@@ -30,22 +30,25 @@ type settingsTransport struct {
 func syntheticSettings() configuration {
 	c := configuration{0, 1, 0, 1, 0x28}
 	for i := 5; i < 124; i++ {
-		c[i] = byte(i * 7)
+		c[i] = byte((i * 7) & 0xff)
 	}
 	copy(c[124:], []byte{1, 255, 255, 255})
 	return c
 }
+
 func newSettingsTransport() *settingsTransport {
 	id := make([]byte, 64)
 	copy(id, []byte{0xaf, 1, 1, 0x12, 0x10, 0x14, 0xbe, 7, 0x7b, 0xa2})
 	return &settingsTransport{current: syntheticSettings(), identity: id}
 }
+
 func (f *settingsTransport) Validate() error {
 	if f.failAt == len(f.packets)+1 && f.failure == "guard" {
 		return fmt.Errorf("target changed")
 	}
 	return nil
 }
+
 func (f *settingsTransport) Wait(write bool, deadline time.Time) error {
 	f.waits = append(f.waits, write)
 	f.deadlines = append(f.deadlines, deadline)
@@ -58,6 +61,7 @@ func (f *settingsTransport) Wait(write bool, deadline time.Time) error {
 	}
 	return nil
 }
+
 func (f *settingsTransport) StartWrite(b []byte, _ time.Time) (<-chan writeResult, error) {
 	if len(b) != 65 || b[0] != 0 {
 		return nil, fmt.Errorf("invalid hidraw output")
@@ -125,6 +129,7 @@ func (f *settingsTransport) StartWrite(b []byte, _ time.Time) (<-chan writeResul
 	ch <- writeResult{65, nil}
 	return ch, nil
 }
+
 func (f *settingsTransport) Read(b []byte) (int, error) {
 	if len(f.packets) == f.failAt && f.failure == "read-error" {
 		return copy(b, f.reply), io.ErrUnexpectedEOF
@@ -140,6 +145,7 @@ func settingsDir(t *testing.T) string {
 	}
 	return dir
 }
+
 func checkNoUpload(t *testing.T, f *settingsTransport) {
 	t.Helper()
 	for _, p := range f.packets {
@@ -148,6 +154,7 @@ func checkNoUpload(t *testing.T, f *settingsTransport) {
 		}
 	}
 }
+
 func checkOutcome(t *testing.T, dir string, expected ApplyResult) {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(dir, "apply-outcome.json"))
@@ -185,7 +192,7 @@ func TestCaptureAncestorDurability(t *testing.T) {
 					root := rootFor(failAt)
 					requested := root
 					if layout == "precreated" {
-						if err := os.MkdirAll(root, 0700); err != nil {
+						if err := os.MkdirAll(root, 0o700); err != nil {
 							t.Fatal(err)
 						}
 					}
@@ -482,13 +489,14 @@ func TestSavedCaptureAndValidation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(dir, name), []byte("corrupt"), 0600); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte("corrupt"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			if _, _, err := loadCapture(dir); err == nil {
 				t.Fatal("accepted corrupt backup")
 			}
-			if err := os.WriteFile(filepath.Join(dir, name), raw, 0600); err != nil {
+			// #nosec G703 -- The path uses a temporary test directory and a fixed capture filename.
+			if err := os.WriteFile(filepath.Join(dir, name), raw, 0o600); err != nil {
 				t.Fatal(err)
 			}
 		})

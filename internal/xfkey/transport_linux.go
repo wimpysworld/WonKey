@@ -177,12 +177,12 @@ func (t *hidrawTransport) Validate() error {
 	}
 	var info struct {
 		Bus             uint32
-		Vendor, Product int16
+		Vendor, Product uint16
 	}
 	if err := ioctl(t.fd, 0x80084803, unsafe.Pointer(&info)); err != nil {
 		return err
 	}
-	if info.Bus != 3 || uint16(info.Vendor) != 0xaf88 || uint16(info.Product) != 0x6688 {
+	if info.Bus != 3 || info.Vendor != 0xaf88 || info.Product != 0x6688 {
 		return fmt.Errorf("opened HID identity differs")
 	}
 	var size uint32
@@ -190,7 +190,7 @@ func (t *hidrawTransport) Validate() error {
 		return err
 	}
 	wanted, _ := hex.DecodeString(reportDescriptorHex[3])
-	if size != uint32(len(wanted)) {
+	if uint64(size) != uint64(len(wanted)) {
 		return fmt.Errorf("opened report descriptor length differs")
 	}
 	descriptor := struct {
@@ -234,6 +234,7 @@ func (t *hidrawTransport) Wait(write bool, deadline time.Time) error {
 	}
 	return nil
 }
+
 func (t *hidrawTransport) StartWrite(b []byte, deadline time.Time) (<-chan writeResult, error) {
 	fd, _, errno := syscall.Syscall(syscall.SYS_FCNTL, uintptr(t.fd), syscall.F_DUPFD_CLOEXEC, 0)
 	if errno != 0 {

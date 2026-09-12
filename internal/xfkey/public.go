@@ -3,6 +3,7 @@ package xfkey
 import (
 	"bufio"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -36,7 +37,7 @@ const keyHelp = `Usage: wonkey key [COMBINATION] [--on WHEN]
 
 Without a combination, read the current key. Create no files.
 A combination is the complete key: enter or f13, optionally preceded by
-ctrl+, shift+, alt+ or gui+ (Super/Windows/Command), each at most once.
+ctrl+, shift+, alt+ or super+, each at most once.
 Unspecified modifiers are cleared. Omitted --on preserves the trigger.
 
 Options:
@@ -109,8 +110,10 @@ func parsePublic(args []string) (publicCommand, error) {
 	}
 	var positional []string
 	on, seenOn := "", false
-	for i := 1; i < len(args); i++ {
-		arg := args[i]
+	args = args[1:]
+	for len(args) > 0 {
+		arg := args[0]
+		args = args[1:]
 		switch {
 		case arg == "--help" || arg == "-h":
 			c.help = true
@@ -120,11 +123,11 @@ func parsePublic(args []string) (publicCommand, error) {
 			}
 			seenOn = true
 			if arg == "--on" {
-				i++
-				if i == len(args) {
+				if len(args) == 0 {
 					return c, fmt.Errorf("--on needs press, release or both")
 				}
-				on = args[i]
+				on = args[0]
+				args = args[1:]
 			} else {
 				on = strings.TrimPrefix(arg, "--on=")
 			}
@@ -143,6 +146,10 @@ func parsePublic(args []string) (publicCommand, error) {
 		}
 		return c, nil
 	}
+	return c.parseValues(positional, on)
+}
+
+func (c publicCommand) parseValues(positional []string, on string) (publicCommand, error) {
 	if c.name == "restore" {
 		if len(positional) != 1 {
 			return c, fmt.Errorf("restore accepts one optional capture directory")
@@ -165,7 +172,7 @@ func parsePublic(args []string) (publicCommand, error) {
 		modifiers := "none"
 		if len(parts) > 1 {
 			for _, p := range parts[:len(parts)-1] {
-				if p != "ctrl" && p != "shift" && p != "alt" && p != "gui" {
+				if p != "ctrl" && p != "shift" && p != "alt" && p != "super" {
 					return c, fmt.Errorf("invalid modifier %q", p)
 				}
 			}
@@ -274,7 +281,7 @@ func choosePublic(candidates []Candidate, input *bufio.Reader, h human, interact
 	fmt.Fprint(h.out, "Device number [cancel]: ")
 	line, err := input.ReadString('\n')
 	if err != nil {
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil, nil
 		}
 		return nil, err
@@ -319,6 +326,10 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 	if observed.Readback == nil {
 		return fmt.Errorf("device settings are missing")
 	}
+	return c.runObserved(observed, *selected, target, input, h, access)
+}
+
+func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, target ApplyTarget, input *bufio.Reader, h human, access publicAccess) error {
 	raw, err := hex.DecodeString(observed.Readback.Configuration)
 	if err != nil {
 		return err
@@ -388,10 +399,10 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 	}
 	fmt.Fprint(h.out, "Save settings? [Y/n]: ")
 	line, err := input.ReadString('\n')
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return err
 	}
-	if err == io.EOF || !saveConfirmation(line) {
+	if errors.Is(err, io.EOF) || !saveConfirmation(line) {
 		h.line("", "Cancelled. No settings write sent.")
 		return nil
 	}
@@ -405,7 +416,7 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 		}
 		return true, nil
 	}
-	result, err := access.apply(*selected, root, target, c.changes, guard)
+	result, err := access.apply(selected, root, target, c.changes, guard)
 	if err != nil {
 		if result.Directory != "" {
 			h.field("Records", result.Directory)

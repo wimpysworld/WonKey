@@ -36,6 +36,9 @@
               [
                 actionlint
                 gh
+                go
+                golangci-lint
+                govulncheck
                 just
               ]
               ++ (if tailorPkgs ? tailor then [ tailorPkgs.tailor ] else [ ]);

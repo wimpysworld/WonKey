@@ -11,7 +11,7 @@ func publicTestCaptureRoot(t *testing.T) string {
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
 	root := filepath.Join(state, "wonkey", "captures")
-	if err := os.MkdirAll(root, 0700); err != nil {
+	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	return root
