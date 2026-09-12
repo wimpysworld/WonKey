@@ -3,6 +3,7 @@ package xfkey
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -31,6 +32,35 @@ func restoreTestSettings() configuration {
 	c[1], c[2], c[4] = 3, 0, 0x68
 	c[124], c[125], c[126], c[127] = 8, 12, 34, 56
 	return c
+}
+
+func TestRestoreOutputFailure(t *testing.T) {
+	for _, short := range []bool{false, true} {
+		for _, tc := range []struct {
+			name, needle string
+			explicit     bool
+		}{
+			{"selection-heading", "Restore a backup:", false},
+			{"selection-row", "f13 (both)", false},
+			{"selection-prompt", "Backup number", false},
+			{"source", "Source", true},
+			{"preview", "Restore saved key", true},
+			{"changes", " -> ", false},
+			{"confirmation", "Save settings?", false},
+		} {
+			t.Run(fmt.Sprintf("%s/short=%v", tc.name, short), func(t *testing.T) {
+				root := publicTestCaptureRoot(t)
+				saved := newSettingsTransport()
+				saved.current = restoreTestSettings()
+				source := restoreTestSource(t, root, "source", saved)
+				args, input := []string{"restore"}, "1\n\n"
+				if tc.explicit {
+					args, input = append(args, source), "\n"
+				}
+				checkPublicOutputFailure(t, root, args, input, tc.needle, false, short)
+			})
+		}
+	}
 }
 
 func TestRestoreSourceValidation(t *testing.T) {
