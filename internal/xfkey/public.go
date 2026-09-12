@@ -276,6 +276,9 @@ func choosePublic(candidates []Candidate, input *bufio.Reader, h human, interact
 		h.field(strconv.Itoa(i+1), c.PhysicalPath+" ("+c.VendorNode.Path+")")
 	}
 	fmt.Fprint(h.out, "Device number [cancel]: ")
+	if h.out.err != nil {
+		return nil, h.out.err
+	}
 	line, err := input.ReadString('\n')
 	if err != nil {
 		if errors.Is(err, io.EOF) {
@@ -307,7 +310,7 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 	}
 	if selected == nil {
 		h.line("", "Cancelled. No HID device opened.")
-		return nil
+		return h.out.err
 	}
 	observed, err := access.query(*selected)
 	if err != nil {
@@ -360,6 +363,9 @@ func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, t
 		h.field("Mode", []string{"", "gradient", "steady", "flowing", "flash", "neon", "off", "held", "toggle"}[current[124]])
 		fmt.Fprintf(h.out, "  %-10s %s\n", "Colour", h.rgb(fmt.Sprintf("#%02X%02X%02X", current[125], current[126], current[127])))
 	}
+	if h.out.err != nil {
+		return h.out.err
+	}
 	if c.name == "restore" {
 		source, err := chooseRestore(c.source, observed.Identity, current, input, h)
 		if err != nil {
@@ -382,7 +388,7 @@ func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, t
 		}
 	}
 	if len(c.changes) == 0 {
-		return nil
+		return h.out.err
 	}
 	intended, err := changeConfiguration(current, c.changes)
 	if err != nil {
@@ -392,16 +398,19 @@ func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, t
 	h.changes(views)
 	if len(views) == 0 {
 		h.line("", "No settings write sent.")
-		return nil
+		return h.out.err
 	}
 	fmt.Fprint(h.out, "Save settings? [Y/n]: ")
+	if h.out.err != nil {
+		return h.out.err
+	}
 	line, err := input.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
 		return err
 	}
 	if errors.Is(err, io.EOF) || !saveConfirmation(line) {
 		h.line("", "Cancelled. No settings write sent.")
-		return nil
+		return h.out.err
 	}
 	root, err := resolveCaptureRoot()
 	if err != nil {

@@ -2,9 +2,50 @@ package xfkey
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 )
+
+type failingHumanOutput struct {
+	needle string
+	short  bool
+	failed bool
+	calls  int
+}
+
+func (w *failingHumanOutput) Write(p []byte) (int, error) {
+	w.calls++
+	if !w.failed && strings.Contains(string(p), w.needle) {
+		w.failed = true
+		if w.short {
+			return len(p) - 1, nil
+		}
+		return 0, io.ErrClosedPipe
+	}
+	return len(p), nil
+}
+
+func TestHumanRetainsOutputFailure(t *testing.T) {
+	for _, short := range []bool{false, true} {
+		out := &failingHumanOutput{short: short}
+		h := newHuman(out)
+		h.width = 12
+		h.line("", "A wrapped line stops after its first failed write.")
+		copy := h
+		copy.heading("Heading")
+		copy.field("Field", "value")
+		copy.changes([]changeView{{"key", "enter", "f13"}})
+		want := io.ErrClosedPipe
+		if short {
+			want = io.ErrShortWrite
+		}
+		if !errors.Is(h.out.err, want) || !errors.Is(copy.out.err, want) || out.calls != 1 {
+			t.Fatalf("error=%v copied error=%v writes=%d", h.out.err, copy.out.err, out.calls)
+		}
+	}
+}
 
 func TestHumanColourPolicyAndSwatch(t *testing.T) {
 	for _, tc := range []struct {

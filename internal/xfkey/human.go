@@ -12,9 +12,26 @@ import (
 )
 
 type human struct {
-	out                io.Writer
+	out                *humanWriter
 	colour, trueColour bool
 	width              int
+}
+
+type humanWriter struct {
+	writer io.Writer
+	err    error
+}
+
+func (w *humanWriter) Write(p []byte) (int, error) {
+	if w.err != nil {
+		return 0, w.err
+	}
+	n, err := w.writer.Write(p)
+	if err == nil && n != len(p) {
+		err = io.ErrShortWrite
+	}
+	w.err = err
+	return n, err
 }
 
 func newHuman(out io.Writer) human {
@@ -32,7 +49,7 @@ func newHuman(out io.Writer) human {
 func humanFor(out io.Writer, tty bool, getenv func(string) string) human {
 	colour := tty && getenv("NO_COLOR") == "" && getenv("TERM") != "dumb" && getenv("TERM") != ""
 	capability := strings.ToLower(getenv("COLORTERM"))
-	return human{out, colour, colour && (capability == "truecolor" || capability == "24bit"), 80}
+	return human{&humanWriter{writer: out}, colour, colour && (capability == "truecolor" || capability == "24bit"), 80}
 }
 
 func escapeHuman(value string) string {

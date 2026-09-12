@@ -148,7 +148,7 @@ func chooseRestore(path string, identity deviceIdentity, current configuration, 
 	}
 	if len(sources) == 0 {
 		h.line("", "No compatible captures with different supported settings. No settings write sent.")
-		return nil, nil
+		return nil, h.out.err
 	}
 	h.line("36", "Restore a backup:")
 	for i, source := range sources {
@@ -162,6 +162,9 @@ func chooseRestore(path string, identity deviceIdentity, current configuration, 
 			source.config[125], source.config[126], source.config[127], source.created.Local().Format("02 Jan 2006 15:04")))
 	}
 	fmt.Fprint(h.out, "Backup number [cancel]: ")
+	if h.out.err != nil {
+		return nil, h.out.err
+	}
 	line, err := input.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
@@ -169,7 +172,7 @@ func chooseRestore(path string, identity deviceIdentity, current configuration, 
 	n, parseErr := strconv.Atoi(strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r"))
 	if errors.Is(err, io.EOF) || parseErr != nil || n < 1 || n > len(sources) {
 		h.line("", "Cancelled. No settings write sent.")
-		return nil, nil
+		return nil, h.out.err
 	}
 	return &sources[n-1], nil
 }

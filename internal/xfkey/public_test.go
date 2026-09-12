@@ -2,6 +2,7 @@ package xfkey
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,88 @@ import (
 	"testing"
 	"time"
 )
+
+func checkPublicOutputFailure(t *testing.T, root string, args []string, input, needle string, multiple, short bool) {
+	t.Helper()
+	before, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, fresh := newSettingsTransport(), newSettingsTransport()
+	queried, applied := false, false
+	out := &failingHumanOutput{needle: needle, short: short}
+	access := publicAccess{
+		interactive: func(io.Reader) bool { return true },
+		discover: func() ([]Candidate, error) {
+			candidates := []Candidate{{PhysicalPath: "1-2", Compatible: true}}
+			if multiple {
+				candidates = append(candidates, Candidate{PhysicalPath: "1-3", Compatible: true})
+			}
+			return candidates, nil
+		},
+		query: func(c Candidate) (CaptureResult, error) {
+			queried = true
+			q, err := queryCapture(first, true)
+			q.result.PhysicalPath = c.PhysicalPath
+			return q.result, err
+		},
+		apply: func(c Candidate, destination string, target ApplyTarget, changes Changes, guard func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
+			applied = true
+			dir, err := newCapture(destination, c)
+			if err != nil {
+				return ApplyResult{}, err
+			}
+			return applySettingsConfirmed(fresh, dir, target, changes, true, time.Second, guard, true)
+		},
+	}
+	reader := strings.NewReader(input)
+	err = runPublic(args, &cliRuntime{reader, out, io.Discard}, access)
+	if (multiple || args[0] != "restore" || len(args) > 1) && reader.Len() != len(input) {
+		t.Fatal("input read after output failure")
+	}
+	want := io.ErrClosedPipe
+	if short {
+		want = io.ErrShortWrite
+	}
+	if !out.failed || !errors.Is(err, want) || applied || queried == multiple {
+		t.Fatalf("output failed=%v error=%v applied=%v queried=%v", out.failed, err, applied, queried)
+	}
+	checkNoUpload(t, first)
+	checkNoUpload(t, fresh)
+	after, err := os.ReadDir(root)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatalf("captures changed: before=%v after=%v error=%v", before, after, err)
+	}
+}
+
+func TestPublicOutputFailure(t *testing.T) {
+	for _, short := range []bool{false, true} {
+		for _, tc := range []struct {
+			name, needle string
+			args         []string
+			multiple     bool
+		}{
+			{"all-output", "", []string{"key", "f13"}, false},
+			{"selection-heading", "Select a device", []string{"key", "f13"}, true},
+			{"selection-row", "1-3", []string{"key", "f13"}, true},
+			{"selection-prompt", "Device number", []string{"key", "f13"}, true},
+			{"preview-heading", "Current key", []string{"key", "f13"}, false},
+			{"preview-field", "USB path", []string{"key", "f13"}, false},
+			{"preview-colour", "Colour", []string{"rgb", "off"}, false},
+			{"changes-heading", "Changes:", []string{"key", "f13"}, false},
+			{"changes-row", " -> ", []string{"key", "f13"}, false},
+			{"confirmation", "Save settings?", []string{"key", "f13"}, false},
+		} {
+			t.Run(fmt.Sprintf("%s/short=%v", tc.name, short), func(t *testing.T) {
+				input := "\n"
+				if tc.multiple {
+					input = "1\n\n"
+				}
+				checkPublicOutputFailure(t, publicTestCaptureRoot(t), tc.args, input, tc.needle, tc.multiple, short)
+			})
+		}
+	}
+}
 
 func TestPublicParser(t *testing.T) {
 	for _, tc := range []struct {
