@@ -1,0 +1,10 @@
+{
+	"overrides": [
+		{
+			"includes": ["pages/style.css"],
+			"formatter": {
+				"enabled": false
+			}
+		}
+	]
+}

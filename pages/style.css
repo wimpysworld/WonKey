@@ -129,8 +129,11 @@ h2 { font-size: clamp(1.9rem, 3vw, 2.65rem); line-height: 1.18; letter-spacing: 
 h3 { font-size: 1.05rem; line-height: 1.4; }
 .lead { max-width: 34rem; font-size: 1.15rem; color: var(--site-muted); }
 .hero-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 1.4rem; margin-top: 2rem; }
-.hero-actions [role="button"] { padding: 0.7rem 1.1rem; font-weight: 650; }
-.hero-actions [role="button"] span { margin-left: 1rem; }
+.hero-actions .install-link { display: inline-block; padding: 0.7rem 1.1rem; border: var(--pico-border-width) solid var(--pico-primary-border); border-radius: var(--pico-border-radius); background-color: var(--pico-primary-background); color: var(--pico-primary-inverse); box-shadow: var(--pico-button-box-shadow, 0 0 0 rgba(0, 0, 0, 0)); font-size: 1rem; font-weight: 650; line-height: var(--pico-line-height); text-align: center; text-decoration: none; cursor: pointer; user-select: none; transition: background-color var(--pico-transition), border-color var(--pico-transition), color var(--pico-transition), box-shadow var(--pico-transition); }
+.hero-actions .install-link:is(:hover, :active, :focus) { border-color: var(--pico-primary-hover-border); background-color: var(--pico-primary-hover-background); color: var(--pico-primary-inverse); }
+.hero-actions .install-link:focus { box-shadow: 0 0 0 var(--pico-outline-width) var(--pico-primary-focus); }
+.hero-actions .install-link:focus-visible { box-shadow: none; }
+.hero-actions .install-link span { margin-left: 1rem; }
 .text-link { font-size: 0.9rem; font-weight: 600; }
 .hero-note { color: var(--site-muted); font-size: 0.8rem; margin: 1.3rem 0 0; }
 .terminal { overflow: hidden; margin: 0; border: 1px solid #45475a; border-radius: 0.8rem; background: #181825; color: #cdd6f4; box-shadow: 0 20px 45px #11111b18; }
