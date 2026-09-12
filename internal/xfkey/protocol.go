@@ -86,39 +86,6 @@ func parseReadback(replies [3][]byte) (Readback, error) {
 	return result, nil
 }
 
-func replacement(key string, modifiers, trigger, rgbMode, red, green, blue int, acknowledged bool) (configuration, error) {
-	var c configuration
-	if !acknowledged {
-		return c, fmt.Errorf("--replace-all is required: unknown fields will be reset to zero")
-	}
-	var usage byte
-	switch key {
-	case "enter":
-		usage = 0x28
-	case "f13":
-		usage = 0x68
-	default:
-		return c, fmt.Errorf("supported keys: enter, f13")
-	}
-	if modifiers < 0 || modifiers > 15 {
-		return c, fmt.Errorf("modifiers must be 0..15 (left Ctrl/Shift/Alt/GUI)")
-	}
-	if trigger < 1 || trigger > 3 {
-		return c, fmt.Errorf("trigger must be 1..3 (press/release/both)")
-	}
-	if rgbMode < 0 || rgbMode > 7 {
-		return c, fmt.Errorf("RGB mode must be an explicit index 0..7")
-	}
-	for _, v := range []int{red, green, blue} {
-		if v < 0 || v > 255 {
-			return c, fmt.Errorf("each RGB channel must be explicit and 0..255")
-		}
-	}
-	copy(c[:5], []byte{0, byte(trigger), byte(modifiers), 1, usage})
-	copy(c[124:], []byte{byte(rgbMode + 1), byte(red), byte(green), byte(blue)})
-	return c, nil
-}
-
 func preview(c configuration) [5]vendorPacket {
 	var packets [5]vendorPacket
 	packets[0][0], packets[0][1] = 0xaf, 1

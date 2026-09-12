@@ -40,9 +40,9 @@ func (c *closeRecorder) Close() error {
 	return nil
 }
 
-func TestShowQueriesInMemoryAndCreatesNothing(t *testing.T) {
+func TestPublicQueryInMemoryAndCreatesNothing(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "must-not-exist")
-	t.Setenv("XFKEY_CAPTURE_ROOT", root)
+	t.Setenv("XDG_STATE_HOME", root)
 	transport := newSettingsTransport()
 	closer := &closeRecorder{}
 	oldDiscover, oldOpen := liveDiscover, liveOpenTarget
@@ -60,15 +60,14 @@ func TestShowQueriesInMemoryAndCreatesNothing(t *testing.T) {
 		return transport, closer, nil
 	}
 	var stdout bytes.Buffer
-	command := showCommand{Device: "1-2.3"}
-	if err := command.Run(&cliRuntime{out: &stdout, errOut: io.Discard}); err != nil {
+	if err := Run([]string{"key"}, &stdout, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual([]byte{1, 6, 7, 8}, packetCommands(transport.packets)) || !closer.closed {
 		t.Fatalf("commands=%v closed=%t", packetCommands(transport.packets), closer.closed)
 	}
 	if _, err := os.Lstat(root); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("show created the configured root: %v", err)
+		t.Fatalf("query created the storage root: %v", err)
 	}
 }
 

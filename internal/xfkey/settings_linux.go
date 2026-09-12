@@ -201,10 +201,6 @@ func applySettingsWithCapture(t queryTransport, dir string, target ApplyTarget, 
 	return result, nil
 }
 
-func liveApply(path, root string, target ApplyTarget, changes Changes, write bool, confirm func(configuration, configuration, string) (bool, error), checkNoOp ...bool) (ApplyResult, error) {
-	return liveApplyBound(path, root, target, changes, write, confirm, nil, checkNoOp...)
-}
-
 func liveApplyBound(path, root string, target ApplyTarget, changes Changes, write bool, confirm func(configuration, configuration, string) (bool, error), pinned *Candidate, checkNoOp ...bool) (result ApplyResult, err error) {
 	if !write {
 		return result, errWriteRequired

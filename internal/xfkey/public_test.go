@@ -69,6 +69,7 @@ func TestPublicParser(t *testing.T) {
 
 func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 	cases := [][]string{
+		{"restore", "one", "two"}, {"restore", "--yes"}, {"restore", "--capture-root", "/tmp"}, {"restore", "--write"}, {"restore", "--help", "--yes"}, {"rollback"},
 		{"help"}, {"advanced"}, {"show"}, {"set", "key=f13"}, {"plan"}, {"apply"}, {"devices"}, {"inspect"}, {"identify"}, {"readback"}, {"preview"}, {"protocol"}, {"parse-identify"}, {"parse-readback"},
 		{"key", "--on", "release"}, {"key", "f13", "--on=press", "--on=release"}, {"key", "f13", "--on="}, {"key", "f13", "--on", "click"}, {"key", "f13", "--on"},
 		{"rgb", "off", "--on", "press"}, {"key", "a"}, {"key", ""}, {"key", "f13+"}, {"key", "+f13"}, {"key", "ctrl+ctrl+f13"}, {"key", "none+f13"}, {"key", "f13+ctrl"}, {"key", "f13", "enter"},
@@ -91,7 +92,7 @@ func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 
 func TestPublicHelpNoAccess(t *testing.T) {
 	access := publicAccess{interactive: func(io.Reader) bool { t.Fatal("help accessed runtime"); return false }}
-	for _, args := range [][]string{nil, {"--help"}, {"-h"}, {"key", "--help"}, {"rgb", "--help"}, {"key", "f13", "--help"}, {"rgb", "off", "-h"}} {
+	for _, args := range [][]string{nil, {"--help"}, {"-h"}, {"key", "--help"}, {"rgb", "--help"}, {"restore", "--help"}, {"key", "f13", "--help"}, {"rgb", "off", "-h"}} {
 		var out bytes.Buffer
 		if err := runPublic(args, &cliRuntime{strings.NewReader(""), &out, io.Discard}, access); err != nil {
 			t.Fatal(err)
@@ -110,8 +111,7 @@ func TestPublicHelpNoAccess(t *testing.T) {
 func TestPublicWorkflow(t *testing.T) {
 	for _, name := range []string{"confirm", "confirm-blank", "confirm-upper", "confirm-yes", "confirm-yes-upper", "cancel-upper", "cancel-no", "cancel-no-upper", "old-confirm", "space-only", "rgb-write", "clear-modifiers", "pasted-crlf", "pasted-selection", "second-device", "query-key", "query-rgb", "query-multiple", "zero", "incompatible", "cancel", "eof", "partial-write", "invalid-confirm", "space-confirm", "blank-selection", "eof-selection", "partial-selection", "invalid-selection", "out-of-range", "no-op", "noninteractive", "noninteractive-selection", "identity-changed", "version-changed", "settings-changed", "became-no-op", "mismatch", "echo", "deadline", "unsupported", "backup-failed", "query-failed", "discover-failed", "wrong-path", "wrong-model", "missing-settings", "short-settings", "bad-settings"} {
 		t.Run(name, func(t *testing.T) {
-			root := t.TempDir()
-			t.Setenv("WONKEY_CAPTURE_ROOT", root)
+			root := publicTestCaptureRoot(t)
 			args := []string{"key", "f13"}
 			if name == "rgb-write" {
 				args = []string{"rgb", "steady", "0000ff"}
@@ -135,7 +135,7 @@ func TestPublicWorkflow(t *testing.T) {
 			}
 			switch name {
 			case "pasted-crlf":
-				input = "1\r\n\r\n"
+				input = "1\r\ny\r\n"
 			case "second-device":
 				input = "2\ny\n"
 			case "confirm-blank":
@@ -155,7 +155,7 @@ func TestPublicWorkflow(t *testing.T) {
 			case "cancel-no-upper":
 				input = "NO\n"
 			case "old-confirm":
-				input = "write\n"
+				input = "WRITE\n"
 			case "space-only":
 				input = " \n"
 			case "blank-selection":
@@ -163,7 +163,7 @@ func TestPublicWorkflow(t *testing.T) {
 			case "eof", "eof-selection":
 				input = ""
 			case "partial-write":
-				input = "y"
+				input = "yes"
 			case "partial-selection":
 				input = "1"
 			case "invalid-confirm", "invalid-selection":
@@ -231,7 +231,7 @@ func TestPublicWorkflow(t *testing.T) {
 				},
 				apply: func(c Candidate, r string, target ApplyTarget, changes Changes, guard func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
 					applied = true
-					if c.PhysicalPath != wantPath || r != root || target != settingsTarget() || !strings.Contains(out.String(), " -> ") || !strings.HasSuffix(out.String(), "Save settings? [Y/n]: ") {
+					if c.PhysicalPath != wantPath || r != root || target != settingsTarget() || !strings.Contains(out.String(), " -> ") || !strings.Contains(out.String(), "Save settings? [Y/n]: ") {
 						t.Fatal(c, r, target, out.String())
 					}
 					switch name {
@@ -291,6 +291,9 @@ func TestPublicWorkflow(t *testing.T) {
 				}
 			}
 			if success {
+				if !strings.Contains(out.String(), "Save settings? [Y/n]: ") {
+					t.Fatal("confirmation prompt missing", out.String())
+				}
 				if !fresh.checked || len(fresh.packets) != 11 {
 					t.Fatal("durable backup/write missing")
 				}
@@ -341,7 +344,7 @@ func TestSelectedCandidatePin(t *testing.T) {
 
 func TestPublicRGBReadDoesNotCreateBackupRoot(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "absent")
-	t.Setenv("WONKEY_CAPTURE_ROOT", root)
+	t.Setenv("XDG_STATE_HOME", root)
 	access := publicAccess{interactive: func(io.Reader) bool { return false }, discover: func() ([]Candidate, error) { return []Candidate{{PhysicalPath: "1-1.2", Compatible: true}}, nil }, query: func(c Candidate) (CaptureResult, error) {
 		q, err := queryCapture(newSettingsTransport(), true)
 		q.result.PhysicalPath = c.PhysicalPath
@@ -358,8 +361,7 @@ func TestPublicRGBReadDoesNotCreateBackupRoot(t *testing.T) {
 func TestPublicLiveBoundaryOffline(t *testing.T) {
 	for _, name := range []string{"write", "reordered", "descriptor", "node", "inode", "path", "missing", "open-failed"} {
 		t.Run(name, func(t *testing.T) {
-			root := t.TempDir()
-			t.Setenv("WONKEY_CAPTURE_ROOT", root)
+			root := publicTestCaptureRoot(t)
 			oldDiscover, oldOpen := liveDiscover, liveOpenTarget
 			t.Cleanup(func() { liveDiscover, liveOpenTarget = oldDiscover, oldOpen })
 			selected := Candidate{PhysicalPath: "1-1.2", Compatible: true, VendorNode: NodeMetadata{Path: "/synthetic/hidraw4", identity: [3]uint64{1, 2, 3}}}

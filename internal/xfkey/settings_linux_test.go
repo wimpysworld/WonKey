@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 )
@@ -467,28 +466,15 @@ func TestPartialPlanPreservesEveryUnspecifiedByte(t *testing.T) {
 	}
 }
 
-func TestPlanSavedCaptureAndValidation(t *testing.T) {
+func TestSavedCaptureAndValidation(t *testing.T) {
 	dir := settingsDir(t)
 	f := newSettingsTransport()
 	if _, err := captureQueries(f, dir, true); err != nil {
 		t.Fatal(err)
 	}
-	var output bytes.Buffer
-	if err := RunDeveloper([]string{"plan", "--capture", dir, "--key", "f13"}, &output, io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(output.String(), "key: enter -> f13") {
-		t.Fatal(output.String())
-	}
-	for _, args := range [][]string{
-		{"apply"}, {"apply", "--key", "f13"}, {"apply", "--write=false", "--key", "f13"},
-		{"apply", "--write"}, {"apply", "--write", "--key", "f13"}, {"apply", "--write", "--capture", dir, "--key", "f13"},
-		{"plan", "--capture", dir}, {"plan", "--capture", dir, "--key", ""}, {"plan", "--capture", dir, "--blue", "-1"},
-		{"plan", "--capture", dir, "--write", "--blue", "0"}, {"plan", "--capture", dir, "--path", "x", "--blue", "0"},
-	} {
-		if err := RunDeveloper(args, io.Discard, io.Discard); err == nil {
-			t.Fatal("accepted", args)
-		}
+	_, current, err := loadCapture(dir)
+	if err != nil || current != f.current {
+		t.Fatal("valid capture did not round-trip", err)
 	}
 	for _, name := range []string{"result.json", "reply-01.bin", "reply-06.bin", "reply-07.bin", "reply-08.bin", "configuration.bin"} {
 		t.Run(name, func(t *testing.T) {

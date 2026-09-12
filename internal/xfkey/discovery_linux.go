@@ -145,7 +145,7 @@ func selectCandidate(candidates []Candidate, path string) (*Candidate, error) {
 			continue
 		}
 		if selected != nil {
-			return nil, fmt.Errorf("multiple matches: select an explicit physical path with --device (legacy: --path); find paths with wonkey-dev advanced devices")
+			return nil, fmt.Errorf("multiple compatible devices require terminal selection")
 		}
 		selected = c
 	}

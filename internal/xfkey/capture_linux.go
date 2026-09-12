@@ -305,19 +305,6 @@ var liveOpenTarget = func(target Candidate) (queryTransport, io.Closer, error) {
 	return t, t, err
 }
 
-func liveQuery(path string, readback bool) (CaptureResult, error) {
-	var result CaptureResult
-	candidates, err := liveDiscover("/sys/bus/usb/devices", "/dev")
-	if err != nil {
-		return result, err
-	}
-	target, err := selectCandidate(candidates, path)
-	if err != nil {
-		return result, err
-	}
-	return querySelected(*target, readback)
-}
-
 func querySelected(target Candidate, readback bool) (CaptureResult, error) {
 	t, closer, err := liveOpenTarget(target)
 	if err != nil {
@@ -327,35 +314,6 @@ func querySelected(target Candidate, readback bool) (CaptureResult, error) {
 	q, err := queryCapture(t, readback)
 	q.result.PhysicalPath = target.PhysicalPath
 	return q.result, err
-}
-
-func liveCapture(path, root string, readback bool) (CaptureResult, error) {
-	var result CaptureResult
-	candidates, err := discover("/sys/bus/usb/devices", "/dev")
-	if err != nil {
-		return result, err
-	}
-	target, err := selectCandidate(candidates, path)
-	if err != nil {
-		return result, err
-	}
-	dir, err := newCapture(root, *target)
-	result.Directory = dir
-	result.PhysicalPath = target.PhysicalPath
-	if err != nil {
-		return result, err
-	}
-	t, err := openTarget(*target)
-	if err != nil {
-		return result, fmt.Errorf("capture %s: %w", dir, err)
-	}
-	defer t.Close()
-	result, err = captureNamedQueries(t, dir, readback)
-	result.PhysicalPath = target.PhysicalPath
-	if err != nil {
-		return result, fmt.Errorf("capture %s incomplete: %w; stop without retry", result.Directory, err)
-	}
-	return result, nil
 }
 
 type captureRootLock struct {

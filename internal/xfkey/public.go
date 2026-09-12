@@ -17,6 +17,7 @@ Usage: wonkey <command> [options]
 Commands:
   key [COMBINATION]   Read or change the key.
   rgb [MODE [RGB]]    Read or change lighting.
+  restore [DIRECTORY] Restore saved key and lighting settings.
 
 Options:
   -h, --help          Show help without device access.
@@ -28,7 +29,7 @@ Examples:
   wonkey rgb steady 0000ff
   wonkey rgb off
 
-Run "wonkey key --help" or "wonkey rgb --help" for values and options.
+Run "wonkey <command> --help" for values and options.
 `
 
 const keyHelp = `Usage: wonkey key [COMBINATION] [--on WHEN]
@@ -48,7 +49,7 @@ Examples:
   wonkey key ctrl+shift+f13
   wonkey key f13 --on release
 
-Changes require a terminal and the exact answer write. Blank input cancels.
+Changes require a terminal. At [Y/n], Enter accepts. No or EOF cancels.
 WonKey saves and validates a fresh backup before writing.
 `
 
@@ -77,13 +78,14 @@ Examples:
   wonkey rgb steady
   wonkey rgb off
 
-Changes require a terminal and the exact answer write. Blank input cancels.
+Changes require a terminal. At [Y/n], Enter accepts. No or EOF cancels.
 WonKey saves and validates a fresh backup before writing.
 Mode descriptions are vendor labels, not verified lighting effects.
 `
 
 type publicCommand struct {
 	name    string
+	source  string
 	changes Changes
 	help    bool
 }
@@ -102,8 +104,8 @@ func parsePublic(args []string) (publicCommand, error) {
 		return c, nil
 	}
 	c.name = args[0]
-	if c.name != "key" && c.name != "rgb" {
-		return c, fmt.Errorf("unknown command %q; use key or rgb", c.name)
+	if c.name != "key" && c.name != "rgb" && c.name != "restore" {
+		return c, fmt.Errorf("unknown command %q; use key, rgb or restore", c.name)
 	}
 	var positional []string
 	on, seenOn := "", false
@@ -139,6 +141,16 @@ func parsePublic(args []string) (publicCommand, error) {
 		if seenOn {
 			return c, fmt.Errorf("--on requires a key combination")
 		}
+		return c, nil
+	}
+	if c.name == "restore" {
+		if len(positional) != 1 {
+			return c, fmt.Errorf("restore accepts one optional capture directory")
+		}
+		if positional[0] == "" {
+			return c, fmt.Errorf("restore source directory must not be empty")
+		}
+		c.source = positional[0]
 		return c, nil
 	}
 	var err error
@@ -224,6 +236,9 @@ func runPublic(args []string, rt *cliRuntime, access publicAccess) error {
 			if c.name == "rgb" {
 				text = rgbHelp
 			}
+			if c.name == "restore" {
+				text = restoreHelp
+			}
 			return printHumanHelp(rt.out, text)
 		}
 		err = c.run(rt, access)
@@ -273,7 +288,7 @@ func choosePublic(candidates []Candidate, input *bufio.Reader, h human, interact
 
 func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 	interactive := access.interactive(rt.in)
-	if len(c.changes) > 0 && !interactive {
+	if (len(c.changes) > 0 || c.name == "restore") && !interactive {
 		return fmt.Errorf("changes require an interactive terminal; no device access")
 	}
 	input := bufio.NewReader(rt.in)
@@ -316,21 +331,47 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 	if err := supportedConfiguration(current); err != nil {
 		return err
 	}
-	h.heading("Current " + c.name)
+	heading := "Current " + c.name
+	if c.name == "restore" {
+		heading = "Current settings"
+	}
+	h.heading(heading)
 	h.field("Device", "One Key Max 0112")
 	h.field("USB path", selected.PhysicalPath)
 	h.field("Identifier", target.Identifier)
 	h.field("Version", target.Version)
-	if c.name == "key" {
+	if c.name != "rgb" {
 		key := map[byte]string{0x28: "enter", 0x68: "f13"}[current[4]]
 		if current[2] != 0 {
 			key = strings.ReplaceAll(modifierName(current[2]), ",", "+") + "+" + key
 		}
 		h.field("Key", key)
 		h.field("On", map[byte]string{1: "press", 2: "release", 3: "both"}[current[1]])
-	} else {
+	}
+	if c.name != "key" {
 		h.field("Mode", []string{"", "gradient", "steady", "flowing", "flash", "neon", "off", "held", "toggle"}[current[124]])
 		fmt.Fprintf(h.out, "  %-10s %s\n", "Colour", h.rgb(fmt.Sprintf("#%02X%02X%02X", current[125], current[126], current[127])))
+	}
+	if c.name == "restore" {
+		source, err := chooseRestore(c.source, observed.Identity, current, input, h)
+		if err != nil {
+			return err
+		}
+		if source == nil {
+			return nil
+		}
+		if c.source != "" {
+			h.field("Source", source.directory)
+		}
+		h.line("", "Restore saved key and lighting settings. Keep all other current bytes.")
+		c.changes = restoreChanges(source.config)
+		restored, err := changeConfiguration(current, c.changes)
+		if err != nil {
+			return err
+		}
+		if restored != source.config {
+			h.line("33", "Other saved bytes differ. Those current bytes will remain unchanged.")
+		}
 	}
 	if len(c.changes) == 0 {
 		return nil
@@ -350,12 +391,11 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 	if err != nil && err != io.EOF {
 		return err
 	}
-	answer := strings.ToLower(strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r"))
-	if err == io.EOF || (answer != "" && answer != "y" && answer != "yes") {
+	if err == io.EOF || !saveConfirmation(line) {
 		h.line("", "Cancelled. No settings write sent.")
 		return nil
 	}
-	root, err := resolveCaptureRoot("")
+	root, err := resolveCaptureRoot()
 	if err != nil {
 		return err
 	}

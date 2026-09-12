@@ -14,7 +14,7 @@ Run command examples from the project root. Device examples are instructions, no
 
 `key` shows the current combination and trigger. `rgb` shows the mode and configured colour.
 Both show the physical USB path, identifier, and version. They read hardware but create no files.
-Bare `wonkey`, `wonkey --help`, `wonkey key --help`, and `wonkey rgb --help` show help without device access.
+Bare `wonkey`, `wonkey --help`, and help for each command show help without device access.
 
 ## Set the key
 
@@ -63,6 +63,33 @@ RGB commands preserve the key, modifiers, trigger, and unrelated bytes.
 
 These names are vendor labels, not verified effects. No brightness or speed option is established.
 
+## Restore saved settings
+
+These commands restore supported settings after selection and confirmation:
+
+```sh
+./wonkey restore
+./wonkey restore /path/to/capture-directory
+```
+
+Bare `restore` lists compatible captures from automatic storage, newest first. Captures whose supported settings already match are excluded.
+Select a capture even when the list contains only one entry. Each entry shows its settings and one short local date and time.
+Blank input, EOF, or an invalid capture selection cancels without a backup or settings write.
+If no eligible capture exists, WonKey stops without an upload.
+
+An explicit directory selects one existing capture. It can be outside automatic storage, including an old or moved capture.
+The source directory does not change where WonKey saves the new backup.
+An explicit source whose supported settings already match is a no-op.
+
+Restore copies the saved key, complete modifier combination, trigger, RGB mode, and colour into the current configuration.
+It preserves all other current bytes, including unknown bytes that differ from the capture.
+Restore cannot recover firmware, unsupported layouts, or unknown settings changed by another application.
+
+The source requires a complete `result.json`, consistent raw replies, and the exact reconstructed configuration.
+Both source and current settings must use supported layouts. Model, version, and protocol identifier must match.
+A complete backup from a failed transaction remains eligible. Restore does not require a successful apply outcome or retention ownership.
+The authentic query fixture lacks a completion record and is not a restore source.
+
 ## Selection and confirmation
 
 One compatible device is selected automatically. Multiple matches require a terminal prompt with each physical path and vendor node.
@@ -71,8 +98,9 @@ Blank, invalid, out-of-range, or incomplete selection cancels without opening a 
 Without a terminal, multiple-device queries and all changes are refused before HID access.
 
 Before a change, WonKey reads current settings and shows current-to-proposed values.
-At `Save settings? [Y/n]:`, press Enter or answer `y` or `yes` to confirm (case-insensitive).
-Answer `n` or `no` to cancel. Invalid input or EOF also cancels without a backup or settings write.
+At `Save settings? [Y/n]: `, press Enter to accept the default Yes.
+You can also enter `y` or `yes`, ignoring letter case.
+`n`, `no`, any other answer, or EOF cancels without a backup or settings write.
 There is no bypass flag. A no-op sends no settings upload or commit and creates no backup.
 
 After confirmation, WonKey revalidates the selected descriptors, node, physical path, identifier, and version.
@@ -83,8 +111,17 @@ All 128 readback bytes must match. A failure stops without retry or rollback.
 A submitted write can still complete after timeout. Stop when the tool reports uncertain state.
 Persistence after reconnect and observed key/lighting effects require separate hardware checks.
 
-Backups use the first non-empty value from `WONKEY_CAPTURE_ROOT`, `XFKEY_CAPTURE_ROOT`, and `$HOME/.local/state/wonkey/captures`.
-An environment override must be an absolute path. No command-line override is accepted.
+## Backup storage
+
+| Environment | New backup destination |
+|---|---|
+| Absolute, non-empty `XDG_STATE_HOME` | `$XDG_STATE_HOME/wonkey/captures` |
+| Unset, empty, or relative `XDG_STATE_HOME` | `$HOME/.local/state/wonkey/captures` |
+| Fallback with unset, empty, or relative `HOME` | Storage error before upload |
+
+WonKey does not expand a literal `~` or fall back to temporary storage.
+It has no custom configuration file or storage flags. `WONKEY_CAPTURE_ROOT` and `XFKEY_CAPTURE_ROOT` have no effect.
+Existing captures stay in place. Use an explicit restore source to read one outside automatic storage.
 After a successful transaction, retention keeps the newest 10 owned backups for the model and identifier.
 Do not retry a successful write because backup cleanup reports a warning.
 See [hardware safety and records](hardware.md#apply-safety-and-records) for durable storage details.
@@ -103,7 +140,7 @@ Bytes 0 and 3 must be `00` and `01`. WonKey preserves those bytes and bytes 5–
 Only known single-key Enter/F13 layouts, trigger values, modifiers, and RGB modes are accepted.
 Unknown layouts fail closed, even for RGB-only changes. Macros, mouse/media commands, and multi-key layouts are not converted.
 
-## Output and developer interfaces
+## Output and options
 
 Human output is not a machine-readable contract. Redirected output, `TERM=dumb`, and non-empty `NO_COLOR` produce plain text.
 True-colour terminals also show a configured RGB swatch. The swatch does not prove the observed LED colour.
@@ -111,4 +148,4 @@ Output escapes control characters in external text.
 
 The public flags are `-h`/`--help` and `key --on` only.
 Removed commands and flags, including `show`, `set`, `advanced`, `apply`, `plan`, `--json`, `--yes`, and `--dry-run`, fail before hardware access.
-Use the separately built [developer tools](development.md) for saved-capture analysis, protocol parsing, and legacy scripts.
+There is one executable, `wonkey`. The developer executable, protocol commands, and helper scripts are removed.

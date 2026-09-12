@@ -1,15 +1,10 @@
 package xfkey
 
 import (
-	"bytes"
-	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
@@ -74,91 +69,31 @@ func parseSettings(key, trigger, modifiers, lighting, colour string) (Changes, e
 	return changes, nil
 }
 
-func resolveCaptureRoot(value string) (string, error) {
-	if value == "" {
-		value = os.Getenv("WONKEY_CAPTURE_ROOT")
+func resolveCaptureRoot() (string, error) {
+	if state := os.Getenv("XDG_STATE_HOME"); filepath.IsAbs(state) {
+		return filepath.Join(state, "wonkey", "captures"), nil
 	}
-	if value == "" {
-		value = os.Getenv("XFKEY_CAPTURE_ROOT")
+	home := os.Getenv("HOME")
+	if !filepath.IsAbs(home) {
+		return "", fmt.Errorf("backup storage requires an absolute HOME when XDG_STATE_HOME is not absolute")
 	}
-	if value == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
+	return filepath.Join(home, ".local", "state", "wonkey", "captures"), nil
+}
+
+func modifierName(v byte) string {
+	if v == 0 {
+		return "none"
+	}
+	names := []string{}
+	for _, x := range []struct {
+		name string
+		bit  byte
+	}{{"ctrl", 1}, {"shift", 2}, {"alt", 4}, {"gui", 8}} {
+		if v&x.bit != 0 {
+			names = append(names, x.name)
 		}
-		value = filepath.Join(home, ".local", "state", "wonkey", "captures")
 	}
-	if !filepath.IsAbs(value) {
-		return "", fmt.Errorf("backup root must resolve to an absolute directory")
-	}
-	return filepath.Clean(value), nil
-}
-
-type targetToken struct {
-	PhysicalPath string `json:"physical_path"`
-	Model        string `json:"model"`
-	Identifier   string `json:"identifier"`
-	Version      string `json:"version_hex"`
-}
-
-func encodeTarget(target targetToken) (string, error) {
-	b, err := json.Marshal(target)
-	if err != nil {
-		return "", err
-	}
-	return "wonkey-target-v1:" + base64.RawURLEncoding.EncodeToString(b), nil
-}
-
-func compactTarget(target targetToken) string {
-	return strings.Join([]string{target.Model, target.PhysicalPath, target.Identifier, target.Version}, ":")
-}
-
-var compactPath = regexp.MustCompile(`^[1-9][0-9]*-[1-9][0-9]*(\.[1-9][0-9]*)*$`)
-
-func decodeTarget(value string) (targetToken, error) {
-	var target targetToken
-	const prefix = "wonkey-target-v1:"
-	if !strings.HasPrefix(value, prefix) {
-		parts := strings.Split(value, ":")
-		if len(parts) != 4 || parts[0] != "0112" || !compactPath.MatchString(parts[1]) {
-			return target, fmt.Errorf("invalid target %q: use the complete target from show --target (0112:path:identifier:version), or use wonkey-dev set instead", value)
-		}
-		target = targetToken{parts[1], parts[0], parts[2], parts[3]}
-		if err := (ApplyTarget{target.Identifier, target.Version}).validate(); err != nil {
-			return targetToken{}, fmt.Errorf("invalid target %q: identifier needs 8 hex digits and version needs 4; copy the complete target from show --target", value)
-		}
-		return target, nil
-	}
-	b, err := base64.RawURLEncoding.Strict().DecodeString(strings.TrimPrefix(value, prefix))
-	if err != nil {
-		return target, fmt.Errorf("invalid target %q: malformed encoding; copy the complete target from show --target", value)
-	}
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&target); err != nil {
-		return target, fmt.Errorf("invalid target %q: %w; copy the complete target from show --target", value, err)
-	}
-	if decoder.Decode(&struct{}{}) != io.EOF || target.PhysicalPath == "" || target.Model != "0112" {
-		return targetToken{}, fmt.Errorf("invalid target %q: malformed or unsupported target; copy the complete target from show --target", value)
-	}
-	if err := (ApplyTarget{target.Identifier, target.Version}).validate(); err != nil {
-		return targetToken{}, fmt.Errorf("invalid target %q: identifier needs 8 hex digits and version needs 4; copy the complete target from show --target", value)
-	}
-	return target, nil
-}
-
-type envelope struct {
-	SchemaVersion       int          `json:"schema_version"`
-	Command             string       `json:"command"`
-	Outcome             string       `json:"outcome"`
-	Device              *targetToken `json:"device,omitempty"`
-	Target              string       `json:"target,omitempty"`
-	Capture             string       `json:"capture_directory,omitempty"`
-	Changes             []changeView `json:"changes"`
-	WriteAttempted      bool         `json:"write_attempted"`
-	ReadbackVerified    bool         `json:"readback_verified"`
-	PersistenceVerified bool         `json:"persistence_after_reconnect_verified"`
-	Warnings            []string     `json:"warnings"`
+	return strings.Join(names, ",")
 }
 
 type changeView struct {
@@ -176,22 +111,7 @@ func settingViews(current, intended configuration) []changeView {
 	}
 	add("key", map[byte]string{0x28: "enter", 0x68: "f13"}[current[4]], map[byte]string{0x28: "enter", 0x68: "f13"}[intended[4]])
 	add("trigger", map[byte]string{1: "press", 2: "release", 3: "both"}[current[1]], map[byte]string{1: "press", 2: "release", 3: "both"}[intended[1]])
-	mod := func(v byte) string {
-		if v == 0 {
-			return "none"
-		}
-		names := []string{}
-		for _, x := range []struct {
-			name string
-			bit  byte
-		}{{"ctrl", 1}, {"shift", 2}, {"alt", 4}, {"gui", 8}} {
-			if v&x.bit != 0 {
-				names = append(names, x.name)
-			}
-		}
-		return strings.Join(names, ",")
-	}
-	add("modifiers", mod(current[2]), mod(intended[2]))
+	add("modifiers", modifierName(current[2]), modifierName(intended[2]))
 	light := []string{"", "gradient", "steady", "flowing", "flash", "neon", "off", "held", "toggle"}
 	add("lighting", light[current[124]], light[intended[124]])
 	add("colour", fmt.Sprintf("#%02X%02X%02X", current[125], current[126], current[127]), fmt.Sprintf("#%02X%02X%02X", intended[125], intended[126], intended[127]))
