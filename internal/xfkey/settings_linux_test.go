@@ -516,9 +516,45 @@ func TestAuthenticCaptureFixtureRemainsIncomplete(t *testing.T) {
 	if _, _, err := loadCapture("testdata/hardware-20260911"); err == nil || !os.IsNotExist(err) {
 		t.Fatalf("fixture without authentic completion marker was accepted: %v", err)
 	}
-	configBytes, err := os.ReadFile("testdata/hardware-20260911/configuration.bin")
+	readFixture := func(name string) []byte {
+		t.Helper()
+		raw, err := os.ReadFile(filepath.Join("testdata/hardware-20260911", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	identityBytes := readFixture("reply-01.bin")
+	identity, err := parseIdentity(identityBytes)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if identity.Model != 0x0112 || identity.Version != 0x1014 || identity.Identifier != "be077ba2" || identity.Status != evidenceStatus {
+		t.Fatalf("authentic identity = %+v", identity)
+	}
+	if identity.Raw != hex.EncodeToString(identityBytes) {
+		t.Fatal("authentic identity reply bytes lost")
+	}
+	replies := [3][]byte{readFixture("reply-06.bin"), readFixture("reply-07.bin"), readFixture("reply-08.bin")}
+	readback, err := parseReadback(replies)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, reply := range replies {
+		if readback.Raw[i] != hex.EncodeToString(reply) {
+			t.Fatalf("authentic AF%02x reply bytes lost", 6+i)
+		}
+	}
+	configBytes := readFixture("configuration.bin")
+	if len(configBytes) != 128 {
+		t.Fatalf("authentic configuration length = %d, want 128", len(configBytes))
+	}
+	reconstructed, err := hex.DecodeString(readback.Configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(reconstructed, configBytes) {
+		t.Fatalf("reconstructed configuration = %x, want %x", reconstructed, configBytes)
 	}
 	var config configuration
 	copy(config[:], configBytes)
