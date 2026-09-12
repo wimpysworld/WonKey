@@ -179,6 +179,11 @@ h3 { font-size: 1.05rem; line-height: 1.4; }
 .install-options pre code { padding: 0; }
 .install-options p { color: var(--site-muted); font-size: 0.95rem; }
 .install-links { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+.availability { display: inline-block; margin-left: 0.35rem; padding: 0.15rem 0.5rem; border: 1px solid var(--site-border); border-radius: 1rem; color: var(--site-muted); font-size: 0.7rem; font-weight: 500; vertical-align: middle; white-space: nowrap; }
+.hero > *, .install > *, .steps > li { min-width: 0; }
+.steps code { overflow-wrap: anywhere; }
+.install-options details { margin-block: 1.75rem; }
+.install-options summary { font-weight: 650; }
 .carousel { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; border-radius: var(--pico-border-radius); }
 .carousel-slide { flex: 0 0 100%; display: grid; place-items: center; aspect-ratio: 16 / 9; scroll-snap-align: start; color: #1e1e2e; font-size: clamp(4rem, 15vw, 10rem); font-weight: 750; }
 .carousel-slide:nth-child(1) { background: #cba6f7; }
