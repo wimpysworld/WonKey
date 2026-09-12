@@ -1,0 +1,70 @@
+package xfkey
+
+import (
+	"bytes"
+	"strings"
+	"testing"
+)
+
+func TestHumanColourPolicyAndSwatch(t *testing.T) {
+	for _, tc := range []struct {
+		name, term, noColour, capability string
+		tty, colour, rgb                 bool
+	}{
+		{"truecolour", "xterm-256color", "", "truecolor", true, true, true},
+		{"24bit", "xterm", "", "24bit", true, true, true},
+		{"ansi", "xterm", "", "", true, true, false},
+		{"redirected", "xterm", "", "truecolor", false, false, false},
+		{"no-colour", "xterm", "1", "truecolor", true, false, false},
+		{"dumb", "dumb", "", "truecolor", true, false, false},
+		{"unset-term", "", "", "truecolor", true, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			env := map[string]string{"TERM": tc.term, "NO_COLOR": tc.noColour, "COLORTERM": tc.capability}
+			h := humanFor(&out, tc.tty, func(k string) string { return env[k] })
+			h.heading("Current settings")
+			out.WriteString(h.rgb("#1234EF"))
+			got := out.String()
+			if strings.Contains(got, "\x1b[") != tc.colour || strings.Contains(got, "\x1b[48;2;18;52;239m") != tc.rgb || !strings.Contains(got, "#1234EF") {
+				t.Fatal(got)
+			}
+		})
+	}
+	t.Setenv("TERM", "xterm")
+	t.Setenv("COLORTERM", "truecolor")
+	var out bytes.Buffer
+	if newHuman(&out).colour {
+		t.Fatal("redirected stream has colour")
+	}
+}
+
+func TestHumanEscaping(t *testing.T) {
+	var out bytes.Buffer
+	h := newHuman(&out)
+	attack := "path\x1b[31m\nforged\r\t\u202e"
+	h.field("Records", attack)
+	h.changes([]changeView{{attack, attack, attack}})
+	got := out.String()
+	if strings.ContainsAny(got, "\x1b\r\t\u202e") || strings.Contains(got, "\nforged") || !strings.Contains(got, `\x1b`) {
+		t.Fatal(got)
+	}
+}
+
+func TestHumanNarrowOutputRetainsCopyableValues(t *testing.T) {
+	var out bytes.Buffer
+	h := newHuman(&out)
+	h.width = 24
+	h.line("", "Descriptions wrap at spaces on narrow terminals.")
+	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		if len(line) > 24 {
+			t.Fatal(out.String())
+		}
+	}
+	out.Reset()
+	directory := "/home/user/.local/state/wonkey/captures/20260912"
+	h.field("Backup", directory)
+	if !strings.Contains(out.String(), "Backup\n    "+directory+"\n") {
+		t.Fatal(out.String())
+	}
+}

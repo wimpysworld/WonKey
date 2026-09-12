@@ -198,7 +198,7 @@ func TestNonblockingWaitTimeoutOffline(t *testing.T) {
 	}
 }
 
-func TestLiveCLIRequiresCaptureAndRejectsUnsafeFlagsOffline(t *testing.T) {
+func TestRemovedLiveCLIRejectedOffline(t *testing.T) {
 	for _, cmd := range []string{"identify", "readback"} {
 		for _, args := range [][]string{{cmd}, {cmd, "--yes"}, {cmd, "--packet", "af04"}, {cmd, "unexpected"}} {
 			if err := Run(args, io.Discard, io.Discard); err == nil {

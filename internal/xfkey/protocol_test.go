@@ -3,8 +3,6 @@ package xfkey
 import (
 	"bytes"
 	"encoding/hex"
-	"errors"
-	"io"
 	"testing"
 )
 
@@ -94,19 +92,7 @@ func TestRGBUnknownValues(t *testing.T) {
 	}
 }
 
-func TestReplacementAndPreview(t *testing.T) {
-	for key, usage := range map[string]byte{"enter": 0x28, "f13": 0x68} {
-		c, err := replacement(key, 0, 1, 6, 12, 34, 56, true)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Equal(c[:5], []byte{0, 1, 0, 1, usage}) || !bytes.Equal(c[124:], []byte{7, 12, 34, 56}) {
-			t.Fatal("incorrect encoding")
-		}
-		if !bytes.Equal(c[5:124], make([]byte, 119)) {
-			t.Fatal("unknown fields not zero")
-		}
-	}
+func TestPreview(t *testing.T) {
 	var c configuration
 	for i := range c {
 		c[i] = byte(i)
@@ -133,24 +119,6 @@ func TestReplacementAndPreview(t *testing.T) {
 	}
 }
 
-func TestInvalidReplacement(t *testing.T) {
-	for _, v := range []struct {
-		key                               string
-		modifiers, trigger, mode, r, g, b int
-		ack                               bool
-	}{
-		{"enter", 0, 1, 0, 0, 0, 0, false}, {"unknown", 0, 1, 0, 0, 0, 0, true},
-		{"enter", -1, 1, 0, 0, 0, 0, true}, {"enter", 16, 1, 0, 0, 0, 0, true},
-		{"enter", 0, 0, 0, 0, 0, 0, true}, {"enter", 0, 4, 0, 0, 0, 0, true},
-		{"enter", 0, 1, -1, 0, 0, 0, true}, {"enter", 0, 1, 8, 0, 0, 0, true},
-		{"enter", 0, 1, 0, -1, 0, 0, true}, {"enter", 0, 1, 0, 0, 256, 0, true}, {"enter", 0, 1, 0, 0, 0, -1, true},
-	} {
-		if _, err := replacement(v.key, v.modifiers, v.trigger, v.mode, v.r, v.g, v.b, v.ack); err == nil {
-			t.Fatalf("accepted %+v", v)
-		}
-	}
-}
-
 func TestEchoValidation(t *testing.T) {
 	sent := vendorPacket{0xaf, 2, 0, 60}
 	if err := validateEcho(sent, sent[:]); err != nil {
@@ -162,47 +130,5 @@ func TestEchoValidation(t *testing.T) {
 		if validateEcho(sent, reply) == nil {
 			t.Fatal("accepted mismatched echo")
 		}
-	}
-}
-
-func TestLiveCommandsFailBeforeAnyTransaction(t *testing.T) {
-	for _, command := range []string{"apply"} {
-		var output bytes.Buffer
-		if err := Run([]string{command, "--key", "f13"}, &output, io.Discard); !errors.Is(err, errWriteRequired) {
-			t.Fatal(err)
-		}
-		if output.Len() != 0 {
-			t.Fatal("live command produced transaction output")
-		}
-	}
-}
-
-func TestCLIValidationAndPreview(t *testing.T) {
-	good := []string{"preview", "--replace-all", "--key", "f13", "--modifiers", "3", "--trigger", "2", "--rgb-mode", "1", "--red", "255", "--green", "0", "--blue", "4"}
-	var output bytes.Buffer
-	if err := Run(good, &output, io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(output.Bytes(), []byte("0002030168")) {
-		t.Fatal(output.String())
-	}
-	for _, args := range [][]string{nil, {"raw"}, {"preview"}, {"preview", "--apply"}, append(append([]string{}, good...), "stray"), {"parse-identify", "--hex", "af01"}, {"parse-readback"}} {
-		if err := Run(args, io.Discard, io.Discard); err == nil {
-			t.Fatalf("accepted %v", args)
-		}
-	}
-	identity := syntheticReply(1)
-	identity[2], identity[3] = 1, 0x12
-	if err := Run([]string{"parse-identify", "--hex", hex.EncodeToString(identity)}, io.Discard, io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	args := []string{"parse-readback", "--identify", hex.EncodeToString(identity), "--read6", hex.EncodeToString(syntheticReply(6)), "--read7", hex.EncodeToString(syntheticReply(7)), "--read8", hex.EncodeToString(syntheticReply(8))}
-	if err := Run(args, io.Discard, io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	identity[2], identity[3] = 0x12, 1
-	args[2] = hex.EncodeToString(identity)
-	if err := Run(args, io.Discard, io.Discard); err == nil {
-		t.Fatal("readback CLI accepted wrong model")
 	}
 }

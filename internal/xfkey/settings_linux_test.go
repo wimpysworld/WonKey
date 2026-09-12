@@ -155,7 +155,7 @@ func checkOutcome(t *testing.T, dir string, expected ApplyResult) {
 		t.Fatal(err)
 	}
 	var saved ApplyResult
-	if err := json.Unmarshal(raw, &saved); err != nil || saved != expected {
+	if err := json.Unmarshal(raw, &saved); err != nil || !reflect.DeepEqual(saved, expected) {
 		t.Fatal(saved, expected, err)
 	}
 }
@@ -232,6 +232,24 @@ func TestCaptureAncestorDurability(t *testing.T) {
 	}
 }
 
+func TestApplyCancellationSendsNoWrite(t *testing.T) {
+	transport := newSettingsTransport()
+	dir := settingsDir(t)
+	result, err := applySettingsConfirmed(transport, dir, settingsTarget(), Changes{"key": 0x68}, true, time.Second, func(configuration, configuration, string) (bool, error) {
+		return false, nil
+	})
+	if err != nil || result.Outcome != "cancelled" || result.WriteAttempted {
+		t.Fatalf("result = %#v, error = %v", result, err)
+	}
+	if len(result.Changes) != 1 || result.Changes[0].Setting != "key" {
+		t.Fatalf("missing semantic changes: %#v", result.Changes)
+	}
+	checkNoUpload(t, transport)
+	if len(transport.packets) != 4 {
+		t.Fatalf("queries = %d, want 4", len(transport.packets))
+	}
+}
+
 func TestApplySuccessAndNoOp(t *testing.T) {
 	for name, changes := range map[string]Changes{
 		"RGB-only":          {"rgb-mode": 1, "red": 0, "green": 0, "blue": 255},
@@ -254,6 +272,9 @@ func TestApplySuccessAndNoOp(t *testing.T) {
 			checkOutcome(t, dir, result)
 			if result.PersistenceVerified {
 				t.Fatal("claimed reconnect persistence")
+			}
+			if len(result.Changes) != len(settingViews(original, wanted)) {
+				t.Fatalf("changes = %#v", result.Changes)
 			}
 			if name == "no-op" {
 				if result.Outcome != "no-op" || len(f.packets) != 4 || result.CommitEcho {
@@ -445,29 +466,15 @@ func TestPartialPlanPreservesEveryUnspecifiedByte(t *testing.T) {
 	}
 }
 
-func TestPlanSavedCaptureAndValidation(t *testing.T) {
+func TestSavedCaptureAndValidation(t *testing.T) {
 	dir := settingsDir(t)
 	f := newSettingsTransport()
 	if _, err := captureQueries(f, dir, true); err != nil {
 		t.Fatal(err)
 	}
-	var output bytes.Buffer
-	if err := Run([]string{"plan", "--capture", dir, "--key", "f13"}, &output, io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	var plan SettingsPlan
-	if err := json.Unmarshal(output.Bytes(), &plan); err != nil || !reflect.DeepEqual(plan.ChangedOffsets, []int{4}) {
-		t.Fatal(plan, err)
-	}
-	for _, args := range [][]string{
-		{"apply"}, {"apply", "--key", "f13"}, {"apply", "--write=false", "--key", "f13"},
-		{"apply", "--write"}, {"apply", "--write", "--key", "f13"}, {"apply", "--write", "--capture", dir, "--key", "f13"},
-		{"plan", "--capture", dir}, {"plan", "--capture", dir, "--key", ""}, {"plan", "--capture", dir, "--blue", "-1"},
-		{"plan", "--capture", dir, "--write", "--blue", "0"}, {"plan", "--capture", dir, "--path", "x", "--blue", "0"},
-	} {
-		if err := Run(args, io.Discard, io.Discard); err == nil {
-			t.Fatal("accepted", args)
-		}
+	_, current, err := loadCapture(dir)
+	if err != nil || current != f.current {
+		t.Fatal("valid capture did not round-trip", err)
 	}
 	for _, name := range []string{"result.json", "reply-01.bin", "reply-06.bin", "reply-07.bin", "reply-08.bin", "configuration.bin"} {
 		t.Run(name, func(t *testing.T) {
@@ -497,13 +504,18 @@ func TestPlanSavedCaptureAndValidation(t *testing.T) {
 	}
 }
 
-func TestAuthenticCaptureFixture(t *testing.T) {
-	result, config, err := loadCapture("testdata/hardware-20260911")
+func TestAuthenticCaptureFixtureRemainsIncomplete(t *testing.T) {
+	if _, _, err := loadCapture("testdata/hardware-20260911"); err == nil || !os.IsNotExist(err) {
+		t.Fatalf("fixture without authentic completion marker was accepted: %v", err)
+	}
+	configBytes, err := os.ReadFile("testdata/hardware-20260911/configuration.bin")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !settingsTarget().matches(result.Identity) || hex.EncodeToString(config[:5]) != "0001000128" || hex.EncodeToString(config[124:]) != "01ffffff" {
-		t.Fatal("fixture differs from labelled capture")
+	var config configuration
+	copy(config[:], configBytes)
+	if hex.EncodeToString(config[:5]) != "0001000128" || hex.EncodeToString(config[124:]) != "01ffffff" {
+		t.Fatal("authentic fixture bytes changed")
 	}
 	next, err := changeConfiguration(config, Changes{"rgb-mode": 1, "red": 0, "green": 0, "blue": 255})
 	if err != nil || !bytes.Equal(config[:124], next[:124]) || hex.EncodeToString(next[124:]) != "020000ff" {

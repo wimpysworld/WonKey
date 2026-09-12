@@ -118,8 +118,8 @@ func openTarget(target Candidate) (*hidrawTransport, error) {
 	if err != nil {
 		return nil, err
 	}
-	if c.VendorNode.Path != target.VendorNode.Path {
-		return nil, fmt.Errorf("target node changed")
+	if !sameCandidate(*c, target) {
+		return nil, fmt.Errorf("selected descriptor, path or node changed")
 	}
 	fd, err := syscall.Open(c.VendorNode.Path, syscall.O_RDWR|syscall.O_NONBLOCK|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0)
 	if err != nil {
@@ -142,8 +142,8 @@ func (t *hidrawTransport) Validate() error {
 	if err != nil {
 		return err
 	}
-	if c.VendorNode.Path != t.target.VendorNode.Path {
-		return fmt.Errorf("vendor node changed")
+	if !sameCandidate(*c, t.target) {
+		return fmt.Errorf("selected descriptor, path or node changed")
 	}
 	var opened, named syscall.Stat_t
 	if err := syscall.Fstat(t.fd, &opened); err != nil {
@@ -151,6 +151,9 @@ func (t *hidrawTransport) Validate() error {
 	}
 	if err := syscall.Lstat(c.VendorNode.Path, &named); err != nil {
 		return err
+	}
+	if [3]uint64{opened.Dev, opened.Ino, opened.Rdev} != t.target.VendorNode.identity {
+		return fmt.Errorf("selected node identity changed")
 	}
 	if opened.Mode&syscall.S_IFMT != syscall.S_IFCHR || named.Mode&syscall.S_IFMT != syscall.S_IFCHR || opened.Rdev != named.Rdev || opened.Ino != named.Ino || opened.Dev != named.Dev {
 		return fmt.Errorf("opened node identity mismatch")

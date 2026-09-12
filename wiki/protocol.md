@@ -2,47 +2,33 @@
 
 [Wiki index](README.md) · [Project overview](https://github.com/wimpysworld/WonKey/blob/main/README.md)
 
-**Only `apply --write` permits configuration upload and commit.** There is no arbitrary packet sender, firmware writer, reset, or bootloader command.
+`key COMBINATION`, `rgb MODE [RGB]`, and `restore [capture-directory]` can upload and commit settings after confirmation.
+Bare `key` and `rgb` only read settings.
+There is no arbitrary packet sender, firmware writer, reset, or bootloader command.
 
 The authentic user capture in `internal/xfkey/testdata/hardware-20260911` confirms identify/readback framing on this unit:
 model `0112`, version `1014`, identifier `be077ba2`, Enter on press without modifiers, and RGB API mode 0 with channels `255,255,255`.
 The four report descriptors also match. Separate user-run tests confirmed upload/commit echoes and full 128-byte readback after F13 and steady-blue changes.
 The user confirmed F13 press/release events, steady-blue RGB, and persistence of both settings after reconnect. Other settings and devices remain unverified.
 The parser's conservative `host-derived, hardware-unverified` status remains in existing output and capture metadata. The included query fixture does not record those later upload tests.
-A settings capture is **not a firmware backup** or a proven restore image.
+Restore uses the supported saved fields and preserves all other current bytes.
+A settings capture is not a firmware backup.
 
-Run command examples from the project root after [building WonKey](https://github.com/wimpysworld/WonKey/blob/main/README.md#get-started).
-See [device selection](hardware.md#inspect-the-device) for descriptor requirements and [apply safety](hardware.md#apply-safety-and-records) for upload framing.
+See [device selection](hardware.md#device-selection-and-access) for descriptor requirements.
+See [apply safety](hardware.md#apply-safety-and-records) for upload framing.
 
-## Existing offline operations
+## Reply layout
 
-`preview` remains offline and deliberately constructs a complete replacement. It is not an apply input.
-Every field is required, and `--replace-all` acknowledges resetting all other bytes to zero.
+Each reply contains exactly 64 vendor bytes, without a Linux report-ID placeholder.
+The public executable has no offline parser or protocol command interface.
+The internal parser and authentic fixtures retain the raw protocol evidence.
 
-For the parser examples, load the authentic fixture replies with Python 3. These commands only read local files.
-
-```sh
-fixture=internal/xfkey/testdata/hardware-20260911
-IDENTIFY_HEX=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).read_bytes().hex())' "$fixture/reply-01.bin")
-READ6_HEX=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).read_bytes().hex())' "$fixture/reply-06.bin")
-READ7_HEX=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).read_bytes().hex())' "$fixture/reply-07.bin")
-READ8_HEX=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).read_bytes().hex())' "$fixture/reply-08.bin")
-```
-
-```sh
-./wonkey preview --replace-all --key enter --modifiers 0 --trigger 1 \
-  --rgb-mode 1 --red 0 --green 0 --blue 255
-./wonkey parse-identify --hex "$IDENTIFY_HEX"
-./wonkey parse-readback --identify "$IDENTIFY_HEX" \
-  --read6 "$READ6_HEX" --read7 "$READ7_HEX" --read8 "$READ8_HEX"
-```
-
-Each supplied reply must be exactly 128 hex characters, with no spaces or report-ID placeholder.
-Identify has model at offsets 2–3, version at 4–5, both big-endian, and identifier at 6–9.
+Identify has model at offsets 2 to 3, version at 4 to 5, both big-endian, and identifier at 6 to 9.
 Readback copies `RX6[2:64]` to `C[0:62]`, `RX7[2:64]` to `C[62:124]`, and `RX8[2:6]` to `C[124:128]`.
-All raw replies remain available, including unused RX8 bytes. Offline parsing retains unknown RGB values, labelled `unknown`.
+Saved captures retain all raw replies, including unused RX8 bytes.
+Internal parsing retains unknown RGB values, labelled `unknown`.
 
-See [RGB modes](usage.md#rgb-modes) for the full vendor mode table and [configuration fields](usage.md#plan-against-the-original-capture) for writable offsets.
+See [lighting](usage.md#lighting) for vendor modes and [configuration fields](usage.md#supported-configuration-fields) for writable offsets.
 
 ## Evidence
 

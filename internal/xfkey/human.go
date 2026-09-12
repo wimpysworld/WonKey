@@ -1,0 +1,109 @@
+package xfkey
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"strconv"
+	"strings"
+	"unicode"
+
+	"github.com/charmbracelet/x/term"
+)
+
+type human struct {
+	out                io.Writer
+	colour, trueColour bool
+	width              int
+}
+
+func newHuman(out io.Writer) human {
+	f, ok := out.(*os.File)
+	tty := ok && term.IsTerminal(f.Fd())
+	h := humanFor(out, tty, os.Getenv)
+	if tty {
+		if width, _, err := term.GetSize(f.Fd()); err == nil && width > 0 {
+			h.width = width
+		}
+	}
+	return h
+}
+
+func humanFor(out io.Writer, tty bool, getenv func(string) string) human {
+	colour := tty && getenv("NO_COLOR") == "" && getenv("TERM") != "dumb" && getenv("TERM") != ""
+	capability := strings.ToLower(getenv("COLORTERM"))
+	return human{out, colour, colour && (capability == "truecolor" || capability == "24bit"), 80}
+}
+
+func escapeHuman(value string) string {
+	var out strings.Builder
+	for _, r := range value {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
+			quoted := strconv.QuoteRune(r)
+			out.WriteString(quoted[1 : len(quoted)-1])
+		} else {
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
+}
+
+func (h human) style(code, text string) string {
+	if h.colour && code != "" {
+		return "\x1b[" + code + "m" + text + "\x1b[0m"
+	}
+	return text
+}
+func (h human) line(code, text string) {
+	text = escapeHuman(text)
+	for h.width > 0 && len([]rune(text)) > h.width {
+		runes := []rune(text)
+		cut := -1
+		for i := 0; i <= h.width; i++ {
+			if runes[i] == ' ' {
+				cut = i
+			}
+		}
+		if cut <= 0 {
+			break
+		}
+		fmt.Fprintln(h.out, h.style(code, string(runes[:cut])))
+		text = string(runes[cut+1:])
+	}
+	fmt.Fprintln(h.out, h.style(code, text))
+}
+func (h human) heading(text string) {
+	h.line("35", "WonKey")
+	h.line("36", text)
+}
+func (h human) field(label, value string) {
+	if h.width > 0 && h.width < 60 {
+		fmt.Fprintf(h.out, "  %s\n    %s\n", escapeHuman(label), escapeHuman(value))
+		return
+	}
+	fmt.Fprintf(h.out, "  %-10s %s\n", escapeHuman(label), escapeHuman(value))
+}
+func (h human) rgb(value string) string {
+	text := escapeHuman(value)
+	if h.trueColour && len(value) == 7 && value[0] == '#' {
+		rgb, err := strconv.ParseUint(value[1:], 16, 24)
+		if err == nil {
+			return fmt.Sprintf("\x1b[48;2;%d;%d;%dm  \x1b[0m %s", rgb>>16, (rgb>>8)&255, rgb&255, text)
+		}
+	}
+	return text
+}
+func (h human) changes(views []changeView) {
+	if len(views) == 0 {
+		h.line("", "No changes needed.")
+		return
+	}
+	h.line("36", "Changes:")
+	for _, view := range views {
+		before, after := escapeHuman(view.Before), escapeHuman(view.After)
+		if view.Setting == "colour" {
+			before, after = h.rgb(view.Before), h.rgb(view.After)
+		}
+		fmt.Fprintf(h.out, "  %s: %s -> %s\n", escapeHuman(view.Setting), before, after)
+	}
+}
