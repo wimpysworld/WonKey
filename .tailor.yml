@@ -1,5 +1,8 @@
-# Initially fitted by tailor on 2026-09-11
+# Refitted by tailor on 2026-09-12
 license: BlueOak-1.0.0
+
+languages:
+  go: true
 
 repository:
   description: One key. Your rules. 1️⃣
@@ -289,3 +292,15 @@ swatches:
 
   - path: .tailor.yml
     alteration: always
+
+  - path: .golangci.yml
+    alteration: first-fit
+
+  - path: .goreleaser.yaml
+    alteration: first-fit
+
+  - path: Dockerfile
+    alteration: never
+
+  - path: .github/workflows/build-go.yml
+    alteration: first-fit
