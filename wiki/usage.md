@@ -32,9 +32,9 @@ These commands change stored key settings after confirmation:
 ./wonkey key enter --on press
 ```
 
-A key expression is the complete combination. `key f13` means **F13 without modifiers**, not F13 with the previous modifiers.
+A key expression is the complete combination. `key f13` means **<kbd>F13</kbd> without modifiers**, not <kbd>F13</kbd> with the previous modifiers.
 The base key must be `enter` or `f13`. Prefix modifiers with `+`: `ctrl`, `shift`, `alt`, and `gui`, each at most once.
-`gui` is the Super/Windows/Command modifier. Put the base key last. Names ignore letter case.
+`gui` is the <kbd>Super</kbd>/<kbd>Windows</kbd>/<kbd>Command</kbd> modifier. Put the base key last. Names ignore letter case.
 
 `--on` accepts `press`, `release`, or `both`. Omit it to preserve the current trigger.
 It requires a key expression, so `key --on release` is rejected.
@@ -138,12 +138,12 @@ See [hardware safety and records](hardware#apply-safety-and-records) for durable
 |---|---|
 | Trigger | 1 |
 | Complete modifier mask | 2 |
-| Enter (`28`) or F13 (`68`) | 4 |
+| <kbd>Enter</kbd> (`28`) or <kbd>F13</kbd> (`68`) | 4 |
 | Lighting mode | 124 |
 | RGB channels | 125 to 127 |
 
 Bytes 0 and 3 must be `00` and `01`. WonKey preserves those bytes and bytes 5 to 123.
-Only known single-key Enter/F13 layouts, trigger values, modifiers, and RGB modes are accepted.
+Only known single-key <kbd>Enter</kbd>/<kbd>F13</kbd> layouts, trigger values, modifiers, and RGB modes are accepted.
 Unknown layouts fail closed, even for RGB-only changes. Macros, mouse/media commands, and multi-key layouts are not converted.
 
 ## Output and options

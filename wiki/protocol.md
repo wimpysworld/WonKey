@@ -12,9 +12,9 @@ See [device selection](hardware#device-selection-and-access) for descriptor requ
 ## Hardware verification
 
 The authentic user capture in `internal/xfkey/testdata/hardware-20260911` confirms identify/readback framing on this unit:
-model `0112`, version `1014`, identifier `be077ba2`, Enter on press without modifiers, and RGB API mode 0 with channels `255,255,255`.
-The four report descriptors also match. Separate user-run tests confirmed upload/commit echoes and full 128-byte readback after F13 and steady-blue changes.
-The user confirmed F13 press/release events, steady-blue RGB, and persistence of both settings after reconnect.
+model `0112`, version `1014`, identifier `be077ba2`, <kbd>Enter</kbd> on press without modifiers, and RGB API mode 0 with channels `255,255,255`.
+The four report descriptors also match. Separate user-run tests confirmed upload/commit echoes and full 128-byte readback after <kbd>F13</kbd> and steady-blue changes.
+The user confirmed <kbd>F13</kbd> press/release events, steady-blue RGB, and persistence of both settings after reconnect.
 Other settings and devices remain unverified.
 Existing parser output and capture metadata retain the status `host-derived, hardware-unverified`.
 The included query fixture does not record the later upload tests.

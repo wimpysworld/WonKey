@@ -6,7 +6,7 @@ Configure your XFKEY One Key Max on Linux. Set the key combination, choose the R
 
 WonKey previews changes, asks for confirmation, and validates an automatic backup before it writes settings.
 
-Supports model `0112` with Enter or F13 and optional Ctrl, Shift, Alt, and GUI modifiers.
+Supports model `0112` with <kbd>Enter</kbd> or <kbd>F13</kbd> and optional <kbd>Ctrl</kbd>, <kbd>Shift</kbd>, <kbd>Alt</kbd>, and <kbd>GUI</kbd> modifiers.
 
 ## Get started
 
@@ -70,7 +70,7 @@ After a write, it compares all 128 configuration bytes. Errors stop the transact
 
 WonKey checks exact device descriptors as well as the model. It rejects unsupported layouts, including macros and mouse or media commands.
 
-Hardware checks on one unit confirmed F13 press/release events, steady-blue lighting, and persistence of both settings after reconnect.
+Hardware checks on one unit confirmed <kbd>F13</kbd> press/release events, steady-blue lighting, and persistence of both settings after reconnect.
 Other settings and devices remain unverified. Configuration readback alone does not prove physical effects or persistence.
 
 ## Documentation
