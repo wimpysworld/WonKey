@@ -33,8 +33,8 @@ These commands change stored key settings after confirmation:
 ```
 
 A key expression is the complete combination. `key f13` means **<kbd>F13</kbd> without modifiers**, not <kbd>F13</kbd> with the previous modifiers.
-The base key must be `enter` or `f13`. Prefix modifiers with `+`: `ctrl`, `shift`, `alt`, and `gui`, each at most once.
-`gui` is the <kbd>Super</kbd>/<kbd>Windows</kbd>/<kbd>Command</kbd> modifier. Put the base key last. Names ignore letter case.
+The base key must be `enter` or `f13`. Prefix modifiers with `+`: `ctrl`, `shift`, `alt`, and `super`, each at most once.
+`super` is the <kbd>Super</kbd>/<kbd>Windows</kbd>/<kbd>Command</kbd> modifier. Put the base key last. Names ignore letter case.
 
 `--on` accepts `press`, `release`, or `both`. Omit it to preserve the current trigger.
 It requires a key expression, so `key --on release` is rejected.
@@ -104,6 +104,7 @@ Blank, invalid, out-of-range, or incomplete selection cancels without opening a 
 Without a terminal, multiple-device queries and all changes are refused before HID access.
 
 Before a change, WonKey reads current settings and shows current-to-proposed values.
+<!-- markdownlint-disable-next-line MD038 -->
 At `Save settings? [Y/n]: `, press <kbd>Enter</kbd> to accept the default Yes.
 You can also enter `y` or `yes`, ignoring letter case.
 `n`, `no`, any other answer, or EOF cancels without a backup or settings write.
