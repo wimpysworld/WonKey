@@ -65,10 +65,7 @@ func saveExclusive(dir, name string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	n, err := f.Write(data)
-	if err == nil && n != len(data) {
-		err = fmt.Errorf("short capture write")
-	}
+	_, err = f.Write(data)
 	if err == nil {
 		err = f.Sync()
 	}
