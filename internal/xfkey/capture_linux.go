@@ -533,7 +533,7 @@ func validateOutcome(data []byte, dir string) bool {
 }
 
 func classifyOwnedBackupAt(rootFD int, root, name, model, identifier string) (ownedBackup, map[string]fileIdentity, bool) {
-	created, ok := parseBackupName(name)
+	_, ok := parseBackupName(name)
 	if !ok {
 		return ownedBackup{}, nil, false
 	}
@@ -542,32 +542,7 @@ func classifyOwnedBackupAt(rootFD int, root, name, model, identifier string) (ow
 		return ownedBackup{}, nil, false
 	}
 	defer unix.Close(dirFD)
-	var dirStat unix.Stat_t
-	if unix.Fstat(dirFD, &dirStat) != nil {
-		return ownedBackup{}, nil, false
-	}
-	entries, err := directoryEntries(dirFD)
-	if err != nil {
-		return ownedBackup{}, nil, false
-	}
-	marker, err := readCaptureAt(dirFD, "backup.json", 4096)
-	if err != nil {
-		return ownedBackup{}, nil, false
-	}
-	var record backupRecord
-	if decodeStrict(marker, &record) != nil || record.SchemaVersion != 1 || record.RecordType != "wonkey-apply-backup" || record.DirectoryName != name || record.CreatedUTC != created.Format(time.RFC3339) || record.Model != model || record.Identifier != identifier {
-		return ownedBackup{}, nil, false
-	}
-	capture, _, err := loadCaptureAt(dirFD)
-	dir := filepath.Join(root, name)
-	if err != nil || fmt.Sprintf("%04x", capture.Identity.Model) != record.Model || capture.Identity.Identifier != record.Identifier || capture.Directory != dir {
-		return ownedBackup{}, nil, false
-	}
-	outcomeRaw, err := readCaptureAt(dirFD, "apply-outcome.json", 65536)
-	if err != nil || !validateOutcome(outcomeRaw, dir) {
-		return ownedBackup{}, nil, false
-	}
-	return ownedBackup{name, created, fileIdentity{uint64(dirStat.Dev), dirStat.Ino}}, entries, true
+	return classifyOwnedBackupFD(dirFD, root, name, model, identifier)
 }
 
 func classifyOwnedBackup(root, name, model, identifier string) (ownedBackup, bool) {
