@@ -11,7 +11,7 @@ builds:
     main: "./cmd/wonkey"
     binary: "wonkey"
     env: [CGO_ENABLED=0]
-    goos: [linux, darwin]
+    goos: [linux]
     goarch: [amd64, arm64]
     ldflags: [-s -w]
 
