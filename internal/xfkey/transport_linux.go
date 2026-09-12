@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"golang.org/x/sys/unix"
 )
 
 const transactionTimeout = 2 * time.Second
@@ -159,8 +161,8 @@ func (t *hidrawTransport) Validate() error {
 	if opened.Mode&syscall.S_IFMT != syscall.S_IFCHR || named.Mode&syscall.S_IFMT != syscall.S_IFCHR || opened.Rdev != named.Rdev || opened.Ino != named.Ino || opened.Dev != named.Dev {
 		return fmt.Errorf("opened node identity mismatch")
 	}
-	major := (opened.Rdev>>8)&0xfff | (opened.Rdev>>32)&0xfffff000
-	minor := opened.Rdev&0xff | (opened.Rdev>>12)&0xffffff00
+	major := unix.Major(opened.Rdev)
+	minor := unix.Minor(opened.Rdev)
 	actual, err := filepath.EvalSymlinks(fmt.Sprintf("/sys/dev/char/%d:%d/device", major, minor))
 	if err != nil {
 		return err
