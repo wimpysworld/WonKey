@@ -1,9 +1,14 @@
 # Usage and configuration
 
-[Wiki index](README.md) · [Project overview](https://github.com/wimpysworld/WonKey/blob/main/README.md)
+[Wiki home](Home) · [Hardware operations and safety](hardware)
 
 Build WonKey as described in the [project overview](https://github.com/wimpysworld/WonKey/blob/main/README.md#get-started).
 Run command examples from the project root. Device examples are instructions, not permission to access hardware.
+
+[Read settings](#read-settings) · [Set the key](#set-the-key) · [Lighting](#lighting) · [Restore](#restore-saved-settings) · [Confirmation](#selection-and-confirmation) · [Backups](#backup-storage)
+
+Changes require a terminal, a preview, and [confirmation](#selection-and-confirmation).
+WonKey validates a new durable backup before each settings upload.
 
 ## Read settings
 
@@ -61,7 +66,8 @@ RGB commands preserve the key, modifiers, trigger, and unrelated bytes.
 | `held` | On while pressed, off on release | `07` |
 | `toggle` | Toggle on click | `08` |
 
-These names are vendor labels, not verified effects. No brightness or speed option is established.
+Mode descriptions use vendor labels. Hardware tests confirmed steady-blue lighting, as recorded in [hardware verification](protocol#hardware-verification).
+Other mode effects remain unverified. WonKey has no brightness or speed option.
 
 ## Restore saved settings
 
@@ -98,7 +104,7 @@ Blank, invalid, out-of-range, or incomplete selection cancels without opening a 
 Without a terminal, multiple-device queries and all changes are refused before HID access.
 
 Before a change, WonKey reads current settings and shows current-to-proposed values.
-At `Save settings? [Y/n]: `, press Enter to accept the default Yes.
+At `Save settings? [Y/n]: `, press <kbd>Enter</kbd> to accept the default Yes.
 You can also enter `y` or `yes`, ignoring letter case.
 `n`, `no`, any other answer, or EOF cancels without a backup or settings write.
 There is no bypass flag. A no-op sends no settings upload or commit and creates no backup.
@@ -124,7 +130,7 @@ It has no custom configuration file or storage flags. `WONKEY_CAPTURE_ROOT` and 
 Existing captures stay in place. Use an explicit restore source to read one outside automatic storage.
 After a successful transaction, retention keeps the newest 10 owned backups for the model and identifier.
 Do not retry a successful write because backup cleanup reports a warning.
-See [hardware safety and records](hardware.md#apply-safety-and-records) for durable storage details.
+See [hardware safety and records](hardware#apply-safety-and-records) for durable storage details.
 
 ## Supported configuration fields
 
@@ -134,9 +140,9 @@ See [hardware safety and records](hardware.md#apply-safety-and-records) for dura
 | Complete modifier mask | 2 |
 | Enter (`28`) or F13 (`68`) | 4 |
 | Lighting mode | 124 |
-| RGB channels | 125–127 |
+| RGB channels | 125 to 127 |
 
-Bytes 0 and 3 must be `00` and `01`. WonKey preserves those bytes and bytes 5–123.
+Bytes 0 and 3 must be `00` and `01`. WonKey preserves those bytes and bytes 5 to 123.
 Only known single-key Enter/F13 layouts, trigger values, modifiers, and RGB modes are accepted.
 Unknown layouts fail closed, even for RGB-only changes. Macros, mouse/media commands, and multi-key layouts are not converted.
 
@@ -149,3 +155,4 @@ Output escapes control characters in external text.
 The public flags are `-h`/`--help` and `key --on` only.
 Removed commands and flags, including `show`, `set`, `advanced`, `apply`, `plan`, `--json`, `--yes`, and `--dry-run`, fail before hardware access.
 There is one executable, `wonkey`. The developer executable, protocol commands, and helper scripts are removed.
+WonKey has no arbitrary packet sender, firmware writer, reset, or bootloader command.

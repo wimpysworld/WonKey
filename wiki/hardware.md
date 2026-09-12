@@ -1,10 +1,12 @@
 # Hardware operations and safety
 
-[Wiki index](README.md) · [Project overview](https://github.com/wimpysworld/WonKey/blob/main/README.md)
+[Wiki home](Home) · [Usage and configuration](usage)
 
 `key COMBINATION`, `rgb MODE [RGB]`, and `restore [capture-directory]` change stored settings after confirmation.
 Bare `key` and `rgb` only read the device.
 Restore changes supported settings, not firmware or the complete historical configuration.
+
+[Device access](#device-selection-and-access) · [Restore sources](#restore-sources) · [Hardware checks](#check-hardware-effects-and-persistence) · [Apply safety and records](#apply-safety-and-records)
 
 ## Device selection and access
 
@@ -23,7 +25,7 @@ Moving or reconnecting the device can change its path and node.
 
 ## Restore sources
 
-See [restore saved settings](usage.md#restore-saved-settings) for commands and source selection.
+See [restore saved settings](usage#restore-saved-settings) for commands and source selection.
 WonKey validates the source completion record, identity, raw replies, and exact reconstructed configuration.
 It reads source files through bounded, descriptor-relative operations, without following directory links.
 It keeps validated source bytes in memory through confirmation.
@@ -52,14 +54,9 @@ WonKey never reconnects or resets the device automatically.
 
 ## Apply safety and records
 
-Use `key`, `rgb`, and `restore` for settings. Bare `key` and `rgb` read only. A key expression replaces the complete modifier combination.
-A single compatible device is selected automatically. Multiple matches require terminal selection from displayed physical paths and vendor nodes.
-List numbers identify only the displayed paths for this command, never persistent identity.
-Blank, EOF, invalid, or out-of-range selection cancels without opening HID. All changes require terminal input before any device access.
-WonKey freshly reads identity, version, and settings in memory, shows current-to-proposed changes, and asks for confirmation.
-At `Save settings? [Y/n]: `, press Enter to accept the default Yes.
-You can also enter `y` or `yes`, ignoring letter case. `n`, `no`, any other answer, or EOF cancels.
-Blank input still cancels device and capture selection. There is no bypass flag.
+The [selection and confirmation guide](usage#selection-and-confirmation) covers terminal requirements, previews, accepted answers, and cancellation.
+
+### Revalidation
 
 Selection and confirmation share one buffered input reader, so pasted answers remain available.
 After confirmation, WonKey revalidates the selected descriptor, physical path, and node identity, then creates and validates a new durable backup.
@@ -68,7 +65,9 @@ Changed identity, version, or settings stop before upload, even if the new setti
 A no-op or cancellation sends no settings upload or commit and creates no backup.
 Bare `key` and `rgb` read hardware without saved captures. No files does not mean offline.
 
-New backups always use [XDG storage](usage.md#backup-storage).
+### Durable backup storage
+
+New backups always use [XDG storage](usage#backup-storage).
 An explicit restore source selects input data, not a backup destination.
 
 The tool creates missing capture-root directories with mode `0700`, without changing existing permissions.
@@ -76,6 +75,8 @@ It resolves the root path and synchronises every directory from that root up to 
 Any synchronisation failure stops before the backup query or settings upload. Public changes already read the device to show their preview.
 The synchronisation check also covers roots created by an earlier interrupted attempt.
 Apply holds one capture-root lock, then creates a private backup.
+
+### Capture names
 
 New captures use `YYMMDD-HHMMSS_key-KEY_rgb-MODE-COLOUR`, with a UTC start time.
 An example is `260912-083853_key-ctrl-alt-f13_rgb-steady-0000ff`.
@@ -89,10 +90,14 @@ Unsupported key layouts use `key-unknown-HEX`, where `HEX` contains the first fi
 Unknown lighting modes use `rgb-unknown-XX-COLOUR`, where `XX` is the raw mode byte. Available RGB bytes remain six hex digits.
 WonKey does not migrate or rename existing captures. Internal filenames and retention safety checks stay unchanged.
 
+### Backup validation
+
 WonKey synchronises the raw identity/replies, current 128-byte configuration, completion marker, and directories before uploading.
 It reopens and checks the backup and expected identity before it writes a strict `backup.json` ownership record.
 It then checks the supported layout and saves the intended configuration and plan durably.
 Backup validation or storage failure sends no configuration writes.
+
+### Upload and readback
 
 For configuration `C`, upload uses exactly:
 
@@ -116,6 +121,8 @@ An output syscall can remain in the kernel after timeout. A private duplicate re
 The session stops on timeout without another command. Do not assume that a timed-out submitted write did nothing.
 Only the selected vendor node opens, never keyboard input nodes. The identity query also primes persistence according to upstream research.
 
+### Transaction records
+
 | Record | Meaning |
 |---|---|
 | `provenance.json`, `reply-01.bin`, `reply-06/07/08.bin`, `configuration.bin`, `result.json` | New backup of current query state. `result.json` completes the backup only. |
@@ -129,8 +136,10 @@ Files use exclusive creation and file/directory synchronisation. Existing record
 A storage failure after a device command can prevent complete records. The command reports that failure, not a durable success.
 Missing `apply-outcome.json` never proves success. No software can guarantee recording after power loss or a failed storage device.
 
+### Retention
+
 After a durable `no-op` or `readback-verified` outcome, WonKey keeps the newest 10 owned backups for the same model and identifier.
 Retention ignores legacy, incomplete, malformed, foreign, linked, and uncertain directories. It never uses the version or physical path to group backups.
 A cleanup failure adds a warning but keeps the successful apply result. Do not retry a successful apply because of this warning.
 
-See [usage and configuration](usage.md) for setting values and [protocol evidence](protocol.md#evidence) for sources.
+See [usage and configuration](usage) for setting values and [protocol evidence](protocol#evidence) for sources.
