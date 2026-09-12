@@ -247,10 +247,7 @@ func queryCapture(t queryTransport, readback bool) (captureQuery, error) {
 		if err != nil {
 			return q, err
 		}
-		q.config, err = hex.DecodeString(parsed.Configuration)
-		if err != nil {
-			return q, err
-		}
+		q.config, _ = hex.DecodeString(parsed.Configuration)
 		q.result.Readback = &parsed
 		q.result.KeyPrefix = hex.EncodeToString(q.config[:5])
 	}

@@ -190,10 +190,7 @@ func verifyAppliedSettings(t queryTransport, dir string, intended configuration,
 	if err != nil {
 		return err
 	}
-	raw, err := hex.DecodeString(observed.Configuration)
-	if err != nil {
-		return err
-	}
+	raw, _ := hex.DecodeString(observed.Configuration)
 	if err = saveExclusive(dir, "post-configuration.bin", raw); err != nil {
 		return err
 	}
