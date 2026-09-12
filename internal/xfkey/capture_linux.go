@@ -238,15 +238,15 @@ func captureQueries(t queryTransport, dir string, readback bool) (CaptureResult,
 	return result, persistErr
 }
 
-var queryDiscover = discover
-var queryOpenTarget = func(target Candidate) (queryTransport, io.Closer, error) {
+var liveDiscover = discover
+var liveOpenTarget = func(target Candidate) (queryTransport, io.Closer, error) {
 	t, err := openTarget(target)
 	return t, t, err
 }
 
 func liveQuery(path string, readback bool) (CaptureResult, error) {
 	var result CaptureResult
-	candidates, err := queryDiscover("/sys/bus/usb/devices", "/dev")
+	candidates, err := liveDiscover("/sys/bus/usb/devices", "/dev")
 	if err != nil {
 		return result, err
 	}
@@ -254,15 +254,18 @@ func liveQuery(path string, readback bool) (CaptureResult, error) {
 	if err != nil {
 		return result, err
 	}
-	t, closer, err := queryOpenTarget(*target)
+	return querySelected(*target, readback)
+}
+
+func querySelected(target Candidate, readback bool) (CaptureResult, error) {
+	t, closer, err := liveOpenTarget(target)
 	if err != nil {
-		return result, err
+		return CaptureResult{}, err
 	}
 	defer closer.Close()
 	q, err := queryCapture(t, readback)
-	result = q.result
-	result.PhysicalPath = target.PhysicalPath
-	return result, err
+	q.result.PhysicalPath = target.PhysicalPath
+	return q.result, err
 }
 
 func liveCapture(path, root string, readback bool) (CaptureResult, error) {

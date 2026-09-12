@@ -89,7 +89,7 @@ func resolveCaptureRoot(value string) (string, error) {
 		value = filepath.Join(home, ".local", "state", "xfkey-captures")
 	}
 	if !filepath.IsAbs(value) {
-		return "", fmt.Errorf("--capture-root must resolve to an absolute directory")
+		return "", fmt.Errorf("backup root must resolve to an absolute directory")
 	}
 	return filepath.Clean(value), nil
 }
@@ -121,7 +121,7 @@ func decodeTarget(value string) (targetToken, error) {
 	if !strings.HasPrefix(value, prefix) {
 		parts := strings.Split(value, ":")
 		if len(parts) != 4 || parts[0] != "0112" || !compactPath.MatchString(parts[1]) {
-			return target, fmt.Errorf("invalid target %q: use the complete target from show --target (0112:path:identifier:version), or use wonkey set instead", value)
+			return target, fmt.Errorf("invalid target %q: use the complete target from show --target (0112:path:identifier:version), or use wonkey-dev set instead", value)
 		}
 		target = targetToken{parts[1], parts[0], parts[2], parts[3]}
 		if err := (ApplyTarget{target.Identifier, target.Version}).validate(); err != nil {

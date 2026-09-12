@@ -35,7 +35,7 @@ type settingsOptions struct {
 	LegacyBlue    int    `name:"blue" default:"-2147483648" hidden:""`
 }
 
-type cliModel struct {
+type developerModel struct {
 	Set           setCommand           `cmd:"" help:"Read, preview and save explicit settings with backup and confirmation."`
 	Advanced      advancedCommand      `cmd:"" help:"Device discovery, saved plans and protocol tools."`
 	Devices       devicesCommand       `cmd:"" hidden:""`
@@ -119,19 +119,19 @@ type parseReadbackCommand struct {
 }
 
 func (*devicesCommand) Help() string {
-	return "Reads USB and device-node metadata. It does not open a HID device.\n\nExample: wonkey advanced devices"
+	return "Reads USB and device-node metadata. It does not open a HID device.\n\nExample: wonkey-dev advanced devices"
 }
 
 func (*showCommand) Help() string {
-	return "Reads current settings from one device and creates no files. Selects the only compatible device.\n\nExample: wonkey show\nMultiple devices: wonkey show --device 1-1.2\nChange settings: wonkey set key=f13"
+	return "Reads current settings from one device and creates no files. Selects the only compatible device.\n\nExample: wonkey-dev show\nMultiple devices: wonkey-dev show --device 1-1.2\nChange settings: wonkey-dev set key=f13"
 }
 
 func (*planCommand) Help() string {
-	return "Reads only local files in a settings capture. It does not access hardware or write settings.\n\nNeeds a completed apply backup; show creates no capture.\n\nExample: wonkey advanced plan ./capture light=steady:0000ff"
+	return "Reads only local files in a settings capture. It does not access hardware or write settings.\n\nNeeds a completed apply backup; show creates no capture.\n\nExample: wonkey-dev advanced plan ./capture light=steady:0000ff"
 }
 
 func (*applyCommand) Help() string {
-	return "Queries one HID device, creates and validates a new backup settings capture, then writes only explicit changes. It requires --write, a target token from show --target or JSON, and confirmation.\n\nExample: wonkey apply TARGET key=f13 light=steady:0000ff --write\n\nSettings: key=, trigger=, modifiers=, lighting=, colour=, light=mode:hex.\nOnly explicit settings change. Do not mix assignments with settings flags.\n\nWrite permission: --write is required. Type exactly write to confirm; blank cancels.\n\nAutomation and storage: --yes skips confirmation only; --json keeps stdout machine-readable.\nBackup root: --capture-root, then WONKEY_CAPTURE_ROOT, then XFKEY_CAPTURE_ROOT, then $HOME/.local/state/xfkey-captures."
+	return "Queries one HID device, creates and validates a new backup settings capture, then writes only explicit changes. It requires --write, a target token from show --target or JSON, and confirmation.\n\nExample: wonkey-dev apply TARGET key=f13 light=steady:0000ff --write\n\nSettings: key=, trigger=, modifiers=, lighting=, colour=, light=mode:hex.\nOnly explicit settings change. Do not mix assignments with settings flags.\n\nWrite permission: --write is required. Type exactly write to confirm; blank cancels.\n\nAutomation and storage: --yes skips confirmation only; --json keeps stdout machine-readable.\nBackup root: --capture-root, then WONKEY_CAPTURE_ROOT, then XFKEY_CAPTURE_ROOT, then $HOME/.local/state/xfkey-captures."
 }
 
 func (*protocolCommand) Help() string {
@@ -159,21 +159,21 @@ func ExitCode(err error) int {
 	return 1
 }
 
-func Run(args []string, stdout, stderr io.Writer) error {
-	return RunIO(args, strings.NewReader(""), stdout, stderr)
+func RunDeveloper(args []string, stdout, stderr io.Writer) error {
+	return RunDeveloperIO(args, strings.NewReader(""), stdout, stderr)
 }
 
-func RunIO(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+func RunDeveloperIO(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if len(args) == 0 || (len(args) == 1 && (args[0] == "--help" || args[0] == "help")) {
 		return printLanding(stdout)
 	}
 	if len(args) == 1 && args[0] == "advanced" {
 		args = []string{"advanced", "--help"}
 	}
-	model := &cliModel{}
+	model := &developerModel{}
 	exitCode := -1
 	parser, err := kong.New(model,
-		kong.Name("wonkey"),
+		kong.Name("wonkey-dev"),
 		kong.Description("Configure the key action and lighting on an XFKEY One Key Max."),
 		kong.Writers(stdout, stderr),
 		kong.Help(printHelp),
@@ -204,7 +204,7 @@ func RunIO(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 
 type reportedError struct{ error }
 
-func reportCLIError(model *cliModel, ctx *kong.Context, args []string, stdout, stderr io.Writer, err error, code int) error {
+func reportCLIError(model *developerModel, ctx *kong.Context, args []string, stdout, stderr io.Writer, err error, code int) error {
 	var reported reportedError
 	if !errors.As(err, &reported) && parsedJSONMode(model, ctx, args) {
 		command := commandName(args)
@@ -220,16 +220,16 @@ func reportCLIError(model *cliModel, ctx *kong.Context, args []string, stdout, s
 	newHuman(stderr).line("31", "Error: "+message+".")
 	command := commandName(args)
 	if command == "plan" {
-		fmt.Fprintf(stderr, "Run \"wonkey %s --help\" for an offline example.\n", commandPath(args))
+		fmt.Fprintf(stderr, "Run \"wonkey-dev %s --help\" for an offline example.\n", commandPath(args))
 	} else if command == "" || !knownCommand(command) {
-		fmt.Fprintln(stderr, `Run "wonkey --help" for available commands.`)
+		fmt.Fprintln(stderr, `Run "wonkey-dev --help" for available commands.`)
 	} else {
-		fmt.Fprintf(stderr, "Run \"wonkey %s --help\" for more information.\n", escapeHuman(commandPath(args)))
+		fmt.Fprintf(stderr, "Run \"wonkey-dev %s --help\" for more information.\n", escapeHuman(commandPath(args)))
 	}
 	return &CLIError{Err: err, Code: code}
 }
 
-func parsedJSONMode(model *cliModel, ctx *kong.Context, args []string) bool {
+func parsedJSONMode(model *developerModel, ctx *kong.Context, args []string) bool {
 	command := commandName(args)
 	if ctx != nil {
 		for _, path := range ctx.Path {

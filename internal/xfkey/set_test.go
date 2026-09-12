@@ -16,7 +16,7 @@ import (
 
 func parseSet(t *testing.T, args ...string) *setCommand {
 	t.Helper()
-	model := &cliModel{}
+	model := &developerModel{}
 	parser, err := kong.New(model)
 	if err != nil {
 		t.Fatal(err)
@@ -215,13 +215,13 @@ func TestSetSelection(t *testing.T) {
 func TestEverydayQueryOutputs(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "must-not-exist")
 	t.Setenv("WONKEY_CAPTURE_ROOT", root)
-	oldDiscover, oldOpen := queryDiscover, queryOpenTarget
-	t.Cleanup(func() { queryDiscover, queryOpenTarget = oldDiscover, oldOpen })
-	queryDiscover = func(string, string) ([]Candidate, error) {
+	oldDiscover, oldOpen := liveDiscover, liveOpenTarget
+	t.Cleanup(func() { liveDiscover, liveOpenTarget = oldDiscover, oldOpen })
+	liveDiscover = func(string, string) ([]Candidate, error) {
 		return []Candidate{{PhysicalPath: "1-1.2", Compatible: true}}, nil
 	}
 	var transport *settingsTransport
-	queryOpenTarget = func(candidate Candidate) (queryTransport, io.Closer, error) {
+	liveOpenTarget = func(candidate Candidate) (queryTransport, io.Closer, error) {
 		if candidate.PhysicalPath != "1-1.2" {
 			t.Fatal(candidate)
 		}
@@ -229,7 +229,7 @@ func TestEverydayQueryOutputs(t *testing.T) {
 		return transport, &closeRecorder{}, nil
 	}
 	for _, args := range [][]string{{"show"}, {"show", "--target"}, {"show", "--json"}, {"set", "key=f13", "--dry-run"}, {"set", "key=f13", "--dry-run", "--json"}} {
-		stdout, stderr, err := runCLI(args...)
+		stdout, stderr, err := runDeveloperCLI(args...)
 		if err != nil {
 			t.Fatal(args, stdout, stderr, err)
 		}
@@ -267,23 +267,23 @@ func TestAdvancedAliases(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{{"plan", dir, "key=f13", "--json"}, {"protocol", "parse-identify", "--hex", fmt.Sprintf("%x", newSettingsTransport().identity)}} {
-		legacy, _, err := runCLI(args...)
+		legacy, _, err := runDeveloperCLI(args...)
 		if err != nil {
 			t.Fatal(err)
 		}
-		advanced, stderr, err := runCLI(append([]string{"advanced"}, args...)...)
+		advanced, stderr, err := runDeveloperCLI(append([]string{"advanced"}, args...)...)
 		if err != nil || advanced != legacy || stderr != "" {
 			t.Fatal(advanced, stderr, err)
 		}
 	}
 	for _, args := range [][]string{{"advanced", "--help"}, {"advanced", "devices", "--help"}, {"advanced", "plan", "--help"}, {"advanced", "protocol", "--help"}} {
-		stdout, stderr, err := runCLI(args...)
+		stdout, stderr, err := runDeveloperCLI(args...)
 		if err != nil || stdout == "" || stderr != "" {
 			t.Fatal(args, stdout, stderr, err)
 		}
 	}
 	for _, args := range [][]string{{"set", "--json"}, {"set", "key=f13", "--json"}, {"set", "key=f13", "--write", "--json"}, {"set", "key=f13", "key=enter", "--json"}, {"advanced", "protocol", "parse-identify", "--hex", "bad"}, {"advanced", "plan", "--json"}} {
-		stdout, _, err := runCLI(args...)
+		stdout, _, err := runDeveloperCLI(args...)
 		if err == nil || !json.Valid([]byte(stdout)) {
 			t.Fatal(args, stdout, err)
 		}

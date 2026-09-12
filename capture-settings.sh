@@ -36,10 +36,10 @@ build=$(mktemp -d "${TMPDIR:-/tmp}/wonkey-build-XXXXXXXX")
 trap 'rm -rf -- "$build"' EXIT
 trap 'exit 130' HUP INT TERM
 source=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-(cd "$source" && go build -buildvcs=false -o "$build/wonkey" ./cmd/wonkey)
+(cd "$source" && go build -buildvcs=false -o "$build/wonkey-dev" ./cmd/wonkey-dev)
 uid=$(id -u)
 # The privileged shell changes only this node's ACL. The tool always runs as the caller.
-sudo sh -eu -s -- "$uid" "$build/wonkey" "$path" "$node" "$root" "$command" "$@" <<'SH'
+sudo sh -eu -s -- "$uid" "$build/wonkey-dev" "$path" "$node" "$root" "$command" "$@" <<'SH'
 uid=$1; bin=$2; path=$3; node=$4; root=$5; command=$6
 shift 6
 test "$uid" -ne 0

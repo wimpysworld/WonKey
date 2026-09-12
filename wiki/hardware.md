@@ -2,17 +2,18 @@
 
 [Wiki index](README.md) · [Project overview](https://github.com/wimpysworld/WonKey/blob/main/README.md)
 
-`set` and legacy `apply --write` change stored settings. `set --dry-run` only reads the device. Configuration is not firmware flashing.
+`key COMBINATION` and `rgb MODE [RGB]` change stored settings after confirmation. Bare `key` and `rgb` only read the device.
+The separate developer binary retains legacy `apply --write`. Configuration is not firmware flashing.
 A settings capture is not a firmware backup or a proven restore image.
 Read the conditions below before device access. Run all commands from the project root.
 
 ## Find the device path
 
-Build WonKey as described in the [project overview](https://github.com/wimpysworld/WonKey/blob/main/README.md#get-started).
+For optional metadata inspection, build the separate [developer binary](development.md#separate-build).
 A device path identifies one physical USB connection. Find the current device path before using the fixed-path wrapper.
 
 ```sh
-./wonkey advanced devices
+./wonkey-dev advanced devices
 ```
 
 `advanced devices` reads sysfs and device-node metadata without opening a HID device. It reports mode and owner, not effective ACL access.
@@ -23,7 +24,7 @@ The shared serial `XFKEY` is not unique. Reinspect after moving or reconnecting 
 ## First hardware test: use the on-disk wrapper
 
 Run the wrapper as your normal user, **not through sudo**. It builds the current source into a new private temporary directory.
-It builds `wonkey` in a private `wonkey-build-*` directory and does not use an existing `/tmp/wonkey`. Dependencies are Go, sudo, Python 3, `getfacl`, `setfacl`, `stat`, and `cmp`.
+It builds `cmd/wonkey-dev` as `wonkey-dev` in a private `wonkey-build-*` directory and does not use an existing binary. Dependencies are Go, sudo, Python 3, `getfacl`, `setfacl`, `stat`, and `cmp`.
 
 The wrapper is fixed to physical path `1-1.2` and `/dev/hidraw4`. It checks the descriptor-verified mapping before granting access.
 If either value changes, find the device path first and update the two constants. Do not guess a node from its number.
@@ -36,7 +37,7 @@ The wrapper does not create persistent permission rules.
 Set `WONKEY_CAPTURE_ROOT` to an absolute directory to configure capture storage.
 A non-empty `WONKEY_CAPTURE_ROOT` takes precedence over `XFKEY_CAPTURE_ROOT`, which remains a supported fallback.
 If both are unset or empty, captures still default to `$HOME/.local/state/xfkey-captures`.
-Existing captures stay in place. Capture formats and explicit `--capture` and `--capture-root` paths are unchanged.
+Existing captures stay in place. Capture formats and developer `--capture` and `--capture-root` paths are unchanged.
 
 Optional query only, with no settings upload or commit:
 
@@ -88,28 +89,28 @@ Only a matching reconnect capture establishes persistence for that test. The too
 
 ## Apply safety and records
 
-Everyday use is `show` and `set key=f13`, `set light=steady:0000ff`, or combined assignments.
-Both commands select exactly one compatible device. Multiple matches require `--device PHYSICAL_PATH`.
-`set` freshly reads identity, version, and settings in memory, shows the changes, and asks for confirmation.
-Only the exact answer `write` confirms. Blank input cancels. `--yes` skips confirmation only.
-After confirmation, `set` creates and validates a new durable backup through the guarded transaction.
+Everyday use is `key` and `rgb`. Bare commands read only. A key expression replaces the complete modifier combination.
+A single compatible device is selected automatically. Multiple matches require terminal selection from displayed physical paths and vendor nodes.
+List numbers identify only the displayed paths for this command, never persistent identity.
+Blank, EOF, invalid, or out-of-range selection cancels without opening HID. All changes require terminal input before any device access.
+WonKey freshly reads identity, version, and settings in memory, shows current-to-proposed changes, and asks for confirmation.
+Only the exact answer `write` followed by Enter confirms. Blank, invalid, or incomplete input cancels. There is no public bypass flag.
+Selection and confirmation share one buffered input reader, so pasted answers remain available.
+After confirmation, WonKey revalidates the selected descriptor, physical path, and node identity, then creates and validates a new durable backup.
 The transaction uses the freshly acquired identifier and version as expected values. It also checks every configuration byte against the approved plan.
 Changed identity, version, or settings stop before upload, even if the new settings already match the requested values.
 A no-op or cancellation sends no settings upload or commit and creates no backup.
-`set --dry-run` reads the device and previews changes without saved captures or settings writes. No files does not mean offline.
+Bare `key` and `rgb` read hardware without saved captures. No files does not mean offline.
 
-Legacy `apply TARGET key=f13 --write` keeps its target, write gate, and backup-before-confirmation sequence.
-Use `show --target` for the copyable form `0112:path:identifier:version`, for example `0112:1-1.2:be077ba2:1014`.
-Copy the whole target. Do not guess its parts. It binds the physical path, model, expected identifier, and expected version.
-The old `--target` flag and `wonkey-target-v1:` encoded tokens remain accepted. JSON targets keep the old format.
-Legacy apply rejects missing write permission, target, or settings before device access.
-Use `advanced plan CAPTURE` only for optional offline work with a completed backup. A saved plan never authorises a write.
-Old top-level commands remain hidden aliases. Protocol tools are under `advanced protocol`.
+Legacy target, JSON, numeric settings, `--yes`, and `--dry-run` interfaces exist only in [wonkey-dev](development.md).
+Developer `apply` retains its explicit `--write` gate and backup-before-confirmation sequence.
+A saved developer plan never authorises a live write.
 
-The fixed-path wrapper is a compatibility path. It still passes the hidden `--path`, `--expect-identifier`, and `--expect-version` flags after descriptor checks. Hidden numeric setting flags remain accepted for existing scripts. Do not mix numeric values with friendly `--lighting` and `--colour` values.
+The fixed-path wrapper uses the developer binary. It passes `--path`, `--expect-identifier`, and `--expect-version` after descriptor checks.
+These flags and numeric setting flags are not accepted by the consumer executable.
 The tool creates missing capture-root directories with mode `0700`, without changing existing permissions.
 It resolves the root path and synchronises every directory from that root up to `/`, including existing ancestors.
-Any synchronisation failure stops before the backup query or settings upload. `set` already read the device to show its plan.
+Any synchronisation failure stops before the backup query or settings upload. Public changes already read the device to show their preview.
 This also covers roots created by an earlier interrupted attempt.
 Apply holds one capture-root lock, then creates a private backup named `YYYYMMDD-HHMMSS-XXXX` with a random hexadecimal suffix.
 It synchronises the raw identity/replies, current 128-byte configuration, completion marker, and directories before uploading.

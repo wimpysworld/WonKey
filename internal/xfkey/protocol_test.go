@@ -168,7 +168,7 @@ func TestEchoValidation(t *testing.T) {
 func TestLiveCommandsFailBeforeAnyTransaction(t *testing.T) {
 	for _, command := range []string{"apply"} {
 		var output bytes.Buffer
-		if err := Run([]string{command, "--key", "f13"}, &output, io.Discard); !errors.Is(err, errWriteRequired) {
+		if err := RunDeveloper([]string{command, "--key", "f13"}, &output, io.Discard); !errors.Is(err, errWriteRequired) {
 			t.Fatal(err)
 		}
 		if output.Len() != 0 {
@@ -180,29 +180,29 @@ func TestLiveCommandsFailBeforeAnyTransaction(t *testing.T) {
 func TestCLIValidationAndPreview(t *testing.T) {
 	good := []string{"preview", "--replace-all", "--key", "f13", "--modifiers", "3", "--trigger", "2", "--rgb-mode", "1", "--red", "255", "--green", "0", "--blue", "4"}
 	var output bytes.Buffer
-	if err := Run(good, &output, io.Discard); err != nil {
+	if err := RunDeveloper(good, &output, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Contains(output.Bytes(), []byte("0002030168")) {
 		t.Fatal(output.String())
 	}
 	for _, args := range [][]string{{"raw"}, {"preview"}, {"preview", "--apply"}, append(append([]string{}, good...), "stray"), {"parse-identify", "--hex", "af01"}, {"parse-readback"}} {
-		if err := Run(args, io.Discard, io.Discard); err == nil {
+		if err := RunDeveloper(args, io.Discard, io.Discard); err == nil {
 			t.Fatalf("accepted %v", args)
 		}
 	}
 	identity := syntheticReply(1)
 	identity[2], identity[3] = 1, 0x12
-	if err := Run([]string{"parse-identify", "--hex", hex.EncodeToString(identity)}, io.Discard, io.Discard); err != nil {
+	if err := RunDeveloper([]string{"parse-identify", "--hex", hex.EncodeToString(identity)}, io.Discard, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	args := []string{"parse-readback", "--identify", hex.EncodeToString(identity), "--read6", hex.EncodeToString(syntheticReply(6)), "--read7", hex.EncodeToString(syntheticReply(7)), "--read8", hex.EncodeToString(syntheticReply(8))}
-	if err := Run(args, io.Discard, io.Discard); err != nil {
+	if err := RunDeveloper(args, io.Discard, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	identity[2], identity[3] = 0x12, 1
 	args[2] = hex.EncodeToString(identity)
-	if err := Run(args, io.Discard, io.Discard); err == nil {
+	if err := RunDeveloper(args, io.Discard, io.Discard); err == nil {
 		t.Fatal("readback CLI accepted wrong model")
 	}
 }

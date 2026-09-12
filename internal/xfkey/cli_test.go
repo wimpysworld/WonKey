@@ -10,25 +10,25 @@ import (
 	"testing"
 )
 
-func runCLI(args ...string) (string, string, error) {
+func runDeveloperCLI(args ...string) (string, string, error) {
 	var stdout, stderr bytes.Buffer
-	err := RunIO(args, strings.NewReader(""), &stdout, &stderr)
+	err := RunDeveloperIO(args, strings.NewReader(""), &stdout, &stderr)
 	return stdout.String(), stderr.String(), err
 }
 
 func TestLandingPageIsTheStandardHelp(t *testing.T) {
 	for _, args := range [][]string{nil, {"--help"}, {"-h"}, {"help"}} {
-		stdout, stderr, err := runCLI(args...)
+		stdout, stderr, err := runDeveloperCLI(args...)
 		if err != nil || stdout != landingPage || stderr != "" {
 			t.Fatalf("args=%v stdout=%q stderr=%q error=%v", args, stdout, stderr, err)
 		}
 	}
-	for _, text := range []string{"WonKey  One key. Your rules.", "Commands:", "wonkey show", "wonkey set key=f13", "Advanced examples:", "wonkey advanced", "--dry-run", "--device PHYSICAL_PATH", `For command help, run "wonkey <command> --help".`, "--json"} {
+	for _, text := range []string{"WonKey  One key. Your rules.", "Commands:", "wonkey-dev show", "wonkey-dev set key=f13", "Advanced examples:", "wonkey-dev advanced", "--dry-run", "--device PHYSICAL_PATH", `For command help, run "wonkey-dev <command> --help".`, "--json"} {
 		if !strings.Contains(landingPage, text) {
 			t.Fatalf("landing page omits %q", text)
 		}
 	}
-	for _, hidden := range []string{"wonkey inspect", "wonkey identify", "wonkey readback", "wonkey preview", "wonkey apply", "wonkey plan", "wonkey devices", "wonkey protocol"} {
+	for _, hidden := range []string{"wonkey-dev inspect", "wonkey-dev identify", "wonkey-dev readback", "wonkey-dev preview", "wonkey-dev apply", "wonkey-dev plan", "wonkey-dev devices", "wonkey-dev protocol"} {
 		if strings.Contains(landingPage, hidden) {
 			t.Fatalf("landing page exposes compatibility command %q", hidden)
 		}
@@ -37,15 +37,15 @@ func TestLandingPageIsTheStandardHelp(t *testing.T) {
 
 func TestCommandHelpExplainsAccessAndExamples(t *testing.T) {
 	checks := map[string][]string{
-		"devices":  {"metadata", "does not open a HID device", "Example: wonkey advanced devices"},
-		"show":     {"Reads current settings", "creates no files", "only compatible device", "Example: wonkey show"},
-		"set":      {"saves and checks a new backup", "--dry-run reads the device", "wonkey set key=f13", "exactly write"},
-		"plan":     {"local files", "does not access hardware", "Example: wonkey advanced plan"},
-		"apply":    {"writes only explicit changes", "requires --write", "Example: wonkey apply"},
+		"devices":  {"metadata", "does not open a HID device", "Example: wonkey-dev advanced devices"},
+		"show":     {"Reads current settings", "creates no files", "only compatible device", "Example: wonkey-dev show"},
+		"set":      {"saves and checks a new backup", "--dry-run reads the device", "wonkey-dev set key=f13", "exactly write"},
+		"plan":     {"local files", "does not access hardware", "Example: wonkey-dev advanced plan"},
+		"apply":    {"writes only explicit changes", "requires --write", "Example: wonkey-dev apply"},
 		"protocol": {"always write one JSON value", "do not access hardware"},
 	}
 	for command, want := range checks {
-		stdout, stderr, err := runCLI("help", command)
+		stdout, stderr, err := runDeveloperCLI("help", command)
 		if err != nil || stderr != "" {
 			t.Fatalf("%s help stderr=%q error=%v", command, stderr, err)
 		}
@@ -55,7 +55,7 @@ func TestCommandHelpExplainsAccessAndExamples(t *testing.T) {
 			}
 		}
 	}
-	stdout, _, err := runCLI("help", "protocol", "preview")
+	stdout, _, err := runDeveloperCLI("help", "protocol", "preview")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestCommandHelpExplainsAccessAndExamples(t *testing.T) {
 		}
 	}
 	for _, command := range []string{"inspect", "identify", "readback", "preview", "parse-identify", "parse-readback"} {
-		stdout, _, err = runCLI(command, "--help")
+		stdout, _, err = runDeveloperCLI(command, "--help")
 		if err != nil || stdout == "" {
 			t.Fatalf("%s compatibility help = %q, %v", command, stdout, err)
 		}
@@ -77,11 +77,11 @@ func TestSyntaxErrorsAreActionable(t *testing.T) {
 		args []string
 		hint string
 	}{
-		{[]string{"plan"}, `Run "wonkey plan --help" for an offline example.`},
-		{[]string{"plan", "--capture", ".", "--unknown"}, `Run "wonkey plan --help" for an offline example.`},
-		{[]string{"unknown"}, `Run "wonkey --help" for available commands.`},
+		{[]string{"plan"}, `Run "wonkey-dev plan --help" for an offline example.`},
+		{[]string{"plan", "--capture", ".", "--unknown"}, `Run "wonkey-dev plan --help" for an offline example.`},
+		{[]string{"unknown"}, `Run "wonkey-dev --help" for available commands.`},
 	} {
-		stdout, stderr, err := runCLI(tc.args...)
+		stdout, stderr, err := runDeveloperCLI(tc.args...)
 		if err == nil || ExitCode(err) != 2 {
 			t.Fatalf("args=%v error=%v code=%d", tc.args, err, ExitCode(err))
 		}
@@ -92,15 +92,15 @@ func TestSyntaxErrorsAreActionable(t *testing.T) {
 }
 
 func TestApplyPreflightNeverUsesDevice(t *testing.T) {
-	_, _, err := runCLI("apply", "--lighting", "steady", "--colour", "0000ff")
+	_, _, err := runDeveloperCLI("apply", "--lighting", "steady", "--colour", "0000ff")
 	if !errors.Is(err, errWriteRequired) {
 		t.Fatalf("documented wrapper settings failed parsing: %v", err)
 	}
-	_, _, err = runCLI("apply", "--rgb-mode", "1")
+	_, _, err = runDeveloperCLI("apply", "--rgb-mode", "1")
 	if !errors.Is(err, errWriteRequired) {
 		t.Fatalf("legacy setting flag failed parsing: %v", err)
 	}
-	_, _, err = runCLI("apply", "--target", "bad", "--key", "f13")
+	_, _, err = runDeveloperCLI("apply", "--target", "bad", "--key", "f13")
 	if err == nil || err.Error() != errWriteRequired.Error() {
 		t.Fatalf("error = %v", err)
 	}
@@ -108,7 +108,7 @@ func TestApplyPreflightNeverUsesDevice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = runCLI("apply", "--target", token, "--write", "--key", "f13")
+	_, _, err = runDeveloperCLI("apply", "--target", token, "--write", "--key", "f13")
 	if err == nil || !strings.Contains(err.Error(), "interactive input or --yes") {
 		t.Fatalf("error = %v", err)
 	}
@@ -136,7 +136,7 @@ func TestApplyRejectsDevNullAndInexactConfirmation(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	err = RunIO([]string{"apply", "--target", token, "--write", "--key", "f13"}, stdin, &stdout, &stderr)
+	err = RunDeveloperIO([]string{"apply", "--target", token, "--write", "--key", "f13"}, stdin, &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "interactive input or --yes") {
 		t.Fatalf("error = %v", err)
 	}
@@ -162,7 +162,7 @@ func TestJSONFailuresUseEnvelopeAndStderr(t *testing.T) {
 		{"protocol", "parse-identify", "--hex", "af01"},
 		{"protocol", "preview", "--replace-all"},
 	} {
-		stdout, stderr, err := runCLI(args...)
+		stdout, stderr, err := runDeveloperCLI(args...)
 		if err == nil {
 			t.Fatalf("accepted %v", args)
 		}
@@ -176,7 +176,7 @@ func TestJSONFailuresUseEnvelopeAndStderr(t *testing.T) {
 		if !strings.HasPrefix(stderr, "Error: ") {
 			t.Fatalf("%v stderr = %q", args, stderr)
 		}
-		if args[0] == "protocol" && !strings.Contains(stderr, `Run "wonkey protocol `+args[1]+` --help"`) {
+		if args[0] == "protocol" && !strings.Contains(stderr, `Run "wonkey-dev protocol `+args[1]+` --help"`) {
 			t.Fatalf("%v lacks contextual help: %q", args, stderr)
 		}
 	}
@@ -197,12 +197,12 @@ func TestLegacyNumericSettingsRemainCompatibleAndHidden(t *testing.T) {
 	if _, err = captureQueries(newSettingsTransport(), dir, true); err != nil {
 		t.Fatal(err)
 	}
-	stdout, stderr, err := runCLI("plan", "--capture", dir, "--trigger", "2", "--modifiers", "3", "--rgb-mode", "1", "--red", "255", "--green", "0", "--blue", "4")
+	stdout, stderr, err := runDeveloperCLI("plan", "--capture", dir, "--trigger", "2", "--modifiers", "3", "--rgb-mode", "1", "--red", "255", "--green", "0", "--blue", "4")
 	if err != nil || stderr != "" || !strings.Contains(stdout, "trigger: press -> release") || !strings.Contains(stdout, "colour: #FFFFFF -> #FF0004") {
 		t.Fatalf("legacy plan stdout=%q stderr=%q error=%v", stdout, stderr, err)
 	}
 	for _, command := range []string{"plan", "apply"} {
-		stdout, _, helpErr := runCLI(command, "--help")
+		stdout, _, helpErr := runDeveloperCLI(command, "--help")
 		if helpErr != nil {
 			t.Fatal(helpErr)
 		}
@@ -212,7 +212,7 @@ func TestLegacyNumericSettingsRemainCompatibleAndHidden(t *testing.T) {
 			}
 		}
 	}
-	if _, _, err = runCLI("apply", "--trigger", "2", "--modifiers", "3", "--rgb-mode", "1"); !errors.Is(err, errWriteRequired) {
+	if _, _, err = runDeveloperCLI("apply", "--trigger", "2", "--modifiers", "3", "--rgb-mode", "1"); !errors.Is(err, errWriteRequired) {
 		t.Fatalf("legacy apply flags failed parsing: %v", err)
 	}
 	for _, options := range []settingsOptions{
@@ -228,7 +228,7 @@ func TestLegacyNumericSettingsRemainCompatibleAndHidden(t *testing.T) {
 }
 
 func TestPreviewWarnsAboutCompleteReplacement(t *testing.T) {
-	stdout, _, err := runCLI("protocol", "preview", "--replace-all", "--key", "f13", "--modifiers", "3", "--trigger", "2", "--rgb-mode", "1", "--red", "255", "--green", "0", "--blue", "4")
+	stdout, _, err := runDeveloperCLI("protocol", "preview", "--replace-all", "--key", "f13", "--modifiers", "3", "--trigger", "2", "--rgb-mode", "1", "--red", "255", "--green", "0", "--blue", "4")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func TestPreviewWarnsAboutCompleteReplacement(t *testing.T) {
 }
 
 func TestShowHelpHasNoCaptureRoot(t *testing.T) {
-	stdout, stderr, err := runCLI("show", "--help")
+	stdout, stderr, err := runDeveloperCLI("show", "--help")
 	if err != nil || stderr != "" || strings.Contains(stdout, "capture-root") || strings.Contains(stdout, "capture directory") {
 		t.Fatalf("stdout=%q stderr=%q error=%v", stdout, stderr, err)
 	}

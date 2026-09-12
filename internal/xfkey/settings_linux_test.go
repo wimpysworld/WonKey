@@ -474,7 +474,7 @@ func TestPlanSavedCaptureAndValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	if err := Run([]string{"plan", "--capture", dir, "--key", "f13"}, &output, io.Discard); err != nil {
+	if err := RunDeveloper([]string{"plan", "--capture", dir, "--key", "f13"}, &output, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(output.String(), "key: enter -> f13") {
@@ -486,7 +486,7 @@ func TestPlanSavedCaptureAndValidation(t *testing.T) {
 		{"plan", "--capture", dir}, {"plan", "--capture", dir, "--key", ""}, {"plan", "--capture", dir, "--blue", "-1"},
 		{"plan", "--capture", dir, "--write", "--blue", "0"}, {"plan", "--capture", dir, "--path", "x", "--blue", "0"},
 	} {
-		if err := Run(args, io.Discard, io.Discard); err == nil {
+		if err := RunDeveloper(args, io.Discard, io.Discard); err == nil {
 			t.Fatal("accepted", args)
 		}
 	}

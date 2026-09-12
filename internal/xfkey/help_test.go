@@ -12,7 +12,7 @@ import (
 func TestHelpReferenceAndLayout(t *testing.T) {
 	for _, args := range [][]string{nil, {"--help"}, {"-h"}, {"help"}, {"set", "--help"}, {"set", "-h"}, {"help", "set"}, {"set", "key=f13", "--json", "--help"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
-			stdout, stderr, err := runCLI(args...)
+			stdout, stderr, err := runDeveloperCLI(args...)
 			if err != nil || stderr != "" {
 				t.Fatal(stderr, err)
 			}
@@ -111,11 +111,11 @@ func TestHelpPublicOptionScopes(t *testing.T) {
 func TestHelpExamplesParseWithoutRunningCommands(t *testing.T) {
 	for _, page := range []string{landingPage, setPage} {
 		for _, line := range strings.Split(page, "\n") {
-			if !strings.HasPrefix(line, "  wonkey ") {
+			if !strings.HasPrefix(line, "  wonkey-dev ") {
 				continue
 			}
 			args := strings.Fields(line)[1:]
-			model := &cliModel{}
+			model := &developerModel{}
 			parser, err := kong.New(model)
 			if err != nil {
 				t.Fatal(err)

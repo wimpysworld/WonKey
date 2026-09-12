@@ -9,7 +9,7 @@ import (
 
 var settingsFlagNames = []string{"key", "trigger", "modifiers", "lighting", "colour", "rgb-mode", "red", "green", "blue"}
 
-func adaptCLI(model *cliModel, ctx *kong.Context) error {
+func adaptCLI(model *developerModel, ctx *kong.Context) error {
 	command := strings.TrimPrefix(ctx.Command(), "advanced ")
 	flags := map[string]bool{}
 	for _, path := range ctx.Path {

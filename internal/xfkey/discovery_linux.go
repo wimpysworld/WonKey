@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"syscall"
 )
@@ -20,11 +21,12 @@ var reportDescriptorHex = [...]string{
 }
 
 type NodeMetadata struct {
-	Path  string `json:"path"`
-	Mode  string `json:"mode,omitempty"`
-	UID   uint32 `json:"uid"`
-	GID   uint32 `json:"gid"`
-	Error string `json:"error,omitempty"`
+	identity [3]uint64
+	Path     string `json:"path"`
+	Mode     string `json:"mode,omitempty"`
+	UID      uint32 `json:"uid"`
+	GID      uint32 `json:"gid"`
+	Error    string `json:"error,omitempty"`
 }
 
 type Candidate struct {
@@ -114,6 +116,7 @@ func discover(root, devRoot string) ([]Candidate, error) {
 					c.VendorNode.Mode = info.Mode().String()
 					if st, ok := info.Sys().(*syscall.Stat_t); ok {
 						c.VendorNode.UID, c.VendorNode.GID = st.Uid, st.Gid
+						c.VendorNode.identity = [3]uint64{st.Dev, st.Ino, st.Rdev}
 					}
 				}
 			}
@@ -122,6 +125,10 @@ func discover(root, devRoot string) ([]Candidate, error) {
 		candidates = append(candidates, c)
 	}
 	return candidates, nil
+}
+
+func sameCandidate(a, b Candidate) bool {
+	return reflect.DeepEqual(a, b)
 }
 
 func selectCandidate(candidates []Candidate, path string) (*Candidate, error) {
@@ -138,7 +145,7 @@ func selectCandidate(candidates []Candidate, path string) (*Candidate, error) {
 			continue
 		}
 		if selected != nil {
-			return nil, fmt.Errorf("multiple matches: select an explicit physical path with --device (legacy: --path); find paths with wonkey advanced devices")
+			return nil, fmt.Errorf("multiple matches: select an explicit physical path with --device (legacy: --path); find paths with wonkey-dev advanced devices")
 		}
 		selected = c
 	}

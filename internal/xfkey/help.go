@@ -53,21 +53,21 @@ const backupReference = `Backup location (first non-empty value wins):
   then $HOME/.local/state/xfkey-captures.
 `
 
-const setExamples = `  wonkey set key=f13
-  wonkey set light=steady:0000ff
-  wonkey set key=f13 light=steady:0000ff
-  wonkey set trigger=release modifiers=ctrl,shift
-  wonkey set lighting=off
-  wonkey set colour=#0000ff
-  wonkey set key=f13 --dry-run
-  wonkey set --device 1-1.2 key=f13
-  wonkey set key=f13 --yes --capture-root /absolute/backups --json
+const setExamples = `  wonkey-dev set key=f13
+  wonkey-dev set light=steady:0000ff
+  wonkey-dev set key=f13 light=steady:0000ff
+  wonkey-dev set trigger=release modifiers=ctrl,shift
+  wonkey-dev set lighting=off
+  wonkey-dev set colour=#0000ff
+  wonkey-dev set key=f13 --dry-run
+  wonkey-dev set --device 1-1.2 key=f13
+  wonkey-dev set key=f13 --yes --capture-root /absolute/backups --json
 `
 
 const landingPage = `WonKey  One key. Your rules.
-Configure an XFKEY One Key Max (0112).
+Developer tools for an XFKEY One Key Max (0112).
 
-Usage: wonkey <command> [options]
+Usage: wonkey-dev <command> [options]
 
 Commands:
   show              Read current settings. No files created.
@@ -76,7 +76,7 @@ Commands:
 
 ` + settingsReference + `
 ` + setSafety + `
-Options (scope refers to the public commands):
+Options (developer commands only):
   --device PHYSICAL_PATH
                         show, set. Select a physical USB path, such as 1-1.2.
                         Selects the only compatible device when omitted.
@@ -89,17 +89,17 @@ Options (scope refers to the public commands):
 
 ` + backupReference + `
 Examples (show and set access a live device, including --dry-run):
-  wonkey show
+  wonkey-dev show
 ` + setExamples + `
 Advanced examples:
-  wonkey advanced devices
-  wonkey advanced plan ./capture light=steady:0000ff
+  wonkey-dev advanced devices
+  wonkey-dev advanced plan ./capture light=steady:0000ff
 The plan example reads a saved backup offline. Device discovery reads metadata.
 
-For command help, run "wonkey <command> --help".
+For command help, run "wonkey-dev <command> --help".
 `
 
-const setPage = `Usage: wonkey set SETTING=VALUE [SETTING=VALUE ...] [options]
+const setPage = `Usage: wonkey-dev set SETTING=VALUE [SETTING=VALUE ...] [options]
 Read, preview and save explicit settings on one compatible device.
 
 ` + settingsReference + `
@@ -129,7 +129,10 @@ func printHelp(options kong.HelpOptions, ctx *kong.Context) error {
 }
 
 func printLanding(out io.Writer) error {
-	text := landingPage
+	return printHumanHelp(out, landingPage)
+}
+
+func printHumanHelp(out io.Writer, text string) error {
 	if h := newHuman(out); h.colour {
 		heading, rest, _ := strings.Cut(text, "\n")
 		text = h.style("35", heading) + "\n" + rest

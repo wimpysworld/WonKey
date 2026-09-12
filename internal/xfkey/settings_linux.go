@@ -194,7 +194,11 @@ func applySettingsConfirmed(t queryTransport, dir string, target ApplyTarget, ch
 	return result, nil
 }
 
-func liveApply(path, root string, target ApplyTarget, changes Changes, write bool, confirm func(configuration, configuration, string) (bool, error), checkNoOp ...bool) (result ApplyResult, err error) {
+func liveApply(path, root string, target ApplyTarget, changes Changes, write bool, confirm func(configuration, configuration, string) (bool, error), checkNoOp ...bool) (ApplyResult, error) {
+	return liveApplyBound(path, root, target, changes, write, confirm, nil, checkNoOp...)
+}
+
+func liveApplyBound(path, root string, target ApplyTarget, changes Changes, write bool, confirm func(configuration, configuration, string) (bool, error), pinned *Candidate, checkNoOp ...bool) (result ApplyResult, err error) {
 	if !write {
 		return result, errWriteRequired
 	}
@@ -220,7 +224,7 @@ func liveApply(path, root string, target ApplyTarget, changes Changes, write boo
 			result.CleanupWarning = warning
 		}
 	}()
-	candidates, err := discover("/sys/bus/usb/devices", "/dev")
+	candidates, err := liveDiscover("/sys/bus/usb/devices", "/dev")
 	if err != nil {
 		return result, err
 	}
@@ -228,16 +232,19 @@ func liveApply(path, root string, target ApplyTarget, changes Changes, write boo
 	if err != nil {
 		return result, err
 	}
+	if pinned != nil && !sameCandidate(*selected, *pinned) {
+		return result, fmt.Errorf("selected descriptor, path or node changed; no settings write sent")
+	}
 	dir, err := newCaptureInRoot(lifecycle.root, *selected, syncDir)
 	result.Directory = dir
 	if err != nil {
 		return result, err
 	}
-	t, err := openTarget(*selected)
+	t, closer, err := liveOpenTarget(*selected)
 	if err != nil {
 		return result, fmt.Errorf("backup %s: %w", dir, err)
 	}
-	defer t.Close()
+	defer closer.Close()
 	result, err = applySettingsConfirmed(t, dir, target, changes, write, transactionTimeout, confirm, checkNoOp...)
 	if err != nil {
 		return result, fmt.Errorf("backup/transaction %s: %w", dir, err)

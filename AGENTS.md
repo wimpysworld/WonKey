@@ -2,7 +2,8 @@
 
 ## Architecture notes
 
-- Keep `cmd/wonkey` limited to process entry and exit handling. Keep CLI, protocol, and Linux device logic in `internal/xfkey`.
+- Keep `cmd/wonkey` and `cmd/wonkey-dev` limited to process entry and exit handling. Keep CLI, protocol, and Linux device logic in `internal/xfkey`.
+- Expose only `key` and `rgb` in the consumer executable, with help and `key --on` flags. Keep legacy and protocol tooling in the separately built `wonkey-dev`, outside the default build/install.
 - Use WonKey/`wonkey` for project branding and the executable, not for genuine hardware or compatibility identifiers.
 - Preserve `XFKEY`, One Key Max, `internal/xfkey`, upstream URLs, and captured metadata.
 - Preserve the `XFKEY_CAPTURE_ROOT` fallback and default `$HOME/.local/state/xfkey-captures` when changing capture configuration.
@@ -51,13 +52,15 @@ shellcheck capture-settings.sh check-key.sh
 
 - Obtain explicit user authority before device inspection, queries, writes, event streams, helper execution, or permission changes.
 - Do not treat README hardware examples as permission to execute them. `inspect` reads live sysfs despite not opening hidraw.
-- Preserve the explicit `apply --write` gate for legacy apply. For `set`, acquire expected identity/version freshly, select exactly one compatible device or require `--device PHYSICAL_PATH`, and retain the guarded transaction and capture-root requirement.
-- For `set`, read and show changes, confirm exactly `write` unless `--yes`, then create and validate the backup before upload. Reject identity or settings changes after confirmation, including changes that make the request a no-op.
-- Keep `set --dry-run` query-only with no saved captures. Do not describe live queries without files as offline. No-op and cancellation must send no settings upload or commit.
+- Preserve the explicit `apply --write` gate in developer tooling. For public changes, acquire expected identity/version freshly and retain the shared guarded transaction and automatic backup root.
+- Auto-select one compatible device. For multiple matches, require terminal selection tied to a displayed physical path, never persistent list numbering. Revalidate selected descriptors, node, path, identity, and version before the transaction.
+- Refuse public changes without a terminal before device access. Read and show current-to-proposed values, confirm exactly `write` with no bypass, then save, reopen, and validate a fresh durable backup before upload.
+- Share one buffered reader between selection and confirmation. Blank, EOF, or invalid input cancels safely. Reject settings drift after preview, including drift that makes the request a no-op.
+- Keep bare `key` and `rgb` query-only with no saved captures. Keep no-args/help and rejected syntax free of hardware access. No-op and cancellation must send no settings upload or commit.
 - Require a new durable backup and revalidate it before upload. A saved offline plan never authorises a live write.
 - Preserve exclusive capture creation and file/directory synchronisation, including capture-root ancestors. Never overwrite existing captures or ACL records.
-- Change only explicitly requested settings bytes. Reject unsupported current layouts even for RGB-only changes.
-- Keep `preview --replace-all` offline and separate from apply. Its zero-filled replacement must not replace preservation logic.
+- Treat a public key expression as the complete combination, clearing unspecified modifiers. Preserve omitted `--on` and RGB colour. Change no unrelated bytes. Reject unsupported current layouts even for RGB-only changes.
+- Keep developer `preview --replace-all` offline and separate from apply. Its zero-filled replacement must not replace preservation logic.
 
 ## Gotchas
 

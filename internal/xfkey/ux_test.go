@@ -26,7 +26,7 @@ func TestPositionalSettingsCompatibility(t *testing.T) {
 	if _, err := captureQueries(newSettingsTransport(), dir, true); err != nil {
 		t.Fatal(err)
 	}
-	old, _, err := runCLI("plan", "--capture", dir, "--key", "f13", "--trigger", "release", "--modifiers", "ctrl,shift", "--lighting", "steady", "--colour", "0000ff", "--json")
+	old, _, err := runDeveloperCLI("plan", "--capture", dir, "--key", "f13", "--trigger", "release", "--modifiers", "ctrl,shift", "--lighting", "steady", "--colour", "0000ff", "--json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,12 +35,12 @@ func TestPositionalSettingsCompatibility(t *testing.T) {
 		{"plan", "--capture", dir, "key=f13", "trigger=release", "modifiers=ctrl,shift", "lighting=steady", "colour=#0000ff", "--json"},
 		{"plan", dir, "--key", "f13", "--trigger", "release", "--modifiers", "ctrl,shift", "--lighting", "steady", "--colour", "0000ff", "--json"},
 	} {
-		got, stderr, err := runCLI(args...)
+		got, stderr, err := runDeveloperCLI(args...)
 		if err != nil || stderr != "" || got != old {
 			t.Fatalf("%v: %s %s %v", args, got, stderr, err)
 		}
 	}
-	stdout, _, err := runCLI("plan", dir, "key=enter")
+	stdout, _, err := runDeveloperCLI("plan", dir, "key=enter")
 	if err != nil || !strings.Contains(stdout, "No changes needed in this backup") || !strings.Contains(stdout, "No device access") {
 		t.Fatal(stdout, err)
 	}
@@ -55,7 +55,7 @@ func TestUXParserRejectsConflictsBeforeAccess(t *testing.T) {
 		{"apply", "0112:1-1.2:be077ba2:1014", "--target", "other", "key=f13", "--write"},
 		{"apply", "0112:1-1.2:be077ba2:1014", "--path", "1-1.2", "key=f13", "--write"},
 	} {
-		_, _, err := runCLI(args...)
+		_, _, err := runDeveloperCLI(args...)
 		if err == nil || ExitCode(err) != 2 {
 			t.Fatalf("%v: %v", args, err)
 		}
@@ -70,7 +70,7 @@ func TestUXParserRejectsConflictsBeforeAccess(t *testing.T) {
 		{"--key", "f13", "--key", "enter"},
 	} {
 		args := append([]string{"plan", "unused-capture", "--json"}, settings...)
-		stdout, stderr, err := runCLI(args...)
+		stdout, stderr, err := runDeveloperCLI(args...)
 		if err == nil || ExitCode(err) != 2 || !strings.Contains(stderr, "plan --help") {
 			t.Fatalf("%v: %v %s", args, err, stderr)
 		}
@@ -82,7 +82,7 @@ func TestUXParserRejectsConflictsBeforeAccess(t *testing.T) {
 }
 
 func TestPositionalShowAdapter(t *testing.T) {
-	model := &cliModel{}
+	model := &developerModel{}
 	parser, err := kong.New(model)
 	if err != nil {
 		t.Fatal(err)
@@ -98,11 +98,11 @@ func TestPositionalShowAdapter(t *testing.T) {
 
 func TestPositionalApplyGateAndPreflight(t *testing.T) {
 	for _, settings := range []string{"key=f13", "light=steady:0000ff"} {
-		_, _, err := runCLI("apply", "0112:1-1.2:be077ba2:1014", settings)
+		_, _, err := runDeveloperCLI("apply", "0112:1-1.2:be077ba2:1014", settings)
 		if !errors.Is(err, errWriteRequired) {
 			t.Fatal(err)
 		}
-		_, _, err = runCLI("apply", "0112:1-1.2:be077ba2:1014", settings, "--write")
+		_, _, err = runDeveloperCLI("apply", "0112:1-1.2:be077ba2:1014", settings, "--write")
 		if err == nil || !strings.Contains(err.Error(), "interactive input or --yes") {
 			t.Fatal(err)
 		}
@@ -119,7 +119,7 @@ func TestApplyCompatibilityTargetsWithAssignments(t *testing.T) {
 		{"--path", "1-1.2", "--expect-identifier", "be077ba2", "--expect-version", "1014"},
 	} {
 		args := append(append([]string{"apply"}, target...), "key=f13", "--write")
-		_, _, err := runCLI(args...)
+		_, _, err := runDeveloperCLI(args...)
 		if err == nil || !strings.Contains(err.Error(), "interactive input or --yes") {
 			t.Fatalf("%v: %v", args, err)
 		}
@@ -196,7 +196,7 @@ func TestHumanEscapingAndCompleteTarget(t *testing.T) {
 	if strings.ContainsAny(got, "\x1b\r\t\u202e") || strings.Contains(got, "\nforged") || !strings.Contains(got, `\x1b`) {
 		t.Fatal(got)
 	}
-	stdout, stderr, err := runCLI("apply", "--target", attack, "--key", "f13", "--write", "--json")
+	stdout, stderr, err := runDeveloperCLI("apply", "--target", attack, "--key", "f13", "--write", "--json")
 	if err == nil || strings.ContainsRune(stderr, '\x1b') {
 		t.Fatal(stderr, err)
 	}
@@ -279,7 +279,7 @@ func TestApplyFinishStreamsAndRetentionWarning(t *testing.T) {
 				if jsonOutput {
 					args = append(args, "--json")
 				}
-				reportCLIError(&cliModel{}, nil, args, &stdout, &stderr, err, 1)
+				reportCLIError(&developerModel{}, nil, args, &stdout, &stderr, err, 1)
 			}
 			if jsonOutput {
 				var value envelope

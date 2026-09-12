@@ -104,7 +104,7 @@ func (c *setCommand) run(rt *cliRuntime, access setAccess) error {
 	// The backup query must still match the plan approved before capture creation.
 	guard := func(fresh, proposed configuration, _ string) (bool, error) {
 		if fresh != current || proposed != intended {
-			return false, fmt.Errorf("settings changed after confirmation; no settings write sent; run wonkey show before a new set")
+			return false, fmt.Errorf("settings changed after confirmation; no settings write sent; run wonkey-dev show before a new set")
 		}
 		return true, nil
 	}

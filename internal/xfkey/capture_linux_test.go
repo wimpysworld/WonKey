@@ -45,15 +45,15 @@ func TestShowQueriesInMemoryAndCreatesNothing(t *testing.T) {
 	t.Setenv("XFKEY_CAPTURE_ROOT", root)
 	transport := newSettingsTransport()
 	closer := &closeRecorder{}
-	oldDiscover, oldOpen := queryDiscover, queryOpenTarget
-	t.Cleanup(func() { queryDiscover, queryOpenTarget = oldDiscover, oldOpen })
-	queryDiscover = func(sysfsRoot, devRoot string) ([]Candidate, error) {
+	oldDiscover, oldOpen := liveDiscover, liveOpenTarget
+	t.Cleanup(func() { liveDiscover, liveOpenTarget = oldDiscover, oldOpen })
+	liveDiscover = func(sysfsRoot, devRoot string) ([]Candidate, error) {
 		if sysfsRoot != "/sys/bus/usb/devices" || devRoot != "/dev" {
 			t.Fatalf("discovery roots = %q, %q", sysfsRoot, devRoot)
 		}
 		return []Candidate{{PhysicalPath: "1-2.3", Compatible: true}}, nil
 	}
-	queryOpenTarget = func(target Candidate) (queryTransport, io.Closer, error) {
+	liveOpenTarget = func(target Candidate) (queryTransport, io.Closer, error) {
 		if target.PhysicalPath != "1-2.3" {
 			t.Fatalf("opened target = %#v", target)
 		}
