@@ -54,13 +54,13 @@
         <figure class="terminal" aria-label="WonKey command examples">
           <figcaption><span class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></span>wonkey · Linux</figcaption>
           <pre><code><span class="terminal-comment"># Set your key combination</span>
-<span class="prompt">$ </span><span class="terminal-command">wonkey key</span> <span class="terminal-argument">ctrl+shift+f13</span>
+<span class="prompt">$ </span><span class="terminal-command">./wonkey key</span> <span class="terminal-argument">ctrl+shift+f13</span>
 
 <span class="terminal-comment"># Choose steady blue</span>
-<span class="prompt">$ </span><span class="terminal-command">wonkey rgb</span> <span class="terminal-argument">steady 0000ff</span>
+<span class="prompt">$ </span><span class="terminal-command">./wonkey rgb</span> <span class="terminal-argument">steady 0000ff</span>
 
 <span class="terminal-comment"># Restore saved settings</span>
-<span class="prompt">$ </span><span class="terminal-command">wonkey restore</span></code></pre>
+<span class="prompt">$ </span><span class="terminal-command">./wonkey restore</span></code></pre>
         </figure>
       </section>
       <section id="features" class="features section-rule" aria-labelledby="features-title">
@@ -73,7 +73,7 @@
         <dl class="feature-list">
           <div><dt><span class="feature-number" aria-hidden="true">01</span> Your key combination</dt><dd>Choose Enter or F13 with optional Ctrl, Shift, Alt, and GUI modifiers. Set the trigger with <code>--on</code>.</dd></div>
           <div><dt><span class="feature-number" aria-hidden="true">02</span> Your RGB lighting</dt><dd>Choose the lighting mode and colour, or switch the light off. RGB changes preserve your key settings.</dd></div>
-          <div><dt><span class="feature-number" aria-hidden="true">03</span> Your saved settings</dt><dd>Restore a compatible backup with <code>wonkey restore</code>. WonKey restores key and RGB settings while preserving other current configuration bytes.</dd></div>
+          <div><dt><span class="feature-number" aria-hidden="true">03</span> Your saved settings</dt><dd>Restore a compatible backup with <code>./wonkey restore</code>. WonKey restores key and RGB settings while preserving other current configuration bytes.</dd></div>
         </dl>
       </section>
       <section class="section-rule" aria-labelledby="workflow-title">
@@ -83,10 +83,10 @@
           <p>Read settings at any time. Changes require a terminal, your confirmation, and a validated automatic backup.</p>
         </div>
         <ol class="steps">
-          <li><code>wonkey key</code><h3>Read your settings</h3><p>Bare <code>key</code> and <code>rgb</code> commands show the current settings without changing them or creating backups.</p></li>
-          <li><code>wonkey key f13 --on release</code><h3>Choose your change</h3><p>Set a complete key combination. Omit <code>--on</code> to keep the current trigger, or omit an RGB colour to keep it.</p></li>
+          <li><code>./wonkey key</code><h3>Read your settings</h3><p>Bare <code>key</code> and <code>rgb</code> commands show the current settings without changing them or creating backups.</p></li>
+          <li><code>./wonkey key f13 --on release</code><h3>Choose your change</h3><p>Set a complete key combination. Omit <code>--on</code> to keep the current trigger, or omit an RGB colour to keep it.</p></li>
           <li><code>Save settings? [Y/n]:</code><h3>Check and confirm</h3><p>Review the selected device and current-to-proposed settings. Press Enter to save, or enter <code>n</code> to cancel.</p></li>
-          <li><code>wonkey restore</code><h3>Keep a way back</h3><p>WonKey validates a fresh backup before each write and checks the result. Restore lets you choose saved settings later.</p></li>
+          <li><code>./wonkey restore</code><h3>Keep a way back</h3><p>WonKey validates a fresh backup before each write and checks the result. Restore lets you choose saved settings later.</p></li>
         </ol>
         <p class="workflow-note">Cancellation and unchanged settings create no backup and send no settings writes. Restore changes settings, not firmware.</p>
       </section>
