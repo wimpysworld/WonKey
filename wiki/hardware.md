@@ -94,7 +94,8 @@ A single compatible device is selected automatically. Multiple matches require t
 List numbers identify only the displayed paths for this command, never persistent identity.
 Blank, EOF, invalid, or out-of-range selection cancels without opening HID. All changes require terminal input before any device access.
 WonKey freshly reads identity, version, and settings in memory, shows current-to-proposed changes, and asks for confirmation.
-Only the exact answer `write` followed by Enter confirms. Blank, invalid, or incomplete input cancels. There is no public bypass flag.
+At `Save settings? [Y/n]:`, press Enter or answer `y` or `yes` to confirm (case-insensitive).
+Answer `n` or `no` to cancel. Invalid input or EOF also cancels. There is no public bypass flag.
 Selection and confirmation share one buffered input reader, so pasted answers remain available.
 After confirmation, WonKey revalidates the selected descriptor, physical path, and node identity, then creates and validates a new durable backup.
 The transaction uses the freshly acquired identifier and version as expected values. It also checks every configuration byte against the approved plan.

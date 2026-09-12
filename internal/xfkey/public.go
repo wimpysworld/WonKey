@@ -345,13 +345,13 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 		h.line("", "No settings write sent.")
 		return nil
 	}
-	h.line("33", "Warning: this changes stored settings.")
-	writeConfirmationPrompt(rt, false)
+	fmt.Fprint(h.out, "Save settings? [Y/n]: ")
 	line, err := input.ReadString('\n')
 	if err != nil && err != io.EOF {
 		return err
 	}
-	if err == io.EOF || !exactWriteConfirmation(line) {
+	answer := strings.ToLower(strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r"))
+	if err == io.EOF || (answer != "" && answer != "y" && answer != "yes") {
 		h.line("", "Cancelled. No settings write sent.")
 		return nil
 	}
@@ -366,10 +366,10 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 		return true, nil
 	}
 	result, err := access.apply(*selected, root, target, c.changes, guard)
-	if result.Directory != "" {
-		h.field("Records", result.Directory)
-	}
 	if err != nil {
+		if result.Directory != "" {
+			h.field("Records", result.Directory)
+		}
 		if result.WriteAttempted {
 			h.line("31", "Device state uncertain. A submitted write can still complete.")
 		} else {
@@ -386,6 +386,5 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 	if result.CleanupWarning != "" {
 		h.line("33", "Warning: "+result.CleanupWarning+". Do not retry a successful write.")
 	}
-	h.line("33", "Persistence after reconnect is not verified.")
 	return nil
 }

@@ -108,7 +108,7 @@ func TestPublicHelpNoAccess(t *testing.T) {
 }
 
 func TestPublicWorkflow(t *testing.T) {
-	for _, name := range []string{"confirm", "rgb-write", "clear-modifiers", "pasted-crlf", "pasted-selection", "second-device", "query-key", "query-rgb", "query-multiple", "zero", "incompatible", "cancel", "eof", "partial-write", "invalid-confirm", "space-confirm", "blank-selection", "eof-selection", "partial-selection", "invalid-selection", "out-of-range", "no-op", "noninteractive", "noninteractive-selection", "identity-changed", "version-changed", "settings-changed", "became-no-op", "mismatch", "echo", "deadline", "unsupported", "backup-failed", "query-failed", "discover-failed", "wrong-path", "wrong-model", "missing-settings", "short-settings", "bad-settings"} {
+	for _, name := range []string{"confirm", "confirm-blank", "confirm-upper", "confirm-yes", "confirm-yes-upper", "cancel-upper", "cancel-no", "cancel-no-upper", "old-confirm", "space-only", "rgb-write", "clear-modifiers", "pasted-crlf", "pasted-selection", "second-device", "query-key", "query-rgb", "query-multiple", "zero", "incompatible", "cancel", "eof", "partial-write", "invalid-confirm", "space-confirm", "blank-selection", "eof-selection", "partial-selection", "invalid-selection", "out-of-range", "no-op", "noninteractive", "noninteractive-selection", "identity-changed", "version-changed", "settings-changed", "became-no-op", "mismatch", "echo", "deadline", "unsupported", "backup-failed", "query-failed", "discover-failed", "wrong-path", "wrong-model", "missing-settings", "short-settings", "bad-settings"} {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
 			t.Setenv("WONKEY_CAPTURE_ROOT", root)
@@ -128,30 +128,50 @@ func TestPublicWorkflow(t *testing.T) {
 			if name == "noninteractive-selection" {
 				args = []string{"key"}
 			}
-			input := "write\n"
+			input := "y\n"
 			multiple := name == "pasted-crlf" || name == "pasted-selection" || name == "second-device" || strings.Contains(name, "selection") || name == "query-multiple" || name == "out-of-range"
 			if multiple {
-				input = "1\nwrite\n"
+				input = "1\ny\n"
 			}
 			switch name {
 			case "pasted-crlf":
-				input = "1\r\nwrite\r\n"
+				input = "1\r\n\r\n"
 			case "second-device":
-				input = "2\nwrite\n"
-			case "cancel", "blank-selection":
-				input = "\nwrite\n"
+				input = "2\ny\n"
+			case "confirm-blank":
+				input = "\n"
+			case "confirm-upper":
+				input = "Y\n"
+			case "confirm-yes":
+				input = "yes\n"
+			case "confirm-yes-upper":
+				input = "YES\n"
+			case "cancel":
+				input = "n\n"
+			case "cancel-upper":
+				input = "N\n"
+			case "cancel-no":
+				input = "no\n"
+			case "cancel-no-upper":
+				input = "NO\n"
+			case "old-confirm":
+				input = "write\n"
+			case "space-only":
+				input = " \n"
+			case "blank-selection":
+				input = "\ny\n"
 			case "eof", "eof-selection":
 				input = ""
 			case "partial-write":
-				input = "write"
+				input = "y"
 			case "partial-selection":
 				input = "1"
 			case "invalid-confirm", "invalid-selection":
-				input = "yes\nwrite\n"
+				input = "invalid\ny\n"
 			case "space-confirm":
-				input = " write\n"
+				input = " y\n"
 			case "out-of-range":
-				input = "3\nwrite\n"
+				input = "3\ny\n"
 			}
 			first := newSettingsTransport()
 			if name == "unsupported" {
@@ -211,7 +231,7 @@ func TestPublicWorkflow(t *testing.T) {
 				},
 				apply: func(c Candidate, r string, target ApplyTarget, changes Changes, guard func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
 					applied = true
-					if c.PhysicalPath != wantPath || r != root || target != settingsTarget() || !strings.Contains(out.String(), " -> ") || !strings.Contains(out.String(), `Type "write"`) {
+					if c.PhysicalPath != wantPath || r != root || target != settingsTarget() || !strings.Contains(out.String(), " -> ") || !strings.HasSuffix(out.String(), "Save settings? [Y/n]: ") {
 						t.Fatal(c, r, target, out.String())
 					}
 					switch name {
@@ -248,7 +268,8 @@ func TestPublicWorkflow(t *testing.T) {
 			if (err != nil) != failure {
 				t.Fatal(err, out.String(), diagnostic.String())
 			}
-			wantApply := name == "rgb-write" || name == "clear-modifiers" || name == "pasted-crlf" || name == "confirm" || name == "pasted-selection" || name == "second-device" || strings.HasSuffix(name, "changed") || name == "became-no-op" || name == "mismatch" || name == "echo" || name == "deadline" || name == "backup-failed"
+			success := name == "rgb-write" || name == "clear-modifiers" || name == "pasted-crlf" || strings.HasPrefix(name, "confirm") || name == "pasted-selection" || name == "second-device"
+			wantApply := success || strings.HasSuffix(name, "changed") || name == "became-no-op" || name == "mismatch" || name == "echo" || name == "deadline" || name == "backup-failed"
 			if applied != wantApply {
 				t.Fatal("apply", applied, err)
 			}
@@ -269,9 +290,12 @@ func TestPublicWorkflow(t *testing.T) {
 					t.Fatal(entries, err)
 				}
 			}
-			if name == "rgb-write" || name == "clear-modifiers" || name == "pasted-crlf" || name == "confirm" || name == "pasted-selection" || name == "second-device" {
+			if success {
 				if !fresh.checked || len(fresh.packets) != 11 {
 					t.Fatal("durable backup/write missing")
+				}
+				if !strings.HasSuffix(out.String(), "Settings saved. All 128 readback bytes match.\n") || strings.Contains(out.String(), "Records") {
+					t.Fatal(out.String())
 				}
 			}
 			if name == "clear-modifiers" && fresh.current[2] != 0 {
@@ -290,7 +314,7 @@ func TestPublicWorkflow(t *testing.T) {
 			if name == "query-rgb" && (strings.Contains(out.String(), "\n  Key ") || strings.Contains(out.String(), "\n  On ")) {
 				t.Fatal(out.String())
 			}
-			for _, token := range []string{"wonkey-target-v1:", "Apply result", "Target"} {
+			for _, token := range []string{"wonkey-target-v1:", "Apply result", "Target", "Warning: this changes stored settings.", "Persistence after reconnect"} {
 				if strings.Contains(out.String(), token) {
 					t.Fatal(out.String())
 				}
@@ -394,7 +418,7 @@ func TestPublicLiveBoundaryOffline(t *testing.T) {
 			access := publicDeviceAccess()
 			access.interactive = func(io.Reader) bool { return true }
 			var out bytes.Buffer
-			err := runPublic([]string{"key", "f13"}, &cliRuntime{strings.NewReader("1\nwrite\n"), &out, io.Discard}, access)
+			err := runPublic([]string{"key", "f13"}, &cliRuntime{strings.NewReader("1\ny\n"), &out, io.Discard}, access)
 			success := name == "write" || name == "reordered"
 			if (err == nil) != success {
 				t.Fatal(err, out.String())

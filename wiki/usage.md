@@ -71,7 +71,8 @@ Blank, invalid, out-of-range, or incomplete selection cancels without opening a 
 Without a terminal, multiple-device queries and all changes are refused before HID access.
 
 Before a change, WonKey reads current settings and shows current-to-proposed values.
-Type exactly `write` and press Enter to confirm. Blank, other answers, or EOF cancel without a backup or settings write.
+At `Save settings? [Y/n]:`, press Enter or answer `y` or `yes` to confirm (case-insensitive).
+Answer `n` or `no` to cancel. Invalid input or EOF also cancels without a backup or settings write.
 There is no bypass flag. A no-op sends no settings upload or commit and creates no backup.
 
 After confirmation, WonKey revalidates the selected descriptors, node, physical path, identifier, and version.

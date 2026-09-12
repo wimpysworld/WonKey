@@ -46,8 +46,9 @@ RGB modes are `gradient`, `steady`, `flowing`, `flash`, `neon`, `off`, `held`, a
 Omit the six-digit RGB value to preserve the colour. RGB commands preserve key settings.
 
 WonKey selects a single compatible device automatically. Multiple matches require terminal selection by a displayed physical path.
-Changes require a terminal and the exact answer `write`. There is no confirmation bypass.
-Blank, invalid, or incomplete input cancels. No-op and cancellation send no settings writes and create no backup.
+Changes require a terminal. At `Save settings? [Y/n]:`, press Enter or answer `y` or `yes` to confirm (case-insensitive).
+Answer `n` or `no` to cancel. Invalid input or EOF also cancels. There is no confirmation bypass.
+No-op and cancellation send no settings writes and create no backup.
 After confirmation, WonKey saves and validates a fresh durable backup, rejects changed device state, uploads, and compares all 128 readback bytes.
 It never retries or rolls back automatically. Readback does not establish persistence after reconnect.
 A settings capture is not a firmware backup or a proven restore image.
