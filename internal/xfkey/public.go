@@ -352,15 +352,15 @@ func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, t
 	h.field("Identifier", target.Identifier)
 	h.field("Version", target.Version)
 	if c.name != "rgb" {
-		key := map[byte]string{0x28: "enter", 0x68: "f13"}[current[4]]
+		key := settingName(keyValues, int(current[4]))
 		if current[2] != 0 {
 			key = strings.ReplaceAll(modifierName(current[2]), ",", "+") + "+" + key
 		}
 		h.field("Key", key)
-		h.field("On", map[byte]string{1: "press", 2: "release", 3: "both"}[current[1]])
+		h.field("On", settingName(triggerValues, int(current[1])))
 	}
 	if c.name != "key" {
-		h.field("Mode", []string{"", "gradient", "steady", "flowing", "flash", "neon", "off", "held", "toggle"}[current[124]])
+		h.field("Mode", settingName(lightingValues, int(current[124])-1))
 		fmt.Fprintf(h.out, "  %-10s %s\n", "Colour", h.rgb(fmt.Sprintf("#%02X%02X%02X", current[125], current[126], current[127])))
 	}
 	if h.out.err != nil {
