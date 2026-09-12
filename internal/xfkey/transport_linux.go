@@ -109,7 +109,7 @@ func ioctl(fd int, request uintptr, pointer unsafe.Pointer) error {
 	return nil
 }
 
-func openTarget(target Candidate) (*hidrawTransport, error) {
+func revalidateCandidate(target Candidate) (*Candidate, error) {
 	fresh, err := discover("/sys/bus/usb/devices", "/dev")
 	if err != nil {
 		return nil, err
@@ -120,6 +120,14 @@ func openTarget(target Candidate) (*hidrawTransport, error) {
 	}
 	if !sameCandidate(*c, target) {
 		return nil, fmt.Errorf("selected descriptor, path or node changed")
+	}
+	return c, nil
+}
+
+func openTarget(target Candidate) (*hidrawTransport, error) {
+	c, err := revalidateCandidate(target)
+	if err != nil {
+		return nil, err
 	}
 	fd, err := syscall.Open(c.VendorNode.Path, syscall.O_RDWR|syscall.O_NONBLOCK|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0)
 	if err != nil {
@@ -134,16 +142,9 @@ func openTarget(target Candidate) (*hidrawTransport, error) {
 }
 
 func (t *hidrawTransport) Validate() error {
-	candidates, err := discover("/sys/bus/usb/devices", "/dev")
+	c, err := revalidateCandidate(t.target)
 	if err != nil {
 		return err
-	}
-	c, err := selectCandidate(candidates, t.target.PhysicalPath)
-	if err != nil {
-		return err
-	}
-	if !sameCandidate(*c, t.target) {
-		return fmt.Errorf("selected descriptor, path or node changed")
 	}
 	var opened, named syscall.Stat_t
 	if err := syscall.Fstat(t.fd, &opened); err != nil {
