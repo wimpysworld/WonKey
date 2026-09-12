@@ -36,7 +36,7 @@ Signals trigger cleanup, except uncatchable termination or power loss. If cleanu
 The wrapper does not create persistent permission rules.
 Set `WONKEY_CAPTURE_ROOT` to an absolute directory to configure capture storage.
 A non-empty `WONKEY_CAPTURE_ROOT` takes precedence over `XFKEY_CAPTURE_ROOT`, which remains a supported fallback.
-If both are unset or empty, captures still default to `$HOME/.local/state/xfkey-captures`.
+If both are unset or empty, captures default to `$HOME/.local/state/wonkey/captures`.
 Existing captures stay in place. Capture formats and developer `--capture` and `--capture-root` paths are unchanged.
 
 Optional query only, with no settings upload or commit:
@@ -113,7 +113,16 @@ The tool creates missing capture-root directories with mode `0700`, without chan
 It resolves the root path and synchronises every directory from that root up to `/`, including existing ancestors.
 Any synchronisation failure stops before the backup query or settings upload. Public changes already read the device to show their preview.
 This also covers roots created by an earlier interrupted attempt.
-Apply holds one capture-root lock, then creates a private backup named `YYYYMMDD-HHMMSS-XXXX` with a random hexadecimal suffix.
+Apply holds one capture-root lock, then creates a private backup.
+New captures use `YYMMDD-HHMMSS_key-KEY_rgb-MODE-COLOUR`, with a UTC start time.
+For example: `260912-083853_key-ctrl-alt-f13_rgb-steady-0000ff`.
+Names describe the captured bytes, not the requested settings. Names are lowercase, with modifiers ordered `ctrl-shift-alt-gui` and six RGB hex digits without `#`.
+Collisions add `-2`, `-3`, and so on, with an exclusive limit of 100 candidates. Existing directories are never overwritten.
+Before settings arrive, the new directory uses `key-unknown_rgb-unknown-unknown`. Identity-only and failed queries retain this fallback.
+After a complete settings query, only this new unfinished directory receives its captured label, with an atomic no-replace rename and directory synchronisation.
+Unsupported key layouts use `key-unknown-HEX`, where `HEX` contains the first five configuration bytes.
+Unknown lighting modes use `rgb-unknown-XX-COLOUR`, where `XX` is the raw mode byte. Available RGB bytes remain six hex digits.
+This naming change does not migrate or rename existing captures. Internal filenames and retention safety checks stay unchanged.
 It synchronises the raw identity/replies, current 128-byte configuration, completion marker, and directories before uploading.
 It reopens and checks the backup and expected identity before it writes a strict `backup.json` ownership record.
 It then checks the supported layout and saves the intended configuration and plan durably.

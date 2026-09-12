@@ -4,7 +4,7 @@ set -eu
 # Fixed first-test target. Reinspect before changing either value.
 path=1-1.2
 node=/dev/hidraw4
-root=${WONKEY_CAPTURE_ROOT:-${XFKEY_CAPTURE_ROOT:-"$HOME/.local/state/xfkey-captures"}}
+root=${WONKEY_CAPTURE_ROOT:-${XFKEY_CAPTURE_ROOT:-"$HOME/.local/state/wonkey/captures"}}
 case ${1:-} in
 readback | apply)
   command=$1

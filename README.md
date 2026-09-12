@@ -53,7 +53,9 @@ After confirmation, WonKey saves and validates a fresh durable backup, rejects c
 It never retries or rolls back automatically. Readback does not establish persistence after reconnect.
 A settings capture is not a firmware backup or a proven restore image.
 
-Backups use `WONKEY_CAPTURE_ROOT`, then `XFKEY_CAPTURE_ROOT`, then `$HOME/.local/state/xfkey-captures` (first non-empty value).
+Backups use `WONKEY_CAPTURE_ROOT`, then `XFKEY_CAPTURE_ROOT`, then `$HOME/.local/state/wonkey/captures` (first non-empty value).
+Directories use `YYMMDD-HHMMSS_key-KEY_rgb-MODE-COLOUR`, for example `260912-083853_key-ctrl-alt-f13_rgb-steady-0000ff`.
+Names describe captured settings, not requested changes. See [capture naming and records](wiki/hardware.md#apply-safety-and-records) for fallbacks.
 After a successful write, WonKey keeps the newest 10 owned backups for that model and identifier.
 Human output honours `NO_COLOR`, `TERM=dumb`, and redirected output.
 

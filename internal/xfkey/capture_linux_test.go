@@ -81,22 +81,16 @@ func packetCommands(packets []vendorPacket) []byte {
 }
 
 func TestShortCaptureNamesAreExclusive(t *testing.T) {
-	oldNow, oldRandom := captureNow, captureRandom
-	t.Cleanup(func() { captureNow, captureRandom = oldNow, oldRandom })
+	oldNow := captureNow
+	t.Cleanup(func() { captureNow = oldNow })
 	captureNow = func() time.Time { return time.Date(2026, 9, 11, 12, 34, 56, 0, time.UTC) }
-	values := [][]byte{{0xa3, 0xf2}, {0xa3, 0xf2}, {0xbe, 0xef}}
-	captureRandom = func(out []byte) (int, error) {
-		copy(out, values[0])
-		values = values[1:]
-		return len(out), nil
-	}
 	root := t.TempDir()
 	first, err := newCapture(root, Candidate{})
-	if err != nil || filepath.Base(first) != "20260911-123456-a3f2" {
+	if err != nil || filepath.Base(first) != "260911-123456_key-unknown_rgb-unknown-unknown" {
 		t.Fatalf("first=%q error=%v", first, err)
 	}
 	second, err := newCapture(root, Candidate{})
-	if err != nil || filepath.Base(second) != "20260911-123456-beef" {
+	if err != nil || filepath.Base(second) != "260911-123456_key-unknown_rgb-unknown-unknown-2" {
 		t.Fatalf("second=%q error=%v", second, err)
 	}
 	if _, ok := parseBackupName(filepath.Base(first)); !ok {

@@ -289,12 +289,12 @@ func TestCaptureRootPrecedence(t *testing.T) {
 			t.Fatalf("root = %q, %v", got, err)
 		}
 	}
-	os.Unsetenv("WONKEY_CAPTURE_ROOT")
+	t.Setenv("WONKEY_CAPTURE_ROOT", "")
 	if got, _ := resolveCaptureRoot(""); got != "/xfkey" {
 		t.Fatal(got)
 	}
-	os.Unsetenv("XFKEY_CAPTURE_ROOT")
-	if got, _ := resolveCaptureRoot(""); !strings.HasSuffix(got, "/.local/state/xfkey-captures") {
+	t.Setenv("XFKEY_CAPTURE_ROOT", "")
+	if got, _ := resolveCaptureRoot(""); !strings.HasSuffix(got, "/.local/state/wonkey/captures") {
 		t.Fatal(got)
 	}
 	if _, err := resolveCaptureRoot("relative"); err == nil {

@@ -53,5 +53,5 @@ Friendly settings flags and the old numeric settings remain accepted. Do not com
 Numeric values are trigger `1`–`3`, modifiers `0`–`15`, RGB mode `0`–`7`, and channels `0`–`255`.
 Unspecified legacy settings stay unchanged. Duplicate or overlapping settings fail.
 
-Legacy `--capture-root` overrides the environment fallbacks. Otherwise, storage uses `WONKEY_CAPTURE_ROOT`, then `XFKEY_CAPTURE_ROOT`, then `$HOME/.local/state/xfkey-captures`.
+Legacy `--capture-root` overrides the environment fallbacks. Otherwise, storage uses `WONKEY_CAPTURE_ROOT`, then `XFKEY_CAPTURE_ROOT`, then `$HOME/.local/state/wonkey/captures`.
 Read [hardware operations and safety](hardware.md) before discovery, queries, or writes. No example grants permission to execute a live operation.

@@ -83,7 +83,7 @@ All 128 readback bytes must match. A failure stops without retry or rollback.
 A submitted write can still complete after timeout. Stop when the tool reports uncertain state.
 Persistence after reconnect and observed key/lighting effects require separate hardware checks.
 
-Backups use the first non-empty value from `WONKEY_CAPTURE_ROOT`, `XFKEY_CAPTURE_ROOT`, and `$HOME/.local/state/xfkey-captures`.
+Backups use the first non-empty value from `WONKEY_CAPTURE_ROOT`, `XFKEY_CAPTURE_ROOT`, and `$HOME/.local/state/wonkey/captures`.
 An environment override must be an absolute path. No command-line override is accepted.
 After a successful transaction, retention keeps the newest 10 owned backups for the model and identifier.
 Do not retry a successful write because backup cleanup reports a warning.

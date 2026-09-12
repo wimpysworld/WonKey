@@ -86,7 +86,7 @@ func resolveCaptureRoot(value string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		value = filepath.Join(home, ".local", "state", "xfkey-captures")
+		value = filepath.Join(home, ".local", "state", "wonkey", "captures")
 	}
 	if !filepath.IsAbs(value) {
 		return "", fmt.Errorf("backup root must resolve to an absolute directory")

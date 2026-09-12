@@ -62,7 +62,7 @@ func TestHelpReferenceAndLayout(t *testing.T) {
 				"Selects the only compatible device", "Required when multiple devices match",
 				"Write one stable JSON value to stdout", "Diagnostics and confirmation prompts stay on stderr",
 				"--capture-root, then WONKEY_CAPTURE_ROOT, then XFKEY_CAPTURE_ROOT,",
-				"then $HOME/.local/state/xfkey-captures.",
+				"then $HOME/.local/state/wonkey/captures.",
 			} {
 				if !strings.Contains(stdout, text) {
 					t.Fatalf("missing reference %q", text)

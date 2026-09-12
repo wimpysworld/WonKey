@@ -50,7 +50,7 @@ const setOptions = `  --dry-run             set only. --dry-run reads the device
 
 const backupReference = `Backup location (first non-empty value wins):
   --capture-root, then WONKEY_CAPTURE_ROOT, then XFKEY_CAPTURE_ROOT,
-  then $HOME/.local/state/xfkey-captures.
+  then $HOME/.local/state/wonkey/captures.
 `
 
 const setExamples = `  wonkey-dev set key=f13

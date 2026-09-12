@@ -407,7 +407,7 @@ func TestPublicLiveBoundaryOffline(t *testing.T) {
 				}
 				for _, entry := range entries {
 					if entry.IsDir() {
-						fresh.dir = filepath.Join(root, entry.Name())
+						fresh.dir = filepath.Join(root, entry.Name()[:13]+"_"+captureSettingsLabel(fresh.current[:]))
 					}
 				}
 				if fresh.dir == "" {

@@ -1,7 +1,6 @@
 package xfkey
 
 import (
-	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -11,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,7 +43,8 @@ type backupRecord struct {
 
 var backupNamePattern = regexp.MustCompile(`^([0-9]{8})-([0-9]{6})-([0-9a-f]{4})$`)
 var captureNow = func() time.Time { return time.Now().UTC() }
-var captureRandom = rand.Read
+var labelledBackupNamePattern = regexp.MustCompile(`^([0-9]{6})-([0-9]{6})_key-[a-z0-9-]+_rgb-[a-z0-9-]+-([0-9a-f]{6}|unknown)(-[2-9]|-[1-9][0-9]+)?$`)
+var renameCapture = unix.Renameat2
 var renameBackup = unix.Renameat2
 var unlinkBackup = unix.Unlinkat
 var syncRootFD = unix.Fsync
@@ -132,19 +133,16 @@ func newCaptureWithSync(root string, target Candidate, syncDirectory func(string
 func newCaptureInRoot(root string, target Candidate, syncDirectory func(string) error) (string, error) {
 	started := captureNow().UTC()
 	var dir string
-	for attempts := 0; attempts < 100; attempts++ {
-		var suffix [2]byte
-		if _, err := captureRandom(suffix[:]); err != nil {
-			return "", err
-		}
-		name := started.Format("20060102-150405-") + hex.EncodeToString(suffix[:])
-		dir = filepath.Join(root, name)
-		if err := os.Mkdir(dir, 0700); err != nil {
+	base := started.Format("060102-150405") + "_key-unknown_rgb-unknown-unknown"
+	for attempts := 1; attempts <= 100; attempts++ {
+		candidate := filepath.Join(root, captureCollisionName(base, attempts))
+		if err := os.Mkdir(candidate, 0700); err != nil {
 			if errors.Is(err, os.ErrExist) {
 				continue
 			}
 			return "", err
 		}
+		dir = candidate
 		break
 	}
 	if dir == "" {
@@ -163,6 +161,61 @@ func newCaptureInRoot(root string, target Candidate, syncDirectory func(string) 
 		return dir, err
 	}
 	return dir, saveExclusive(dir, "provenance.json", b)
+}
+
+func captureCollisionName(base string, attempt int) string {
+	if attempt == 1 {
+		return base
+	}
+	return fmt.Sprintf("%s-%d", base, attempt)
+}
+
+func captureSettingsLabel(raw []byte) string {
+	if len(raw) != 128 {
+		return "key-unknown_rgb-unknown-unknown"
+	}
+	key := fmt.Sprintf("unknown-%x", raw[:5])
+	if raw[0] == 0 && raw[1] >= 1 && raw[1] <= 3 && raw[3] == 1 && raw[2] <= 15 {
+		for name, value := range keyValues {
+			if int(raw[4]) == value {
+				key = name
+				if raw[2] != 0 {
+					key = strings.ReplaceAll(modifierName(raw[2]), ",", "-") + "-" + key
+				}
+			}
+		}
+	}
+	mode := fmt.Sprintf("unknown-%02x", raw[124])
+	for name, value := range lightingValues {
+		if int(raw[124]) == value+1 {
+			mode = name
+		}
+	}
+	return fmt.Sprintf("key-%s_rgb-%s-%x", key, mode, raw[125:128])
+}
+
+// Only the newly created, unfinished capture is named here, before its completion record.
+func nameCapturedSettings(dir string, raw []byte) (string, error) {
+	if len(raw) != 128 {
+		return dir, nil
+	}
+	name := filepath.Base(dir)
+	if !labelledBackupNamePattern.MatchString(name) {
+		return dir, fmt.Errorf("invalid new capture name %q", name)
+	}
+	root := filepath.Dir(dir)
+	base := name[:13] + "_" + captureSettingsLabel(raw)
+	for attempt := 1; attempt <= 100; attempt++ {
+		destination := filepath.Join(root, captureCollisionName(base, attempt))
+		if err := renameCapture(unix.AT_FDCWD, dir, unix.AT_FDCWD, destination, unix.RENAME_NOREPLACE); err != nil {
+			if errors.Is(err, os.ErrExist) {
+				continue
+			}
+			return dir, err
+		}
+		return destination, errors.Join(syncDir(destination), syncDir(root))
+	}
+	return dir, fmt.Errorf("cannot name an exclusive capture after 100 attempts")
 }
 
 func queryCapture(t queryTransport, readback bool) (captureQuery, error) {
@@ -229,6 +282,14 @@ func persistCapture(dir string, q captureQuery, complete bool) (CaptureResult, e
 	return q.result, saveCompletion(dir, b)
 }
 
+func captureNamedQueries(t queryTransport, dir string, readback bool) (CaptureResult, error) {
+	q, queryErr := queryCapture(t, readback)
+	var nameErr error
+	dir, nameErr = nameCapturedSettings(dir, q.config)
+	result, persistErr := persistCapture(dir, q, queryErr == nil && nameErr == nil)
+	return result, errors.Join(queryErr, nameErr, persistErr)
+}
+
 func captureQueries(t queryTransport, dir string, readback bool) (CaptureResult, error) {
 	q, queryErr := queryCapture(t, readback)
 	result, persistErr := persistCapture(dir, q, queryErr == nil)
@@ -289,11 +350,10 @@ func liveCapture(path, root string, readback bool) (CaptureResult, error) {
 		return result, fmt.Errorf("capture %s: %w", dir, err)
 	}
 	defer t.Close()
-	q, queryErr := queryCapture(t, readback)
-	result, persistErr := persistCapture(dir, q, queryErr == nil)
+	result, err = captureNamedQueries(t, dir, readback)
 	result.PhysicalPath = target.PhysicalPath
-	if queryErr != nil || persistErr != nil {
-		return result, fmt.Errorf("capture %s incomplete: %w; stop without retry", dir, errors.Join(queryErr, persistErr))
+	if err != nil {
+		return result, fmt.Errorf("capture %s incomplete: %w; stop without retry", result.Directory, err)
 	}
 	return result, nil
 }
@@ -333,7 +393,12 @@ func (l *captureRootLock) close() error {
 }
 
 func parseBackupName(name string) (time.Time, bool) {
-	match := backupNamePattern.FindStringSubmatch(name)
+	match := labelledBackupNamePattern.FindStringSubmatch(name)
+	if match != nil {
+		t, err := time.Parse("20060102-150405", "20"+match[1]+"-"+match[2])
+		return t.UTC(), err == nil
+	}
+	match = backupNamePattern.FindStringSubmatch(name)
 	if match == nil {
 		return time.Time{}, false
 	}
@@ -570,6 +635,17 @@ func (l *captureRootLock) retainBackups(model, identifier string, keep int) erro
 	}
 	sort.Slice(backups, func(i, j int) bool {
 		if backups[i].created.Equal(backups[j].created) {
+			left := labelledBackupNamePattern.FindStringSubmatch(backups[i].name)
+			right := labelledBackupNamePattern.FindStringSubmatch(backups[j].name)
+			if left != nil && right != nil {
+				leftBase := strings.TrimSuffix(backups[i].name, left[4])
+				rightBase := strings.TrimSuffix(backups[j].name, right[4])
+				if leftBase == rightBase {
+					leftIndex, _ := strconv.Atoi(strings.TrimPrefix(left[4], "-"))
+					rightIndex, _ := strconv.Atoi(strings.TrimPrefix(right[4], "-"))
+					return leftIndex > rightIndex
+				}
+			}
 			return backups[i].name > backups[j].name
 		}
 		return backups[i].created.After(backups[j].created)

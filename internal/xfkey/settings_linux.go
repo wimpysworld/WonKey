@@ -66,6 +66,10 @@ func applySettings(t queryTransport, dir string, target ApplyTarget, changes Cha
 }
 
 func applySettingsConfirmed(t queryTransport, dir string, target ApplyTarget, changes Changes, write bool, timeout time.Duration, confirm func(configuration, configuration, string) (bool, error), checkNoOp ...bool) (result ApplyResult, err error) {
+	return applySettingsWithCapture(t, dir, target, changes, write, timeout, confirm, captureQueries, checkNoOp...)
+}
+
+func applySettingsWithCapture(t queryTransport, dir string, target ApplyTarget, changes Changes, write bool, timeout time.Duration, confirm func(configuration, configuration, string) (bool, error), capture func(queryTransport, string, bool) (CaptureResult, error), checkNoOp ...bool) (result ApplyResult, err error) {
 	result = ApplyResult{Directory: dir, Outcome: "failed-before-upload", Warning: "No automatic retry or rollback. Readback verifies current state only, not persistence after reconnect. A timed-out submitted write can still complete in the kernel."}
 	if !write {
 		return result, errWriteRequired
@@ -88,8 +92,11 @@ func applySettingsConfirmed(t queryTransport, dir string, target ApplyTarget, ch
 			err = errors.Join(err, fmt.Errorf("outcome storage failed: %w; device state must not be assumed", marshalErr))
 		}
 	}()
-	if _, err = captureQueries(t, dir, true); err != nil {
-		return result, err
+	backupCapture, captureErr := capture(t, dir, true)
+	dir = backupCapture.Directory
+	result.Directory = dir
+	if captureErr != nil {
+		return result, captureErr
 	}
 	// Reopen the durable backup and validate it before permitting any configuration write.
 	backup, current, err := loadCapture(dir)
@@ -245,9 +252,9 @@ func liveApplyBound(path, root string, target ApplyTarget, changes Changes, writ
 		return result, fmt.Errorf("backup %s: %w", dir, err)
 	}
 	defer closer.Close()
-	result, err = applySettingsConfirmed(t, dir, target, changes, write, transactionTimeout, confirm, checkNoOp...)
+	result, err = applySettingsWithCapture(t, dir, target, changes, write, transactionTimeout, confirm, captureNamedQueries, checkNoOp...)
 	if err != nil {
-		return result, fmt.Errorf("backup/transaction %s: %w", dir, err)
+		return result, fmt.Errorf("backup/transaction %s: %w", result.Directory, err)
 	}
 	if result.Outcome == "no-op" || result.Outcome == "readback-verified" {
 		if cleanupErr := lifecycle.retainBackups("0112", target.Identifier, 10); cleanupErr != nil {

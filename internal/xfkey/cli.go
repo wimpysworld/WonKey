@@ -131,7 +131,7 @@ func (*planCommand) Help() string {
 }
 
 func (*applyCommand) Help() string {
-	return "Queries one HID device, creates and validates a new backup settings capture, then writes only explicit changes. It requires --write, a target token from show --target or JSON, and confirmation.\n\nExample: wonkey-dev apply TARGET key=f13 light=steady:0000ff --write\n\nSettings: key=, trigger=, modifiers=, lighting=, colour=, light=mode:hex.\nOnly explicit settings change. Do not mix assignments with settings flags.\n\nWrite permission: --write is required. Type exactly write to confirm; blank cancels.\n\nAutomation and storage: --yes skips confirmation only; --json keeps stdout machine-readable.\nBackup root: --capture-root, then WONKEY_CAPTURE_ROOT, then XFKEY_CAPTURE_ROOT, then $HOME/.local/state/xfkey-captures."
+	return "Queries one HID device, creates and validates a new backup settings capture, then writes only explicit changes. It requires --write, a target token from show --target or JSON, and confirmation.\n\nExample: wonkey-dev apply TARGET key=f13 light=steady:0000ff --write\n\nSettings: key=, trigger=, modifiers=, lighting=, colour=, light=mode:hex.\nOnly explicit settings change. Do not mix assignments with settings flags.\n\nWrite permission: --write is required. Type exactly write to confirm; blank cancels.\n\nAutomation and storage: --yes skips confirmation only; --json keeps stdout machine-readable.\nBackup root: --capture-root, then WONKEY_CAPTURE_ROOT, then XFKEY_CAPTURE_ROOT, then $HOME/.local/state/wonkey/captures."
 }
 
 func (*protocolCommand) Help() string {
