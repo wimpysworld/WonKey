@@ -27,6 +27,46 @@ func (w *failingHumanOutput) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+func TestSettingNamesAndViews(t *testing.T) {
+	for _, tc := range []struct {
+		setting string
+		offset  int
+		values  map[string]int
+		shift   int
+		names   map[byte]string
+	}{
+		{"key", 4, keyValues, 0, map[byte]string{0x28: "enter", 0x68: "f13"}},
+		{"trigger", 1, triggerValues, 0, map[byte]string{1: "press", 2: "release", 3: "both"}},
+		{"lighting", 124, lightingValues, 1, map[byte]string{1: "gradient", 2: "steady", 3: "flowing", 4: "flash", 5: "neon", 6: "off", 7: "held", 8: "toggle"}},
+	} {
+		t.Run(tc.setting, func(t *testing.T) {
+			for value := range 256 {
+				want := tc.names[byte(value)]
+				if got := settingName(tc.values, value-tc.shift); got != want {
+					t.Fatalf("value %d: got %q, want %q", value, got, want)
+				}
+				if want == "" {
+					continue
+				}
+				current := syntheticSettings()
+				intended := current
+				intended[tc.offset] = byte(value)
+				views := settingViews(current, intended)
+				if current == intended {
+					if len(views) != 0 {
+						t.Fatal(views)
+					}
+					continue
+				}
+				expected := changeView{tc.setting, tc.names[current[tc.offset]], want}
+				if len(views) != 1 || views[0] != expected {
+					t.Fatalf("value %d: got %v, want %v", value, views, expected)
+				}
+			}
+		})
+	}
+}
+
 func TestHumanRetainsOutputFailure(t *testing.T) {
 	for _, short := range []bool{false, true} {
 		out := &failingHumanOutput{short: short}

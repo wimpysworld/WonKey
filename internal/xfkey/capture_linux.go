@@ -175,20 +175,16 @@ func captureSettingsLabel(raw []byte) string {
 	}
 	key := fmt.Sprintf("unknown-%x", raw[:5])
 	if raw[0] == 0 && raw[1] >= 1 && raw[1] <= 3 && raw[3] == 1 && raw[2] <= 15 {
-		for name, value := range keyValues {
-			if int(raw[4]) == value {
-				key = name
-				if raw[2] != 0 {
-					key = strings.ReplaceAll(modifierName(raw[2]), ",", "-") + "-" + key
-				}
+		if name := settingName(keyValues, int(raw[4])); name != "" {
+			key = name
+			if raw[2] != 0 {
+				key = strings.ReplaceAll(modifierName(raw[2]), ",", "-") + "-" + key
 			}
 		}
 	}
 	mode := fmt.Sprintf("unknown-%02x", raw[124])
-	for name, value := range lightingValues {
-		if int(raw[124]) == value+1 {
-			mode = name
-		}
+	if name := settingName(lightingValues, int(raw[124])-1); name != "" {
+		mode = name
 	}
 	return fmt.Sprintf("key-%s_rgb-%s-%x", key, mode, raw[125:128])
 }

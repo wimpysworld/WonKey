@@ -82,6 +82,15 @@ func resolveCaptureRoot() (string, error) {
 	return filepath.Join(home, ".local", "state", "wonkey", "captures"), nil
 }
 
+func settingName(values map[string]int, value int) string {
+	for name, candidate := range values {
+		if candidate == value {
+			return name
+		}
+	}
+	return ""
+}
+
 func modifierName(v byte) string {
 	if v == 0 {
 		return "none"
@@ -111,11 +120,10 @@ func settingViews(current, intended configuration) []changeView {
 			views = append(views, changeView{name, before, after})
 		}
 	}
-	add("key", map[byte]string{0x28: "enter", 0x68: "f13"}[current[4]], map[byte]string{0x28: "enter", 0x68: "f13"}[intended[4]])
-	add("trigger", map[byte]string{1: "press", 2: "release", 3: "both"}[current[1]], map[byte]string{1: "press", 2: "release", 3: "both"}[intended[1]])
+	add("key", settingName(keyValues, int(current[4])), settingName(keyValues, int(intended[4])))
+	add("trigger", settingName(triggerValues, int(current[1])), settingName(triggerValues, int(intended[1])))
 	add("modifiers", modifierName(current[2]), modifierName(intended[2]))
-	light := []string{"", "gradient", "steady", "flowing", "flash", "neon", "off", "held", "toggle"}
-	add("lighting", light[current[124]], light[intended[124]])
+	add("lighting", settingName(lightingValues, int(current[124])-1), settingName(lightingValues, int(intended[124])-1))
 	add("colour", fmt.Sprintf("#%02X%02X%02X", current[125], current[126], current[127]), fmt.Sprintf("#%02X%02X%02X", intended[125], intended[126], intended[127]))
 	return views
 }
