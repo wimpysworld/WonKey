@@ -37,7 +37,7 @@ func TestIdentity(t *testing.T) {
 
 func TestReadbackBoundariesAndRawPreservation(t *testing.T) {
 	replies := [3][]byte{syntheticReply(6), syntheticReply(7), syntheticReply(8)}
-	for i := 0; i < 62; i++ {
+	for i := range 62 {
 		replies[0][i+2] = byte(i)
 		replies[1][i+2] = byte(i + 62)
 	}
@@ -52,8 +52,8 @@ func TestReadbackBoundariesAndRawPreservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, i := range []int{0, 61, 62, 123, 124, 127} {
-		if c[i] != byte(i) {
+	for _, i := range []byte{0, 61, 62, 123, 124, 127} {
+		if c[i] != i {
 			t.Errorf("boundary %d = %d", i, c[i])
 		}
 	}
@@ -101,10 +101,10 @@ func TestPreview(t *testing.T) {
 	if packets[0] != (vendorPacket{0xaf, 1}) || packets[4] != (vendorPacket{0xaf, 4}) {
 		t.Fatal("identify or commit framing")
 	}
-	for i, offset := range []int{0, 60, 120} {
+	for i, offset := range []byte{0, 60, 120} {
 		packet := packets[i+1]
 		count := min(60, 128-offset)
-		if !bytes.Equal(packet[:4], []byte{0xaf, 2, byte(offset), byte(count)}) || !bytes.Equal(packet[4:4+count], c[offset:offset+count]) {
+		if !bytes.Equal(packet[:4], []byte{0xaf, 2, offset, count}) || !bytes.Equal(packet[4:4+count], c[offset:offset+count]) {
 			t.Fatalf("packet %d", i)
 		}
 		if !bytes.Equal(packet[4+count:], make([]byte, 60-count)) {

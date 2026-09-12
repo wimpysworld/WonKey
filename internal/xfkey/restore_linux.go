@@ -163,11 +163,11 @@ func chooseRestore(path string, identity deviceIdentity, current configuration, 
 	}
 	fmt.Fprint(h.out, "Backup number [cancel]: ")
 	line, err := input.ReadString('\n')
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
 	}
 	n, parseErr := strconv.Atoi(strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r"))
-	if err == io.EOF || parseErr != nil || n < 1 || n > len(sources) {
+	if errors.Is(err, io.EOF) || parseErr != nil || n < 1 || n > len(sources) {
 		h.line("", "Cancelled. No settings write sent.")
 		return nil, nil
 	}

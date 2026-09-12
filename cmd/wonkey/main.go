@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-
 	"wonkey/internal/xfkey"
 )
 

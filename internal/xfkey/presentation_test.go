@@ -16,7 +16,7 @@ func TestSettingsValidationOrderAndFriendlyValues(t *testing.T) {
 			t.Fatalf("%s = %d", key, changes[key])
 		}
 	}
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		err = (Changes{"blue": 999, "key": 1}).validate()
 		if err == nil || !strings.Contains(err.Error(), "key=1") {
 			t.Fatalf("non-deterministic error: %v", err)

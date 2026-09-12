@@ -16,7 +16,7 @@ import (
 func restoreTestSource(t *testing.T, root, name string, transport *settingsTransport) string {
 	t.Helper()
 	dir := filepath.Join(root, name)
-	if err := os.Mkdir(dir, 0700); err != nil {
+	if err := os.Mkdir(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	result, err := captureQueries(transport, dir, true)
@@ -77,7 +77,8 @@ func TestRestoreSourceValidation(t *testing.T) {
 					t.Fatal(err)
 				}
 				b[20] ^= 1
-				if err := os.WriteFile(path, b, 0600); err != nil {
+				// #nosec G703 -- The path uses a temporary test directory and one of two fixed filenames.
+				if err := os.WriteFile(path, b, 0o600); err != nil {
 					t.Fatal(err)
 				}
 			case "linked-directory":
@@ -195,7 +196,7 @@ func TestPublicRestoreWorkflow(t *testing.T) {
 					case "mismatch":
 						fresh.mismatch = true
 					case "source-replaced":
-						if err := os.WriteFile(filepath.Join(source, "configuration.bin"), make([]byte, 128), 0600); err != nil {
+						if err := os.WriteFile(filepath.Join(source, "configuration.bin"), make([]byte, 128), 0o600); err != nil {
 							t.Fatal(err)
 						}
 					}
@@ -213,7 +214,7 @@ func TestPublicRestoreWorkflow(t *testing.T) {
 						return applySettingsWithCapture(fresh, dir, target, changes, true, time.Second, guard, func(tr queryTransport, path string, readback bool) (CaptureResult, error) {
 							r, err := captureQueries(tr, path, readback)
 							if err == nil {
-								err = os.WriteFile(filepath.Join(r.Directory, "configuration.bin"), make([]byte, 128), 0600)
+								err = os.WriteFile(filepath.Join(r.Directory, "configuration.bin"), make([]byte, 128), 0o600)
 							}
 							return r, err
 						}, true)

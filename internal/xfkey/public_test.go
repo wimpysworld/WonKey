@@ -17,7 +17,8 @@ func TestPublicParser(t *testing.T) {
 		args []string
 		want Changes
 	}{
-		{[]string{"key"}, nil}, {[]string{"rgb"}, nil},
+		{[]string{"key"}, nil},
+		{[]string{"rgb"}, nil},
 		{[]string{"key", "f13"}, Changes{"key": 0x68, "modifiers": 0}},
 		{[]string{"key", "ctrl+shift+f13"}, Changes{"key": 0x68, "modifiers": 3}},
 		{[]string{"key", "alt+super+enter", "--on", "release"}, Changes{"key": 0x28, "modifiers": 12, "trigger": 2}},
@@ -70,12 +71,50 @@ func TestPublicParser(t *testing.T) {
 
 func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 	cases := [][]string{
-		{"key", "gui+f13"}, {"key", "GUI+enter"}, {"key", "super+super+f13"},
-		{"restore", "one", "two"}, {"restore", "--yes"}, {"restore", "--capture-root", "/tmp"}, {"restore", "--write"}, {"restore", "--help", "--yes"}, {"rollback"},
-		{"help"}, {"advanced"}, {"show"}, {"set", "key=f13"}, {"plan"}, {"apply"}, {"devices"}, {"inspect"}, {"identify"}, {"readback"}, {"preview"}, {"protocol"}, {"parse-identify"}, {"parse-readback"},
-		{"key", "--on", "release"}, {"key", "f13", "--on=press", "--on=release"}, {"key", "f13", "--on="}, {"key", "f13", "--on", "click"}, {"key", "f13", "--on"},
-		{"rgb", "off", "--on", "press"}, {"key", "a"}, {"key", ""}, {"key", "f13+"}, {"key", "+f13"}, {"key", "ctrl+ctrl+f13"}, {"key", "none+f13"}, {"key", "f13+ctrl"}, {"key", "f13", "enter"},
-		{"rgb", ""}, {"rgb", "blue"}, {"rgb", "steady", "#0000ff"}, {"rgb", "steady", "00000"}, {"rgb", "steady", "gggggg"}, {"rgb", "off", "000000", "extra"}, {"--help", "--yes"},
+		{"key", "gui+f13"},
+		{"key", "GUI+enter"},
+		{"key", "super+super+f13"},
+		{"restore", "one", "two"},
+		{"restore", "--yes"},
+		{"restore", "--capture-root", "/tmp"},
+		{"restore", "--write"},
+		{"restore", "--help", "--yes"},
+		{"rollback"},
+		{"help"},
+		{"advanced"},
+		{"show"},
+		{"set", "key=f13"},
+		{"plan"},
+		{"apply"},
+		{"devices"},
+		{"inspect"},
+		{"identify"},
+		{"readback"},
+		{"preview"},
+		{"protocol"},
+		{"parse-identify"},
+		{"parse-readback"},
+		{"key", "--on", "release"},
+		{"key", "f13", "--on=press", "--on=release"},
+		{"key", "f13", "--on="},
+		{"key", "f13", "--on", "click"},
+		{"key", "f13", "--on"},
+		{"rgb", "off", "--on", "press"},
+		{"key", "a"},
+		{"key", ""},
+		{"key", "f13+"},
+		{"key", "+f13"},
+		{"key", "ctrl+ctrl+f13"},
+		{"key", "none+f13"},
+		{"key", "f13+ctrl"},
+		{"key", "f13", "enter"},
+		{"rgb", ""},
+		{"rgb", "blue"},
+		{"rgb", "steady", "#0000ff"},
+		{"rgb", "steady", "00000"},
+		{"rgb", "steady", "gggggg"},
+		{"rgb", "off", "000000", "extra"},
+		{"--help", "--yes"},
 	}
 	for _, flag := range []string{"--device", "--capture-root", "--json", "--yes", "--dry-run", "--write", "--target", "--path", "--key", "--modifiers", "--trigger", "--lighting", "--colour", "--rgb-mode", "--red", "--expect-identifier", "--expect-version", "--json=false", "--yes=false"} {
 		cases = append(cases, []string{"key", "f13", flag}, []string{"rgb", "off", flag}, []string{"key", "--help", flag})
@@ -307,7 +346,7 @@ func TestPublicWorkflow(t *testing.T) {
 				t.Fatal("modifiers were not cleared")
 			}
 			if name == "rgb-write" {
-				for i := 0; i < 124; i++ {
+				for i := range 124 {
 					if first.current[i] != fresh.current[i] {
 						t.Fatal("RGB changed key/unrelated byte", i)
 					}

@@ -9,8 +9,10 @@ import (
 
 const evidenceStatus = "host-derived, hardware-unverified"
 
-type vendorPacket [64]byte
-type configuration [128]byte
+type (
+	vendorPacket  [64]byte
+	configuration [128]byte
+)
 
 type deviceIdentity struct {
 	Status     string `json:"status"`
@@ -89,10 +91,10 @@ func parseReadback(replies [3][]byte) (Readback, error) {
 func preview(c configuration) [5]vendorPacket {
 	var packets [5]vendorPacket
 	packets[0][0], packets[0][1] = 0xaf, 1
-	for i, offset := range []int{0, 60, 120} {
+	for i, offset := range []byte{0, 60, 120} {
 		p := &packets[i+1]
 		count := min(60, 128-offset)
-		p[0], p[1], p[2], p[3] = 0xaf, 2, byte(offset), byte(count)
+		p[0], p[1], p[2], p[3] = 0xaf, 2, offset, count
 		copy(p[4:], c[offset:offset+count])
 	}
 	packets[4][0], packets[4][1] = 0xaf, 4

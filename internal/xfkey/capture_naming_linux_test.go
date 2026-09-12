@@ -15,14 +15,23 @@ import (
 
 func TestCapturedSettingsLabels(t *testing.T) {
 	for key, value := range keyValues {
-		for mask := 0; mask < 16; mask++ {
+		if value < 0 || value > 255 {
+			t.Errorf("key value is not a byte: %d", value)
+			continue
+		}
+		keyByte := byte(value)
+		for mask := range byte(16) {
 			for mode, index := range lightingValues {
+				if index < 0 || index >= 255 {
+					t.Errorf("lighting index cannot fit its stored byte: %d", index)
+					continue
+				}
 				c := syntheticSettings()
-				c[4], c[2], c[124] = byte(value), byte(mask), byte(index+1)
+				c[4], c[2], c[124] = keyByte, mask, byte(index+1)
 				copy(c[125:], []byte{0, 0, 255})
 				combination := key
 				if mask != 0 {
-					combination = strings.ReplaceAll(modifierName(byte(mask)), ",", "-") + "-" + key
+					combination = strings.ReplaceAll(modifierName(mask), ",", "-") + "-" + key
 				}
 				want := "key-" + combination + "_rgb-" + mode + "-0000ff"
 				if got := captureSettingsLabel(c[:]); got != want {
@@ -158,7 +167,7 @@ func TestNamedCaptureRetentionOrdersCollisionNumbers(t *testing.T) {
 	fixedCaptureTime(t)
 	root := t.TempDir()
 	var directories []string
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		dir, err := newCapture(root, Candidate{})
 		if err != nil {
 			t.Fatal(err)
@@ -175,7 +184,7 @@ func TestNamedCaptureRetentionOrdersCollisionNumbers(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer lock.close()
-	if err := lock.retainBackups("0112", "be077ba2", 10); err != nil {
+	if err := lock.retainBackups("be077ba2", 10); err != nil {
 		t.Fatal(err)
 	}
 	for i, dir := range directories {
@@ -191,7 +200,7 @@ func TestCaptureCollisionExhaustionDoesNotOverwrite(t *testing.T) {
 	root := t.TempDir()
 	base := "260912-083853_key-unknown_rgb-unknown-unknown"
 	for attempt := 1; attempt <= 100; attempt++ {
-		if err := os.WriteFile(filepath.Join(root, captureCollisionName(base, attempt)), []byte("existing"), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(root, captureCollisionName(base, attempt)), []byte("existing"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

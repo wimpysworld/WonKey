@@ -10,9 +10,11 @@ import (
 
 var settingOrder = []string{"key", "trigger", "modifiers", "rgb-mode", "red", "green", "blue"}
 
-var keyValues = map[string]int{"enter": 0x28, "f13": 0x68}
-var triggerValues = map[string]int{"press": 1, "release": 2, "both": 3}
-var lightingValues = map[string]int{"gradient": 0, "steady": 1, "flowing": 2, "flash": 3, "neon": 4, "off": 5, "held": 6, "toggle": 7}
+var (
+	keyValues      = map[string]int{"enter": 0x28, "f13": 0x68}
+	triggerValues  = map[string]int{"press": 1, "release": 2, "both": 3}
+	lightingValues = map[string]int{"gradient": 0, "steady": 1, "flowing": 2, "flash": 3, "neon": 4, "off": 5, "held": 6, "toggle": 7}
+)
 
 func parseSettings(key, trigger, modifiers, lighting, colour string) (Changes, error) {
 	changes := Changes{}
