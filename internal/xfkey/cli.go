@@ -19,33 +19,16 @@ var errWriteRequired = errors.New("apply requires explicit --write; no device ac
 
 const legacyUnset = -2147483648
 
-const landingPage = `WonKey configures the key action and lighting on an XFKEY One Key Max.
-
-Usage: wonkey <command>
-
-Safe workflow:
-  wonkey devices   Find matching devices without opening a HID device.
-  wonkey show      Query current settings without creating files.
-  wonkey plan      Preview changes from an apply backup without device access.
-  wonkey apply     Back up, confirm, and apply explicit changes.
-
-Expert tools:
-  wonkey protocol  Inspect the protocol offline. Protocol commands always produce JSON.
-
-Run "wonkey <command> --help" for examples.
-Warning: only "apply --write" can change stored settings.
-`
-
 type outputOptions struct {
-	JSON bool `help:"Write one stable JSON value to stdout. Diagnostics stay on stderr."`
+	JSON bool `group:"Output" help:"Write one stable JSON value to stdout. Diagnostics stay on stderr."`
 }
 
 type settingsOptions struct {
-	Key           string `help:"Set the key action: enter or f13."`
-	Trigger       string `help:"Set when the key action occurs: press, release, or both."`
-	Modifiers     string `help:"Set no modifier or a comma-separated set of ctrl,shift,alt,gui."`
-	Lighting      string `help:"Set the lighting effect: gradient, steady, flowing, flash, neon, off, held, or toggle."`
-	Colour        string `help:"Set the lighting colour as RRGGBB or #RRGGBB."`
+	Key           string `group:"Settings flags (compatibility)" help:"Set the key action: enter or f13."`
+	Trigger       string `group:"Settings flags (compatibility)" help:"Set when the key action occurs: press, release, or both."`
+	Modifiers     string `group:"Settings flags (compatibility)" help:"Set no modifier or a comma-separated set of ctrl,shift,alt,gui."`
+	Lighting      string `group:"Settings flags (compatibility)" help:"Set the lighting effect: gradient, steady, flowing, flash, neon, off, held, or toggle."`
+	Colour        string `group:"Settings flags (compatibility)" help:"Set the lighting colour as RRGGBB or #RRGGBB."`
 	LegacyRGBMode int    `name:"rgb-mode" default:"-2147483648" hidden:""`
 	LegacyRed     int    `name:"red" default:"-2147483648" hidden:""`
 	LegacyGreen   int    `name:"green" default:"-2147483648" hidden:""`
@@ -53,17 +36,25 @@ type settingsOptions struct {
 }
 
 type cliModel struct {
-	Devices       devicesCommand       `cmd:"" help:"Find matching devices from system metadata."`
+	Set           setCommand           `cmd:"" help:"Read, preview and save explicit settings with backup and confirmation."`
+	Advanced      advancedCommand      `cmd:"" help:"Device discovery, saved plans and protocol tools."`
+	Devices       devicesCommand       `cmd:"" hidden:""`
 	Show          showCommand          `cmd:"" help:"Query current hardware settings without creating files."`
-	Plan          planCommand          `cmd:"" help:"Read local capture files and preview changes offline."`
-	Apply         applyCommand         `cmd:"" help:"Query hardware, back up settings, and apply explicit changes."`
-	Protocol      protocolCommand      `cmd:"" help:"Use expert offline protocol tools. Output is always JSON."`
+	Plan          planCommand          `cmd:"" hidden:""`
+	Apply         applyCommand         `cmd:"" hidden:""`
+	Protocol      protocolCommand      `cmd:"" hidden:""`
 	Inspect       inspectCommand       `cmd:"" hidden:""`
 	Identify      identifyCommand      `cmd:"" hidden:""`
 	Readback      readbackCommand      `cmd:"" hidden:""`
 	Preview       previewCommand       `cmd:"" hidden:""`
 	ParseIdentify parseIdentifyCommand `cmd:"" name:"parse-identify" hidden:""`
 	ParseReadback parseReadbackCommand `cmd:"" name:"parse-readback" hidden:""`
+}
+
+type advancedCommand struct {
+	Devices  devicesCommand  `cmd:"" help:"Find compatible devices and physical paths."`
+	Plan     planCommand     `cmd:"" help:"Preview changes from a saved backup offline."`
+	Protocol protocolCommand `cmd:"" help:"Offline protocol tools. Always JSON."`
 }
 
 type devicesCommand struct{ outputOptions }
@@ -80,23 +71,27 @@ type readbackCommand struct {
 }
 type showCommand struct {
 	outputOptions
-	Device string `help:"Device path, for example 1-1.2."`
+	Device string `help:"Physical USB path. Required when multiple devices match."`
+	Target bool   `hidden:"" help:"Include the legacy copyable target in human output."`
+	Path   string `arg:"" optional:"" help:"Physical USB path, for example 1-1.2. Omit only for a single match."`
 }
 type planCommand struct {
 	outputOptions
 	settingsOptions
-	Capture string `required:"" help:"Apply backup directory."`
+	Capture   string   `help:"Compatibility form of CAPTURE: a completed apply backup directory."`
+	Arguments []string `arg:"" optional:"" name:"capture-and-settings" help:"CAPTURE followed by explicit setting=value assignments."`
 }
 type applyCommand struct {
 	outputOptions
 	settingsOptions
-	Target           string `help:"Target token from show. A target token binds a device path and verified identity."`
-	CaptureRoot      string `help:"Absolute root directory for the new backup settings capture." type:"path"`
-	Write            bool   `help:"Permit settings upload and commit. Without this flag, apply stops before device access."`
-	Yes              bool   `help:"Skip only the interactive confirmation. All other safety checks remain."`
-	Path             string `hidden:""`
-	ExpectIdentifier string `name:"expect-identifier" hidden:""`
-	ExpectVersion    string `name:"expect-version" hidden:""`
+	Arguments        []string `arg:"" optional:"" name:"target-and-settings" help:"TARGET from show followed by explicit setting=value assignments."`
+	Target           string   `group:"Target" help:"Compatibility form of TARGET from show, binding path, model, identifier and version."`
+	CaptureRoot      string   `group:"Automation and storage" help:"Absolute root directory for the new backup settings capture." type:"path"`
+	Write            bool     `group:"Write permission" help:"Permit settings upload and commit. Without this flag, apply stops before device access."`
+	Yes              bool     `group:"Automation and storage" help:"Skip only the interactive confirmation. All other safety checks remain."`
+	Path             string   `hidden:""`
+	ExpectIdentifier string   `name:"expect-identifier" hidden:""`
+	ExpectVersion    string   `name:"expect-version" hidden:""`
 }
 type protocolCommand struct {
 	Preview       previewCommand       `cmd:"" help:"Build replacement packets from explicit values. Always writes JSON."`
@@ -124,19 +119,19 @@ type parseReadbackCommand struct {
 }
 
 func (*devicesCommand) Help() string {
-	return "Reads USB and device-node metadata. It does not open a HID device.\n\nExample: wonkey devices"
+	return "Reads USB and device-node metadata. It does not open a HID device.\n\nExample: wonkey advanced devices"
 }
 
 func (*showCommand) Help() string {
-	return "Queries one HID device in memory and creates no files. The command returns current settings and a target token for apply.\n\nExample: wonkey show --device 1-1.2"
+	return "Reads current settings from one device and creates no files. Selects the only compatible device.\n\nExample: wonkey show\nMultiple devices: wonkey show --device 1-1.2\nChange settings: wonkey set key=f13"
 }
 
 func (*planCommand) Help() string {
-	return "Reads only local files in a settings capture. It does not access hardware or write settings.\n\nExample: wonkey plan --capture ./capture --lighting steady --colour 0000ff"
+	return "Reads only local files in a settings capture. It does not access hardware or write settings.\n\nNeeds a completed apply backup; show creates no capture.\n\nExample: wonkey advanced plan ./capture light=steady:0000ff"
 }
 
 func (*applyCommand) Help() string {
-	return "Queries one HID device, creates and validates a new backup settings capture, then writes only explicit changes. It requires --write, a target token, and confirmation.\n\nExample: wonkey apply --target TOKEN --lighting steady --colour 0000ff --write"
+	return "Queries one HID device, creates and validates a new backup settings capture, then writes only explicit changes. It requires --write, a target token from show --target or JSON, and confirmation.\n\nExample: wonkey apply TARGET key=f13 light=steady:0000ff --write\n\nSettings: key=, trigger=, modifiers=, lighting=, colour=, light=mode:hex.\nOnly explicit settings change. Do not mix assignments with settings flags.\n\nWrite permission: --write is required. Type exactly write to confirm; blank cancels.\n\nAutomation and storage: --yes skips confirmation only; --json keeps stdout machine-readable.\nBackup root: --capture-root, then WONKEY_CAPTURE_ROOT, then XFKEY_CAPTURE_ROOT, then $HOME/.local/state/xfkey-captures."
 }
 
 func (*protocolCommand) Help() string {
@@ -170,8 +165,10 @@ func Run(args []string, stdout, stderr io.Writer) error {
 
 func RunIO(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if len(args) == 0 || (len(args) == 1 && (args[0] == "--help" || args[0] == "help")) {
-		_, err := io.WriteString(stdout, landingPage)
-		return err
+		return printLanding(stdout)
+	}
+	if len(args) == 1 && args[0] == "advanced" {
+		args = []string{"advanced", "--help"}
 	}
 	model := &cliModel{}
 	exitCode := -1
@@ -179,6 +176,7 @@ func RunIO(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		kong.Name("wonkey"),
 		kong.Description("Configure the key action and lighting on an XFKEY One Key Max."),
 		kong.Writers(stdout, stderr),
+		kong.Help(printHelp),
 		kong.Exit(func(code int) { exitCode = code }),
 		kong.Bind(&cliRuntime{stdin, stdout, stderr}),
 	)
@@ -193,6 +191,9 @@ func RunIO(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return nil
 	}
 	if err != nil {
+		return reportCLIError(model, ctx, args, stdout, stderr, err, 2)
+	}
+	if err := adaptCLI(model, ctx); err != nil {
 		return reportCLIError(model, ctx, args, stdout, stderr, err, 2)
 	}
 	if err := ctx.Run(); err != nil {
@@ -216,14 +217,14 @@ func reportCLIError(model *cliModel, ctx *kong.Context, args []string, stdout, s
 		}
 	}
 	message := strings.TrimSuffix(err.Error(), ".")
-	fmt.Fprintf(stderr, "Error: %s.\n", message)
+	newHuman(stderr).line("31", "Error: "+message+".")
 	command := commandName(args)
 	if command == "plan" {
-		fmt.Fprintln(stderr, `Run "wonkey plan --help" for an offline example.`)
+		fmt.Fprintf(stderr, "Run \"wonkey %s --help\" for an offline example.\n", commandPath(args))
 	} else if command == "" || !knownCommand(command) {
 		fmt.Fprintln(stderr, `Run "wonkey --help" for available commands.`)
 	} else {
-		fmt.Fprintf(stderr, "Run \"wonkey %s --help\" for more information.\n", commandPath(args))
+		fmt.Fprintf(stderr, "Run \"wonkey %s --help\" for more information.\n", escapeHuman(commandPath(args)))
 	}
 	return &CLIError{Err: err, Code: code}
 }
@@ -249,6 +250,8 @@ func parsedJSONMode(model *cliModel, ctx *kong.Context, args []string) bool {
 		return model.Plan.JSON
 	case "apply":
 		return model.Apply.JSON
+	case "set":
+		return model.Set.JSON
 	default:
 		return false
 	}
@@ -264,6 +267,9 @@ func hasExplicitJSON(args []string) bool {
 }
 
 func commandPath(args []string) string {
+	if len(args) > 1 && args[0] == "advanced" {
+		return "advanced " + commandPath(args[1:])
+	}
 	if len(args) > 1 && args[0] == "protocol" {
 		switch args[1] {
 		case "preview", "parse-identify", "parse-readback":
@@ -275,7 +281,7 @@ func commandPath(args []string) string {
 
 func knownCommand(command string) bool {
 	switch command {
-	case "devices", "show", "plan", "apply", "protocol", "identify", "preview", "parse-identify", "parse-readback":
+	case "devices", "show", "set", "advanced", "plan", "apply", "protocol", "identify", "preview", "parse-identify", "parse-readback":
 		return true
 	default:
 		return false
@@ -287,6 +293,11 @@ func commandName(args []string) string {
 		return ""
 	}
 	switch args[0] {
+	case "advanced":
+		if len(args) > 1 && args[1] != "--help" {
+			return commandName(args[1:])
+		}
+		return "advanced"
 	case "inspect":
 		return "devices"
 	case "readback":
@@ -315,15 +326,7 @@ func (c *devicesCommand) Run(rt *cliRuntime) error {
 			Candidates    []Candidate `json:"candidates"`
 		}{1, "devices", "success", candidates})
 	}
-	fmt.Fprintln(rt.out, "DEVICE PATH\tDEVICE\tSTATUS\tNODE")
-	for _, candidate := range candidates {
-		status := "compatible"
-		if !candidate.Compatible {
-			status = "rejected: " + strings.Join(candidate.Reasons, "; ")
-		}
-		fmt.Fprintf(rt.out, "%s\tOne Key Max 0112\t%s\t%s\n", candidate.PhysicalPath, status, candidate.VendorNode.Path)
-	}
-	fmt.Fprintln(rt.out, "\nNode access was not tested. Matching uses pinned descriptors.")
+	newHuman(rt.out).devices(candidates)
 	return nil
 }
 
@@ -389,8 +392,10 @@ func (c *showCommand) Run(rt *cliRuntime) error {
 	if c.JSON {
 		return encodeJSON(rt.out, envelope{SchemaVersion: 1, Command: "show", Outcome: "success", Device: &target, Target: token, Changes: []changeView{}, Warnings: []string{"Lighting names are vendor labels. Most effects are not verified on hardware."}})
 	}
-	fmt.Fprintf(rt.out, "Device: One Key Max 0112 at %s\nTarget token: %s\n", target.PhysicalPath, token)
-	fmt.Fprintf(rt.out, "Key: %s\nTrigger: %s\nModifiers: %s\nLighting: %s\nColour: #%02X%02X%02X\n", map[byte]string{0x28: "enter", 0x68: "f13"}[current[4]], map[byte]string{1: "press", 2: "release", 3: "both"}[current[1]], modifierName(current[2]), []string{"", "gradient", "steady", "flowing", "flash", "neon", "off", "held", "toggle"}[current[124]], current[125], current[126], current[127])
+	newHuman(rt.out).show(target, current)
+	if c.Target {
+		newHuman(rt.out).field("Target", compactTarget(target))
+	}
 	return nil
 }
 
@@ -428,21 +433,20 @@ func (c *planCommand) Run(rt *cliRuntime) error {
 	if c.JSON {
 		return encodeJSON(rt.out, envelope{SchemaVersion: 1, Command: "plan", Outcome: map[bool]string{true: "no-op", false: "planned"}[len(views) == 0], Device: &target, Capture: c.Capture, Changes: views, Warnings: []string{"This offline plan cannot authorise a write."}})
 	}
-	fmt.Fprintf(rt.out, "Device: One Key Max 0112, identifier %s, version %04x\nSettings capture: %s\n\n", capture.Identity.Identifier, capture.Identity.Version, c.Capture)
-	printChanges(rt.out, views)
-	fmt.Fprintln(rt.out, "\nUnspecified settings stay unchanged. This offline plan cannot authorise a write.")
-	return nil
-}
-
-func printChanges(w io.Writer, views []changeView) {
+	h := newHuman(rt.out)
+	h.heading("Offline plan")
+	h.field("Capture", c.Capture)
+	h.field("Device", "One Key Max 0112")
+	h.field("Identifier", target.Identifier)
+	h.field("Version", target.Version)
 	if len(views) == 0 {
-		fmt.Fprintln(w, "Result: no-op")
-		return
+		h.line("", "No changes needed in this backup.")
+	} else {
+		h.changes(views)
 	}
-	fmt.Fprintln(w, "Changes:")
-	for _, v := range views {
-		fmt.Fprintf(w, "  %s: %s -> %s\n", v.Setting, v.Before, v.After)
-	}
+	h.line("", "Unspecified settings stay unchanged. No device access.")
+	h.line("33", "This offline plan cannot authorise a write.")
+	return nil
 }
 
 func settingsChanges(options settingsOptions) (Changes, error) {
@@ -491,7 +495,7 @@ func (c *applyCommand) Run(rt *cliRuntime) error {
 	var err error
 	legacy := c.Path != "" || c.ExpectIdentifier != "" || c.ExpectVersion != ""
 	if c.Target != "" && legacy {
-		return fmt.Errorf("--target cannot be combined with compatibility target flags")
+		return fmt.Errorf("target cannot be combined with compatibility target flags")
 	}
 	if legacy {
 		target = targetToken{PhysicalPath: c.Path, Model: "0112", Identifier: c.ExpectIdentifier, Version: c.ExpectVersion}
@@ -520,13 +524,17 @@ func (c *applyCommand) Run(rt *cliRuntime) error {
 	}
 	confirm := func(current, intended configuration, dir string) (bool, error) {
 		views := settingViews(current, intended)
+		out := rt.out
 		if c.JSON {
-			fmt.Fprintf(rt.errOut, "Backup settings capture: %s\n", dir)
-			printChanges(rt.errOut, views)
-		} else {
-			fmt.Fprintf(rt.out, "Backup settings capture: %s\n\n", dir)
-			printChanges(rt.out, views)
+			out = rt.errOut
 		}
+		h := newHuman(out)
+		h.heading("Ready to write")
+		h.field("Target", compactTarget(target))
+		h.field("Backup", dir)
+		h.changes(views)
+		h.line("", "Unspecified settings stay unchanged.")
+		h.line("33", "Warning: this changes stored settings.")
 		if c.Yes {
 			return true, nil
 		}
@@ -538,23 +546,35 @@ func (c *applyCommand) Run(rt *cliRuntime) error {
 		return exactWriteConfirmation(line), nil
 	}
 	result, err := liveApply(target.PhysicalPath, root, ApplyTarget{target.Identifier, target.Version}, changes, true, confirm)
+	return c.finish(rt, target, result, err)
+}
+
+func (c *applyCommand) finish(rt *cliRuntime, target targetToken, result ApplyResult, err error) error {
+	return c.finishCommand(rt, target, result, err, "apply")
+}
+
+func (c *applyCommand) finishCommand(rt *cliRuntime, target targetToken, result ApplyResult, err error, command string) error {
 	if err != nil {
 		if c.JSON {
-			encodeErr := encodeJSON(rt.out, envelope{SchemaVersion: 1, Command: "apply", Outcome: result.Outcome, Device: &target, Capture: result.Directory, Changes: result.Changes, WriteAttempted: result.WriteAttempted, ReadbackVerified: result.ReadbackVerified, Warnings: []string{err.Error()}})
+			encodeErr := encodeJSON(rt.out, envelope{SchemaVersion: 1, Command: command, Outcome: result.Outcome, Device: &target, Capture: result.Directory, Changes: result.Changes, WriteAttempted: result.WriteAttempted, ReadbackVerified: result.ReadbackVerified, Warnings: []string{err.Error()}})
 			return reportedError{errors.Join(err, encodeErr)}
 		}
+		newHuman(rt.errOut).apply(result, err)
 		return err
 	}
 	warnings := []string{"Persistence after reconnect is not verified."}
+	if result.Outcome == "dry-run" {
+		warnings = []string{"Dry-run read the device. No files saved or settings written."}
+	}
 	if result.CleanupWarning != "" {
 		warnings = append(warnings, result.CleanupWarning)
-		fmt.Fprintln(rt.errOut, "Warning:", result.CleanupWarning)
+		newHuman(rt.errOut).line("33", "Warning: "+result.CleanupWarning+". Do not retry a successful apply.")
 	}
-	out := envelope{SchemaVersion: 1, Command: "apply", Outcome: result.Outcome, Device: &target, Capture: result.Directory, Changes: result.Changes, WriteAttempted: result.WriteAttempted, ReadbackVerified: result.ReadbackVerified, PersistenceVerified: false, Warnings: warnings}
+	out := envelope{SchemaVersion: 1, Command: command, Outcome: result.Outcome, Device: &target, Capture: result.Directory, Changes: result.Changes, WriteAttempted: result.WriteAttempted, ReadbackVerified: result.ReadbackVerified, PersistenceVerified: false, Warnings: warnings}
 	if c.JSON {
 		return encodeJSON(rt.out, out)
 	}
-	fmt.Fprintf(rt.out, "\nResult: %s\nWrite attempted: %t\nSettings capture: %s\n", result.Outcome, result.WriteAttempted, result.Directory)
+	newHuman(rt.out).apply(result, nil)
 	return nil
 }
 

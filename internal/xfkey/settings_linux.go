@@ -65,7 +65,7 @@ func applySettings(t queryTransport, dir string, target ApplyTarget, changes Cha
 	return applySettingsConfirmed(t, dir, target, changes, write, timeout, func(configuration, configuration, string) (bool, error) { return true, nil })
 }
 
-func applySettingsConfirmed(t queryTransport, dir string, target ApplyTarget, changes Changes, write bool, timeout time.Duration, confirm func(configuration, configuration, string) (bool, error)) (result ApplyResult, err error) {
+func applySettingsConfirmed(t queryTransport, dir string, target ApplyTarget, changes Changes, write bool, timeout time.Duration, confirm func(configuration, configuration, string) (bool, error), checkNoOp ...bool) (result ApplyResult, err error) {
 	result = ApplyResult{Directory: dir, Outcome: "failed-before-upload", Warning: "No automatic retry or rollback. Readback verifies current state only, not persistence after reconnect. A timed-out submitted write can still complete in the kernel."}
 	if !write {
 		return result, errWriteRequired
@@ -118,7 +118,7 @@ func applySettingsConfirmed(t queryTransport, dir string, target ApplyTarget, ch
 	if err = saveExclusive(dir, "intended-configuration.bin", intended[:]); err != nil {
 		return result, err
 	}
-	if len(plan.ChangedOffsets) == 0 {
+	if len(plan.ChangedOffsets) == 0 && (len(checkNoOp) == 0 || !checkNoOp[0]) {
 		result.Outcome = "no-op"
 		return result, nil
 	}
@@ -128,6 +128,10 @@ func applySettingsConfirmed(t queryTransport, dir string, target ApplyTarget, ch
 	}
 	if !confirmed {
 		result.Outcome = "cancelled"
+		return result, nil
+	}
+	if len(plan.ChangedOffsets) == 0 {
+		result.Outcome = "no-op"
 		return result, nil
 	}
 	packets := preview(intended)
@@ -190,7 +194,7 @@ func applySettingsConfirmed(t queryTransport, dir string, target ApplyTarget, ch
 	return result, nil
 }
 
-func liveApply(path, root string, target ApplyTarget, changes Changes, write bool, confirm func(configuration, configuration, string) (bool, error)) (result ApplyResult, err error) {
+func liveApply(path, root string, target ApplyTarget, changes Changes, write bool, confirm func(configuration, configuration, string) (bool, error), checkNoOp ...bool) (result ApplyResult, err error) {
 	if !write {
 		return result, errWriteRequired
 	}
@@ -234,7 +238,7 @@ func liveApply(path, root string, target ApplyTarget, changes Changes, write boo
 		return result, fmt.Errorf("backup %s: %w", dir, err)
 	}
 	defer t.Close()
-	result, err = applySettingsConfirmed(t, dir, target, changes, write, transactionTimeout, confirm)
+	result, err = applySettingsConfirmed(t, dir, target, changes, write, transactionTimeout, confirm, checkNoOp...)
 	if err != nil {
 		return result, fmt.Errorf("backup/transaction %s: %w", dir, err)
 	}

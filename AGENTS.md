@@ -51,7 +51,9 @@ shellcheck capture-settings.sh check-key.sh
 
 - Obtain explicit user authority before device inspection, queries, writes, event streams, helper execution, or permission changes.
 - Do not treat README hardware examples as permission to execute them. `inspect` reads live sysfs despite not opening hidraw.
-- Preserve the explicit `apply --write` gate, expected identity/version checks, physical-path selection, and capture-root requirement.
+- Preserve the explicit `apply --write` gate for legacy apply. For `set`, acquire expected identity/version freshly, select exactly one compatible device or require `--device PHYSICAL_PATH`, and retain the guarded transaction and capture-root requirement.
+- For `set`, read and show changes, confirm exactly `write` unless `--yes`, then create and validate the backup before upload. Reject identity or settings changes after confirmation, including changes that make the request a no-op.
+- Keep `set --dry-run` query-only with no saved captures. Do not describe live queries without files as offline. No-op and cancellation must send no settings upload or commit.
 - Require a new durable backup and revalidate it before upload. A saved offline plan never authorises a live write.
 - Preserve exclusive capture creation and file/directory synchronisation, including capture-root ancestors. Never overwrite existing captures or ACL records.
 - Change only explicitly requested settings bytes. Reject unsupported current layouts even for RGB-only changes.

@@ -138,7 +138,7 @@ func selectCandidate(candidates []Candidate, path string) (*Candidate, error) {
 			continue
 		}
 		if selected != nil {
-			return nil, fmt.Errorf("multiple matches: select an explicit physical path with --path")
+			return nil, fmt.Errorf("multiple matches: select an explicit physical path with --device (legacy: --path); find paths with wonkey advanced devices")
 		}
 		selected = c
 	}

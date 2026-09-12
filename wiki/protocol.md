@@ -2,7 +2,7 @@
 
 [Wiki index](README.md) · [Project overview](https://github.com/wimpysworld/WonKey/blob/main/README.md)
 
-**Only `apply --write` permits configuration upload and commit.** There is no arbitrary packet sender, firmware writer, reset, or bootloader command.
+**`set` and legacy `apply --write` can upload and commit settings.** `set --dry-run` only reads settings. There is no arbitrary packet sender, firmware writer, reset, or bootloader command.
 
 The authentic user capture in `internal/xfkey/testdata/hardware-20260911` confirms identify/readback framing on this unit:
 model `0112`, version `1014`, identifier `be077ba2`, Enter on press without modifiers, and RGB API mode 0 with channels `255,255,255`.

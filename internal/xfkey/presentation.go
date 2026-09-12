@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -108,26 +109,40 @@ func encodeTarget(target targetToken) (string, error) {
 	return "wonkey-target-v1:" + base64.RawURLEncoding.EncodeToString(b), nil
 }
 
+func compactTarget(target targetToken) string {
+	return strings.Join([]string{target.Model, target.PhysicalPath, target.Identifier, target.Version}, ":")
+}
+
+var compactPath = regexp.MustCompile(`^[1-9][0-9]*-[1-9][0-9]*(\.[1-9][0-9]*)*$`)
+
 func decodeTarget(value string) (targetToken, error) {
 	var target targetToken
 	const prefix = "wonkey-target-v1:"
 	if !strings.HasPrefix(value, prefix) {
-		return target, fmt.Errorf("invalid --target: unsupported token version")
+		parts := strings.Split(value, ":")
+		if len(parts) != 4 || parts[0] != "0112" || !compactPath.MatchString(parts[1]) {
+			return target, fmt.Errorf("invalid target %q: use the complete target from show --target (0112:path:identifier:version), or use wonkey set instead", value)
+		}
+		target = targetToken{parts[1], parts[0], parts[2], parts[3]}
+		if err := (ApplyTarget{target.Identifier, target.Version}).validate(); err != nil {
+			return targetToken{}, fmt.Errorf("invalid target %q: identifier needs 8 hex digits and version needs 4; copy the complete target from show --target", value)
+		}
+		return target, nil
 	}
 	b, err := base64.RawURLEncoding.Strict().DecodeString(strings.TrimPrefix(value, prefix))
 	if err != nil {
-		return target, fmt.Errorf("invalid --target: malformed encoding")
+		return target, fmt.Errorf("invalid target %q: malformed encoding; copy the complete target from show --target", value)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(b))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&target); err != nil {
-		return target, fmt.Errorf("invalid --target: %w", err)
+		return target, fmt.Errorf("invalid target %q: %w; copy the complete target from show --target", value, err)
 	}
 	if decoder.Decode(&struct{}{}) != io.EOF || target.PhysicalPath == "" || target.Model != "0112" {
-		return targetToken{}, fmt.Errorf("invalid --target: malformed or unsupported target")
+		return targetToken{}, fmt.Errorf("invalid target %q: malformed or unsupported target; copy the complete target from show --target", value)
 	}
 	if err := (ApplyTarget{target.Identifier, target.Version}).validate(); err != nil {
-		return targetToken{}, fmt.Errorf("invalid --target: %w", err)
+		return targetToken{}, fmt.Errorf("invalid target %q: identifier needs 8 hex digits and version needs 4; copy the complete target from show --target", value)
 	}
 	return target, nil
 }

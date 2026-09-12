@@ -2,7 +2,7 @@
 
 [Wiki index](README.md) · [Project overview](https://github.com/wimpysworld/WonKey/blob/main/README.md)
 
-`apply --write` changes stored settings. Configuration is not firmware flashing.
+`set` and legacy `apply --write` change stored settings. `set --dry-run` only reads the device. Configuration is not firmware flashing.
 A settings capture is not a firmware backup or a proven restore image.
 Read the conditions below before device access. Run all commands from the project root.
 
@@ -12,10 +12,10 @@ Build WonKey as described in the [project overview](https://github.com/wimpyswor
 A device path identifies one physical USB connection. Find the current device path before using the fixed-path wrapper.
 
 ```sh
-./wonkey devices
+./wonkey advanced devices
 ```
 
-`devices` reads sysfs and device-node metadata without opening a HID device. It reports mode and owner, not effective ACL access.
+`advanced devices` reads sysfs and device-node metadata without opening a HID device. It reports mode and owner, not effective ACL access.
 Selection requires VID/PID `af88:6688`, revision `0100`, exact USB/configuration bytes, all four exact report descriptors, interfaces 0–3, and one vendor hidraw mapping on interface 3.
 Report descriptor lengths are 62, 114, 25 and 34 bytes. The vendor interface has usage page `FF00`, usage `01`, endpoints `84`/`04`, 64-byte payloads, and no report IDs.
 The shared serial `XFKEY` is not unique. Reinspect after moving or reconnecting the device.
@@ -88,19 +88,34 @@ Only a matching reconnect capture establishes persistence for that test. The too
 
 ## Apply safety and records
 
-Direct use starts with `show`, which queries settings in memory and returns a target token without creating files. A target token binds a device path and verified identity.
-Apply requires `apply --write --target ...` plus explicit settings. The model must be `0112`.
-Missing write permission, a target token, or settings fail before device access.
+Everyday use is `show` and `set key=f13`, `set light=steady:0000ff`, or combined assignments.
+Both commands select exactly one compatible device. Multiple matches require `--device PHYSICAL_PATH`.
+`set` freshly reads identity, version, and settings in memory, shows the changes, and asks for confirmation.
+Only the exact answer `write` confirms. Blank input cancels. `--yes` skips confirmation only.
+After confirmation, `set` creates and validates a new durable backup through the guarded transaction.
+The transaction uses the freshly acquired identifier and version as expected values. It also checks every configuration byte against the approved plan.
+Changed identity, version, or settings stop before upload, even if the new settings already match the requested values.
+A no-op or cancellation sends no settings upload or commit and creates no backup.
+`set --dry-run` reads the device and previews changes without saved captures or settings writes. No files does not mean offline.
+
+Legacy `apply TARGET key=f13 --write` keeps its target, write gate, and backup-before-confirmation sequence.
+Use `show --target` for the copyable form `0112:path:identifier:version`, for example `0112:1-1.2:be077ba2:1014`.
+Copy the whole target. Do not guess its parts. It binds the physical path, model, expected identifier, and expected version.
+The old `--target` flag and `wonkey-target-v1:` encoded tokens remain accepted. JSON targets keep the old format.
+Legacy apply rejects missing write permission, target, or settings before device access.
+Use `advanced plan CAPTURE` only for optional offline work with a completed backup. A saved plan never authorises a write.
+Old top-level commands remain hidden aliases. Protocol tools are under `advanced protocol`.
 
 The fixed-path wrapper is a compatibility path. It still passes the hidden `--path`, `--expect-identifier`, and `--expect-version` flags after descriptor checks. Hidden numeric setting flags remain accepted for existing scripts. Do not mix numeric values with friendly `--lighting` and `--colour` values.
 The tool creates missing capture-root directories with mode `0700`, without changing existing permissions.
 It resolves the root path and synchronises every directory from that root up to `/`, including existing ancestors.
-Any synchronisation failure stops before device access. This also covers roots created by an earlier interrupted attempt.
+Any synchronisation failure stops before the backup query or settings upload. `set` already read the device to show its plan.
+This also covers roots created by an earlier interrupted attempt.
 Apply holds one capture-root lock, then creates a private backup named `YYYYMMDD-HHMMSS-XXXX` with a random hexadecimal suffix.
 It synchronises the raw identity/replies, current 128-byte configuration, completion marker, and directories before uploading.
 It reopens and checks the backup and expected identity before it writes a strict `backup.json` ownership record.
 It then checks the supported layout and saves the intended configuration and plan durably.
-Backup validation or storage failure sends no configuration writes. A no-op still takes a backup but sends no upload or commit.
+Backup validation or storage failure sends no configuration writes. Legacy apply takes a backup for a no-op but sends no upload or commit.
 
 For configuration `C`, upload uses exactly:
 

@@ -17,18 +17,18 @@ func runCLI(args ...string) (string, string, error) {
 }
 
 func TestLandingPageIsTheStandardHelp(t *testing.T) {
-	for _, args := range [][]string{nil, {"--help"}, {"help"}} {
+	for _, args := range [][]string{nil, {"--help"}, {"-h"}, {"help"}} {
 		stdout, stderr, err := runCLI(args...)
 		if err != nil || stdout != landingPage || stderr != "" {
 			t.Fatalf("args=%v stdout=%q stderr=%q error=%v", args, stdout, stderr, err)
 		}
 	}
-	for _, text := range []string{"WonKey configures", "Safe workflow:", "wonkey protocol", `only "apply --write"`} {
+	for _, text := range []string{"WonKey  One key. Your rules.", "Commands:", "wonkey show", "wonkey set key=f13", "Advanced examples:", "wonkey advanced", "--dry-run", "--device PHYSICAL_PATH", `For command help, run "wonkey <command> --help".`, "--json"} {
 		if !strings.Contains(landingPage, text) {
 			t.Fatalf("landing page omits %q", text)
 		}
 	}
-	for _, hidden := range []string{"inspect", "identify", "readback", "preview", "parse-identify", "parse-readback"} {
+	for _, hidden := range []string{"wonkey inspect", "wonkey identify", "wonkey readback", "wonkey preview", "wonkey apply", "wonkey plan", "wonkey devices", "wonkey protocol"} {
 		if strings.Contains(landingPage, hidden) {
 			t.Fatalf("landing page exposes compatibility command %q", hidden)
 		}
@@ -37,9 +37,10 @@ func TestLandingPageIsTheStandardHelp(t *testing.T) {
 
 func TestCommandHelpExplainsAccessAndExamples(t *testing.T) {
 	checks := map[string][]string{
-		"devices":  {"metadata", "does not open a HID device", "Example: wonkey devices"},
-		"show":     {"Queries one HID device", "creates no files", "target token", "Example: wonkey show"},
-		"plan":     {"local files", "does not access hardware", "Example: wonkey plan"},
+		"devices":  {"metadata", "does not open a HID device", "Example: wonkey advanced devices"},
+		"show":     {"Reads current settings", "creates no files", "only compatible device", "Example: wonkey show"},
+		"set":      {"saves and checks a new backup", "--dry-run reads the device", "wonkey set key=f13", "exactly write"},
+		"plan":     {"local files", "does not access hardware", "Example: wonkey advanced plan"},
 		"apply":    {"writes only explicit changes", "requires --write", "Example: wonkey apply"},
 		"protocol": {"always write one JSON value", "do not access hardware"},
 	}
@@ -49,7 +50,7 @@ func TestCommandHelpExplainsAccessAndExamples(t *testing.T) {
 			t.Fatalf("%s help stderr=%q error=%v", command, stderr, err)
 		}
 		for _, text := range want {
-			if !strings.Contains(stdout, text) {
+			if !strings.Contains(strings.Join(strings.Fields(stdout), " "), text) {
 				t.Fatalf("%s help omits %q:\n%s", command, text, stdout)
 			}
 		}
@@ -139,7 +140,7 @@ func TestApplyRejectsDevNullAndInexactConfirmation(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "interactive input or --yes") {
 		t.Fatalf("error = %v", err)
 	}
-	for _, input := range []string{" write ", "write\t", "write \n", " write\n"} {
+	for _, input := range []string{"", "\n", "\r\n", "WRITE", "yes", " write ", "write\t", "write \n", " write\n"} {
 		if exactWriteConfirmation(input) {
 			t.Fatalf("accepted %q", input)
 		}
