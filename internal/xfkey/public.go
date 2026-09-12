@@ -36,7 +36,7 @@ const keyHelp = `Usage: wonkey key [COMBINATION] [--on WHEN]
 
 Without a combination, read the current key. Create no files.
 A combination is the complete key: enter or f13, optionally preceded by
-ctrl+, shift+, alt+ or gui+ (Super/Windows/Command), each at most once.
+ctrl+, shift+, alt+ or super+, each at most once.
 Unspecified modifiers are cleared. Omitted --on preserves the trigger.
 
 Options:
@@ -165,7 +165,7 @@ func parsePublic(args []string) (publicCommand, error) {
 		modifiers := "none"
 		if len(parts) > 1 {
 			for _, p := range parts[:len(parts)-1] {
-				if p != "ctrl" && p != "shift" && p != "alt" && p != "gui" {
+				if p != "ctrl" && p != "shift" && p != "alt" && p != "super" {
 					return c, fmt.Errorf("invalid modifier %q", p)
 				}
 			}

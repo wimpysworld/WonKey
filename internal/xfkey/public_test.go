@@ -20,7 +20,8 @@ func TestPublicParser(t *testing.T) {
 		{[]string{"key"}, nil}, {[]string{"rgb"}, nil},
 		{[]string{"key", "f13"}, Changes{"key": 0x68, "modifiers": 0}},
 		{[]string{"key", "ctrl+shift+f13"}, Changes{"key": 0x68, "modifiers": 3}},
-		{[]string{"key", "alt+gui+enter", "--on", "release"}, Changes{"key": 0x28, "modifiers": 12, "trigger": 2}},
+		{[]string{"key", "alt+super+enter", "--on", "release"}, Changes{"key": 0x28, "modifiers": 12, "trigger": 2}},
+		{[]string{"key", "SUPER+f13"}, Changes{"key": 0x68, "modifiers": 8}},
 		{[]string{"key", "--on=both", "f13"}, Changes{"key": 0x68, "modifiers": 0, "trigger": 3}},
 		{[]string{"key", "f13", "--on", "press"}, Changes{"key": 0x68, "modifiers": 0, "trigger": 1}},
 		{[]string{"rgb", "steady", "0000ff"}, Changes{"rgb-mode": 1, "red": 0, "green": 0, "blue": 255}},
@@ -48,7 +49,7 @@ func TestPublicParser(t *testing.T) {
 			}
 		}
 	}
-	for _, expression := range []string{"f13", "shift+f13", "ctrl+shift+alt+gui+enter"} {
+	for _, expression := range []string{"f13", "shift+f13", "super+f13", "ctrl+shift+alt+super+enter"} {
 		c, err := parsePublic([]string{"key", expression})
 		if err != nil {
 			t.Fatal(err)
@@ -69,6 +70,7 @@ func TestPublicParser(t *testing.T) {
 
 func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 	cases := [][]string{
+		{"key", "gui+f13"}, {"key", "GUI+enter"}, {"key", "super+super+f13"},
 		{"restore", "one", "two"}, {"restore", "--yes"}, {"restore", "--capture-root", "/tmp"}, {"restore", "--write"}, {"restore", "--help", "--yes"}, {"rollback"},
 		{"help"}, {"advanced"}, {"show"}, {"set", "key=f13"}, {"plan"}, {"apply"}, {"devices"}, {"inspect"}, {"identify"}, {"readback"}, {"preview"}, {"protocol"}, {"parse-identify"}, {"parse-readback"},
 		{"key", "--on", "release"}, {"key", "f13", "--on=press", "--on=release"}, {"key", "f13", "--on="}, {"key", "f13", "--on", "click"}, {"key", "f13", "--on"},

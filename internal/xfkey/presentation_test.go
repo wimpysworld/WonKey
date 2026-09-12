@@ -23,3 +23,29 @@ func TestSettingsValidationOrderAndFriendlyValues(t *testing.T) {
 		}
 	}
 }
+
+func TestSuperModifierPresentation(t *testing.T) {
+	for _, tc := range []struct {
+		mask byte
+		want string
+	}{
+		{8, "super"},
+		{12, "alt,super"},
+		{15, "ctrl,shift,alt,super"},
+	} {
+		if got := modifierName(tc.mask); got != tc.want {
+			t.Fatalf("modifierName(%d) = %q, want %q", tc.mask, got, tc.want)
+		}
+		changes, err := parseSettings("", "", tc.want, "", "")
+		if err != nil || changes["modifiers"] != int(tc.mask) {
+			t.Fatal(changes, err)
+		}
+	}
+	current := syntheticSettings()
+	intended := current
+	intended[2] = 8
+	views := settingViews(current, intended)
+	if len(views) != 1 || views[0] != (changeView{"modifiers", "none", "super"}) {
+		t.Fatal(views)
+	}
+}

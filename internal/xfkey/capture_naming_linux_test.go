@@ -70,10 +70,10 @@ func TestNamedCaptureCollisionsAndEvidence(t *testing.T) {
 			t.Fatal(err)
 		}
 		transport := newSettingsTransport()
-		transport.current[2], transport.current[4], transport.current[124] = 5, 0x68, 2
+		transport.current[2], transport.current[4], transport.current[124] = 13, 0x68, 2
 		copy(transport.current[125:], []byte{0, 0, 255})
 		result, err := captureNamedQueries(transport, dir, true)
-		want := captureCollisionName("260912-083853_key-ctrl-alt-f13_rgb-steady-0000ff", attempt)
+		want := captureCollisionName("260912-083853_key-ctrl-alt-super-f13_rgb-steady-0000ff", attempt)
 		if err != nil || filepath.Base(result.Directory) != want {
 			t.Fatalf("result=%+v err=%v want=%s", result, err, want)
 		}

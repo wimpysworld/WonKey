@@ -34,17 +34,23 @@ func restoreTestSettings() configuration {
 }
 
 func TestRestoreSourceValidation(t *testing.T) {
-	for _, name := range []string{"complete", "moved", "failed-transaction", "missing-completion", "corrupt-configuration", "corrupt-reply", "linked-directory", "linked-reply", "unsupported"} {
+	for _, name := range []string{"complete", "moved", "legacy-gui-label", "failed-transaction", "missing-completion", "corrupt-configuration", "corrupt-reply", "linked-directory", "linked-reply", "unsupported"} {
 		t.Run(name, func(t *testing.T) {
 			f := newSettingsTransport()
+			if name == "legacy-gui-label" {
+				f.current[2] = 8
+			}
 			if name == "unsupported" {
 				f.current[3] = 2
 			}
 			dir := restoreTestSource(t, t.TempDir(), "source", f)
 			original := dir
 			switch name {
-			case "moved":
+			case "moved", "legacy-gui-label":
 				dir = filepath.Join(t.TempDir(), "moved")
+				if name == "legacy-gui-label" {
+					dir = filepath.Join(t.TempDir(), "260912-083853_key-gui-enter_rgb-gradient-ffffff")
+				}
 				if err := os.Rename(original, dir); err != nil {
 					t.Fatal(err)
 				}
@@ -89,7 +95,7 @@ func TestRestoreSourceValidation(t *testing.T) {
 				}
 			}
 			source, err := loadRestoreSource(dir)
-			valid := name == "complete" || name == "moved" || name == "failed-transaction"
+			valid := name == "complete" || name == "moved" || name == "legacy-gui-label" || name == "failed-transaction"
 			if (err == nil) != valid {
 				t.Fatalf("source=%#v error=%v", source, err)
 			}
@@ -339,10 +345,10 @@ func TestRestoreSelectionOutput(t *testing.T) {
 			first := restoreTestSource(t, root, "20260912-123456-0000", saved)
 			want := "Restore a backup:\n  1  f13 (both) | toggle #0C2238 | 12 Sep 2026 13:34\n"
 			if count == 2 {
-				saved.current[1], saved.current[2], saved.current[4] = 2, 3, 0x28
+				saved.current[1], saved.current[2], saved.current[4] = 2, 11, 0x28
 				saved.current[124], saved.current[125], saved.current[126], saved.current[127] = 2, 255, 0, 0
 				restoreTestSource(t, root, "20260911-093012-0000", saved)
-				want += "  2  ctrl+shift+enter (release) | steady #FF0000 | 11 Sep 2026 10:30\n"
+				want += "  2  ctrl+shift+super+enter (release) | steady #FF0000 | 11 Sep 2026 10:30\n"
 			}
 			want += "Backup number [cancel]: "
 			var out bytes.Buffer
