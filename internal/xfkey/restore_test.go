@@ -155,8 +155,8 @@ func TestPublicRestoreWorkflow(t *testing.T) {
 			root := publicTestCaptureRoot(t)
 			saved := newSettingsTransport()
 			saved.current = restoreTestSettings()
-			if strings.HasPrefix(name, "rgb-") {
-				saved.current[124] = byte(lightingValues[strings.TrimPrefix(name, "rgb-")] + 1)
+			if mode, ok := strings.CutPrefix(name, "rgb-"); ok {
+				saved.current[124] = map[string]byte{"cycle-slow": 1, "cycle-fast": 5, "off": 6}[mode]
 			}
 			if name == "incompatible-identifier" {
 				saved.identity[6] ^= 1
