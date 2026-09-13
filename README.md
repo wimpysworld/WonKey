@@ -17,14 +17,49 @@ Add optional <kbd>Ctrl</kbd>, <kbd>Shift</kbd>, <kbd>Alt</kbd>, and <kbd>Super</
 
 ## Get started
 
-Requires Linux, Go 1.25 or later, and [just](https://just.systems/). Run commands from the project root.
+WonKey 0.1.1 is available for Linux. Download a package from the [release](https://github.com/wimpysworld/WonKey/releases/tag/v0.1.1), then run its command from the download directory.
+For ARM64, replace `amd64` in the x86_64 examples with `arm64`.
+
+| Distribution | Package | Install |
+| --- | --- | --- |
+| Debian / Ubuntu | `.deb` | `sudo apt install ./wonkey_0.1.1_linux_amd64.deb` |
+| Fedora | `.rpm` | `sudo dnf install ./wonkey_0.1.1_linux_amd64.rpm` |
+| openSUSE | `.rpm` | `sudo zypper install ./wonkey_0.1.1_linux_amd64.rpm` |
+| Alpine | `.apk` | `sudo apk add --allow-untrusted ./wonkey_0.1.1_linux_amd64.apk` |
+| Arch Linux | [AUR](https://aur.archlinux.org/packages/xfkey-wonkey-bin) | `yay -S xfkey-wonkey-bin` (requires `yay`) |
+
+The Alpine package is unsigned, so `apk` requires `--allow-untrusted`.
+Compare downloads with the [SHA-256 checksums](https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/WonKey_0.1.1_checksums.txt) before installation.
+
+### Binary archive
+
+Download the archive for [x86_64](https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/WonKey_0.1.1_linux_amd64.tar.gz) or [ARM64](https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/WonKey_0.1.1_linux_arm64.tar.gz), then extract and install it:
 
 ```sh
-just build
-./wonkey --help
+tar -xzf WonKey_0.1.1_linux_amd64.tar.gz
+sudo install -m 0755 wonkey /usr/local/bin/wonkey
 ```
 
-The build replaces `./wonkey`. Help commands do not access the device.
+### Build from source
+
+Requires Git, Go 1.25 or later, and [just](https://just.systems/).
+
+```sh
+git clone --branch v0.1.1 --depth 1 https://github.com/wimpysworld/WonKey.git
+cd WonKey
+just build
+sudo install -m 0755 ./wonkey /usr/local/bin/wonkey
+```
+
+The build replaces `./wonkey` in the source directory.
+
+### Check the installation
+
+```sh
+wonkey --help
+```
+
+Help commands do not access the device.
 Your user needs permission to access the device's vendor hidraw node. WonKey does not install permission rules.
 
 ## Make it yours
@@ -32,18 +67,18 @@ Your user needs permission to access the device's vendor hidraw node. WonKey doe
 Read the current settings without changing them or creating files:
 
 ```sh
-./wonkey key
-./wonkey rgb
+wonkey key
+wonkey rgb
 ```
 
 Set the key combination:
 
 ```sh
-./wonkey key f13
-./wonkey key ctrl+shift+a
-./wonkey key 0
-./wonkey key f12
-./wonkey key f13 --on release
+wonkey key f13
+wonkey key ctrl+shift+a
+wonkey key 0
+wonkey key f12
+wonkey key f13 --on release
 ```
 
 A key expression is the **complete combination**. `key f13` clears all modifiers.
@@ -55,8 +90,8 @@ Letters and digits name HID keys, not guaranteed text. The active host layout an
 Choose static blue or turn the lighting off:
 
 ```sh
-./wonkey rgb static 0000ff
-./wonkey rgb off
+wonkey rgb static 0000ff
+wonkey rgb off
 ```
 
 `static`, `breathe`, `flash`, `held`, and `toggle` accept an optional colour: six hexadecimal digits without `#`.
@@ -66,7 +101,7 @@ RGB commands preserve key settings.
 Choose a compatible backup and restore its settings:
 
 ```sh
-./wonkey restore
+wonkey restore
 ```
 
 Restore changes only the saved key, modifiers, trigger, RGB mode, and colour. It preserves all other current configuration bytes.

@@ -43,7 +43,7 @@
       <section class="hero" aria-labelledby="hero-title">
         <div class="hero-copy">
           <p class="eyebrow">One-key keyboard configuration for Linux</p>
-          <h1 id="hero-title">One key.<br>Your rules.</h1>
+          <h1 id="hero-title">One key,<br> to rule them all.</h1>
           <p class="lead">Configure your XFKEY One Key Max on Linux. Set the key combination, choose the RGB lighting, and restore saved settings.</p>
           <div class="hero-actions">
             <a href="#install" class="install-link">Get WonKey <span class="octicon inline-icon arrow-down" aria-hidden="true"></span></a>
@@ -54,13 +54,13 @@
         <figure class="terminal" aria-label="WonKey command examples">
           <figcaption><span class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></span>wonkey · Linux</figcaption>
           <pre><code><span class="terminal-comment"># Set your key combination</span>
-<span class="prompt">$ </span><span class="terminal-command">./wonkey key</span> <span class="terminal-argument">ctrl+shift+f13</span>
+<span class="prompt">$ </span><span class="terminal-command">wonkey key</span> <span class="terminal-argument">ctrl+shift+f13</span>
 
 <span class="terminal-comment"># Choose static blue</span>
-<span class="prompt">$ </span><span class="terminal-command">./wonkey rgb</span> <span class="terminal-argument">static 0000ff</span>
+<span class="prompt">$ </span><span class="terminal-command">wonkey rgb</span> <span class="terminal-argument">static 0000ff</span>
 
 <span class="terminal-comment"># Restore saved settings</span>
-<span class="prompt">$ </span><span class="terminal-command">./wonkey restore</span></code></pre>
+<span class="prompt">$ </span><span class="terminal-command">wonkey restore</span></code></pre>
         </figure>
       </section>
       <section id="features" class="features section-rule" aria-labelledby="features-title">
@@ -73,7 +73,7 @@
         <dl class="feature-list">
           <div><dt><span class="feature-number" aria-hidden="true">01</span> Your key combination</dt><dd>Choose one key: Enter, A to Z, 0 to 9, or F1 to F24. Add optional Ctrl, Shift, Alt, and Super modifiers. Names ignore case and do not imply Shift. Letters and digits name HID keys, not text: the active host layout and modifiers determine the output. Set the trigger with <code>--on</code>. Letters, digits, F1 to F12, and F14 to F24 remain unverified on hardware.</dd></div>
           <div><dt><span class="feature-number" aria-hidden="true">02</span> Your RGB lighting</dt><dd>Choose the lighting mode. <code>static</code>, <code>breathe</code>, <code>flash</code>, <code>held</code>, and <code>toggle</code> accept an optional colour: six hexadecimal digits without <code>#</code>. Omit the colour to preserve it. <code>cycle-slow</code>, <code>cycle-fast</code>, and <code>off</code> do not use a colour and reject supplied colours. RGB changes preserve your key settings.</dd></div>
-          <div><dt><span class="feature-number" aria-hidden="true">03</span> Your saved settings</dt><dd>Restore a compatible backup with <code>./wonkey restore</code>. WonKey restores key and RGB settings while preserving other current configuration bytes.</dd></div>
+          <div><dt><span class="feature-number" aria-hidden="true">03</span> Your saved settings</dt><dd>Restore a compatible backup with <code>wonkey restore</code>. WonKey restores key and RGB settings while preserving other current configuration bytes.</dd></div>
         </dl>
       </section>
       <section class="section-rule" aria-labelledby="meetings-title">
@@ -86,7 +86,7 @@
           <div class="meeting-card">
             <h3><span class="octicon meeting-logo google-meet-icon" aria-hidden="true"></span> Google Meet</h3>
             <p>Toggle your microphone in Google Meet.</p>
-            <pre><code>./wonkey key ctrl+d --on press</code></pre>
+            <pre><code>wonkey key ctrl+d --on press</code></pre>
             <p>Keep the meeting page focused. Check Ctrl+D in your Linux browser first.</p>
             <a class="text-link" href="https://support.google.com/a/users/answer/9896256?hl=en">Google Meet shortcuts <span class="octicon inline-icon link-external" aria-hidden="true"></span></a>
           </div>
@@ -94,14 +94,14 @@
             <!-- Zoom camera mark from Boxicons: https://api.iconify.design/bxl:zoom.svg -->
             <h3><svg class="meeting-logo zoom-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M1.984 7.506v6.74c.006 1.524 1.361 2.75 3.014 2.745h10.693c.303 0 .549-.225.549-.498v-6.74c-.008-1.523-1.363-2.75-3.014-2.744H2.531c-.302 0-.547.224-.547.497m14.936 2.63l4.416-2.963c.383-.292.68-.219.68.309v9.036c0 .601-.363.528-.68.309L16.92 13.87z"/></svg> Zoom</h3>
             <p>Toggle your microphone in the Linux desktop app.</p>
-            <pre><code>./wonkey key alt+a --on press</code></pre>
+            <pre><code>wonkey key alt+a --on press</code></pre>
             <p>Keep the Zoom app focused.</p>
             <a class="text-link" href="https://support.zoom.com/hc/en/article?id=zm_kb&amp;sysparm_article=KB0067050">Zoom shortcuts <span class="octicon inline-icon link-external" aria-hidden="true"></span></a>
           </div>
           <div class="meeting-card">
             <h3><span class="octicon meeting-logo handy-icon" aria-hidden="true"></span> Handy</h3>
             <p>Press to record. Press again to transcribe.</p>
-            <pre><code>./wonkey key ctrl+shift+h --on press</code></pre>
+            <pre><code>wonkey key ctrl+shift+h --on press</code></pre>
             <p>In Handy, set the transcription shortcut to Ctrl+Shift+H. Turn off Push To Talk for toggle mode.</p>
             <p>On Wayland, follow Handy's <a href="https://github.com/cjpais/Handy/#linux-notes">desktop shortcut setup</a>.</p>
             <a class="text-link" href="https://handy.computer/docs/general">Handy settings <span class="octicon inline-icon link-external" aria-hidden="true"></span></a>
@@ -115,10 +115,10 @@
           <p>Read settings at any time. Changes require a terminal, your confirmation, and a validated automatic backup.</p>
         </div>
         <ol class="steps">
-          <li><code>./wonkey key</code><h3>Read your settings</h3><p>Bare <code>key</code> and <code>rgb</code> commands show the current settings without changing them or creating backups.</p></li>
-          <li><code>./wonkey key f13 --on release</code><h3>Choose your change</h3><p>Set a complete key combination. Omit <code>--on</code> to keep the current trigger, or omit an RGB colour to keep it.</p></li>
+          <li><code>wonkey key</code><h3>Read your settings</h3><p>Bare <code>key</code> and <code>rgb</code> commands show the current settings without changing them or creating backups.</p></li>
+          <li><code>wonkey key f13 --on release</code><h3>Choose your change</h3><p>Set a complete key combination. Omit <code>--on</code> to keep the current trigger, or omit an RGB colour to keep it.</p></li>
           <li><code>Save settings? [Y/n]:</code><h3>Check and confirm</h3><p>Review the selected device and current-to-proposed settings. Press Enter to save, or enter <code>n</code> to cancel.</p></li>
-          <li><code>./wonkey restore</code><h3>Keep a way back</h3><p>WonKey validates a fresh backup before each write and checks the result. Restore lets you choose saved settings later.</p></li>
+          <li><code>wonkey restore</code><h3>Keep a way back</h3><p>WonKey validates a fresh backup before each write and checks the result. Restore lets you choose saved settings later.</p></li>
         </ol>
         <p class="workflow-note">Cancellation and unchanged settings create no backup and send no settings writes. Restore changes settings, not firmware.</p>
       </section>
@@ -126,18 +126,67 @@
         <div>
           <p class="eyebrow">Install</p>
           <h2 id="install-title">Get WonKey on Linux</h2>
-          <p>Build from source on Linux today. Installation through bin, Nix, Docker, and native Linux packages is planned.</p>
-          <p class="muted">WonKey needs access to the device's vendor hidraw node. See the <a href="https://github.com/wimpysworld/WonKey/wiki">Wiki</a> for hardware setup and all options.</p>
+          <p>Install WonKey 0.1.1 with your Linux package manager. Choose a download for x86_64 or ARM64.</p>
+          <p>Compare downloads with the <a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/WonKey_0.1.1_checksums.txt">SHA-256 checksums</a> before installation.</p>
+          <p>After installation, run <code>wonkey --help</code>. Help does not access the device.</p>
+          <p class="muted">WonKey needs access to the device's vendor hidraw node. WonKey does not install permission rules. See the <a href="https://github.com/wimpysworld/WonKey/wiki">Wiki</a> for hardware setup and all options.</p>
         </div>
         <div class="install-options">
           <details open>
+            <summary><span class="distro-icon debian-icon" aria-hidden="true"></span><span class="distro-icon ubuntu-icon" aria-hidden="true"></span> Debian / Ubuntu</summary>
+            <p>Download the <code>.deb</code>, then run its command from the download directory.</p>
+            <p><a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/wonkey_0.1.1_linux_amd64.deb">x86_64 package</a></p>
+            <pre><code>sudo apt install ./wonkey_0.1.1_linux_amd64.deb</code></pre>
+            <p><a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/wonkey_0.1.1_linux_arm64.deb">ARM64 package</a></p>
+            <pre><code>sudo apt install ./wonkey_0.1.1_linux_arm64.deb</code></pre>
+          </details>
+          <details>
+            <summary><span class="distro-icon fedora-icon" aria-hidden="true"></span> Fedora</summary>
+            <p>Download the <code>.rpm</code>, then run its command from the download directory.</p>
+            <p><a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/wonkey_0.1.1_linux_amd64.rpm">x86_64 package</a></p>
+            <pre><code>sudo dnf install ./wonkey_0.1.1_linux_amd64.rpm</code></pre>
+            <p><a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/wonkey_0.1.1_linux_arm64.rpm">ARM64 package</a></p>
+            <pre><code>sudo dnf install ./wonkey_0.1.1_linux_arm64.rpm</code></pre>
+          </details>
+          <details>
+            <summary><span class="distro-icon opensuse-icon" aria-hidden="true"></span> openSUSE</summary>
+            <p>Download the <code>.rpm</code>, then run its command from the download directory.</p>
+            <p><a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/wonkey_0.1.1_linux_amd64.rpm">x86_64 package</a></p>
+            <pre><code>sudo zypper install ./wonkey_0.1.1_linux_amd64.rpm</code></pre>
+            <p><a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/wonkey_0.1.1_linux_arm64.rpm">ARM64 package</a></p>
+            <pre><code>sudo zypper install ./wonkey_0.1.1_linux_arm64.rpm</code></pre>
+          </details>
+          <details>
+            <summary><span class="distro-icon alpine-icon" aria-hidden="true"></span> Alpine</summary>
+            <p>Download the <code>.apk</code>, then run its command from the download directory. The package is unsigned, so <code>apk</code> requires <code>--allow-untrusted</code>.</p>
+            <p><a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/wonkey_0.1.1_linux_amd64.apk">x86_64 package</a></p>
+            <pre><code>sudo apk add --allow-untrusted ./wonkey_0.1.1_linux_amd64.apk</code></pre>
+            <p><a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/wonkey_0.1.1_linux_arm64.apk">ARM64 package</a></p>
+            <pre><code>sudo apk add --allow-untrusted ./wonkey_0.1.1_linux_arm64.apk</code></pre>
+          </details>
+          <details>
+            <summary><span class="distro-icon arch-icon" aria-hidden="true"></span> Arch Linux (AUR)</summary>
+            <p>Install <a href="https://aur.archlinux.org/packages/xfkey-wonkey-bin">xfkey-wonkey-bin</a> from the AUR. Requires <code>yay</code>.</p>
+            <pre><code>yay -S xfkey-wonkey-bin</code></pre>
+          </details>
+          <details>
+            <summary>Binary archive</summary>
+            <p>Download an archive, then extract and install it from the download directory.</p>
+            <p><a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/WonKey_0.1.1_linux_amd64.tar.gz">x86_64 archive</a></p>
+            <pre><code>tar -xzf WonKey_0.1.1_linux_amd64.tar.gz
+sudo install -m 0755 wonkey /usr/local/bin/wonkey</code></pre>
+            <p><a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/WonKey_0.1.1_linux_arm64.tar.gz">ARM64 archive</a></p>
+            <pre><code>tar -xzf WonKey_0.1.1_linux_arm64.tar.gz
+sudo install -m 0755 wonkey /usr/local/bin/wonkey</code></pre>
+          </details>
+          <details>
             <summary>Build from source</summary>
-            <p>Requires Linux, Go 1.25 or later, and <a href="https://just.systems/">just</a>. Get the source, then build WonKey:</p>
-            <pre><code>git clone https://github.com/wimpysworld/WonKey.git
+            <p>Requires Git, Go 1.25 or later, and <a href="https://just.systems/">just</a>.</p>
+            <pre><code>git clone --branch v0.1.1 --depth 1 https://github.com/wimpysworld/WonKey.git
 cd WonKey
 just build
-./wonkey --help</code></pre>
-            <p>The build replaces <code>./wonkey</code>. Run the examples with <code>./wonkey</code> from this directory. Help does not access the device.</p>
+sudo install -m 0755 ./wonkey /usr/local/bin/wonkey</code></pre>
+            <p>The build replaces <code>./wonkey</code> in the source directory.</p>
           </details>
           <div class="install-links">
             <a class="text-link" href="https://github.com/wimpysworld/WonKey?tab=readme-ov-file#get-started">Getting started</a>
@@ -155,7 +204,7 @@ just build
             <img class="brand-mark" src="icon.svg" alt="" width="40" height="40">
             WonKey
           </a>
-          <p>One key, to rule them all. 1️⃣</p>
+          <p>One key, to rule them all.</p>
         </div>
         <nav class="footer-links" aria-label="Footer navigation">
           <div><h3>Resources</h3><ul>

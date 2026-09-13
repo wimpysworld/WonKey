@@ -188,7 +188,7 @@ h3 { font-size: 1.05rem; line-height: 1.4; }
 .install p { max-width: 30rem; }
 .muted { color: var(--site-muted); font-size: 0.85rem; }
 .install-options { align-self: center; }
-.install-options pre { border: 1px solid var(--site-border); padding: 1.1rem; font-size: 0.88rem; }
+.install-options pre { border: 1px solid var(--site-border); padding: 1.1rem; font-size: 0.88rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 .install-options pre code { padding: 0; }
 .install-options p { color: var(--site-muted); font-size: 0.95rem; }
 .install-links { display: flex; gap: 1.5rem; flex-wrap: wrap; }
@@ -196,6 +196,15 @@ h3 { font-size: 1.05rem; line-height: 1.4; }
 .steps code { overflow-wrap: anywhere; }
 .install-options details { margin-block: 1.75rem; }
 .install-options summary { font-weight: 650; }
+.install-options summary:focus-visible { outline: 3px solid var(--site-blue); outline-offset: 5px; }
+/* Simple Icons 16.30.0, with the current theme's text colour. */
+.distro-icon { display: inline-block; width: 22px; height: 22px; margin-right: 0.35rem; vertical-align: -0.25em; background-color: currentColor; -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
+.debian-icon { --icon: url("https://cdn.jsdelivr.net/npm/simple-icons@16.30.0/icons/debian.svg"); }
+.ubuntu-icon { --icon: url("https://cdn.jsdelivr.net/npm/simple-icons@16.30.0/icons/ubuntu.svg"); }
+.fedora-icon { --icon: url("https://cdn.jsdelivr.net/npm/simple-icons@16.30.0/icons/fedora.svg"); }
+.opensuse-icon { --icon: url("https://cdn.jsdelivr.net/npm/simple-icons@16.30.0/icons/opensuse.svg"); }
+.alpine-icon { --icon: url("https://cdn.jsdelivr.net/npm/simple-icons@16.30.0/icons/alpinelinux.svg"); }
+.arch-icon { --icon: url("https://cdn.jsdelivr.net/npm/simple-icons@16.30.0/icons/archlinux.svg"); }
 .site-footer { border-top: 1px solid var(--site-border); padding-block: 3.5rem 2rem; }
 .footer-main { display: grid; grid-template-columns: 1fr 1.5fr; gap: 4rem; }
 .site-footer .footer-brand > p { max-width: 17rem; color: var(--site-muted); font-size: 0.9rem; margin-top: 0.8rem; }
