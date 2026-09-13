@@ -64,7 +64,7 @@ Obtain explicit user authority before device access.
 - For public changes, acquire expected identity/version freshly. Retain the shared guarded transaction and automatic backup root.
 - Auto-select one compatible device. For multiple matches, require terminal selection tied to a displayed physical path, never persistent list numbering. Revalidate selected descriptors, node, path, identity, and version before the transaction.
 - Refuse public changes without a terminal before device access. Read and show current-to-proposed values before confirmation. Then save, reopen, and validate a fresh durable backup before upload.
-- Use `Save settings? [Y/n]:` with no bypass. Accept Enter, `y`, or `yes`, ignoring letter case. Cancel on EOF, `n`, `no`, or invalid input.
+- Use `Save settings? [Y/n]:` followed by one space, with no bypass. Accept Enter, `y`, or `yes`, ignoring letter case. Cancel on EOF, `n`, `no`, or invalid input.
 - Share one buffered reader across device selection, capture selection, and confirmation. Cancel device or capture selection on blank input, EOF, or invalid input. Reject settings drift after preview, including drift that makes the request a no-op.
 - Keep bare `key` and `rgb` query-only with no saved captures. Keep no-args/help and rejected syntax free of hardware access. No-op and cancellation must send no settings upload or commit.
 - Require a new durable backup and revalidate it before upload. A saved offline plan never authorises a live write.
