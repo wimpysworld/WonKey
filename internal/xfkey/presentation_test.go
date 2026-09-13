@@ -6,7 +6,7 @@ import (
 )
 
 func TestSettingsValidationOrderAndFriendlyValues(t *testing.T) {
-	changes, err := parseSettings("f13", "release", "ctrl,shift", "steady", "#0000ff")
+	changes, err := parseSettings("f13", "release", "ctrl,shift", "static", "#0000ff")
 	if err != nil {
 		t.Fatal(err)
 	}

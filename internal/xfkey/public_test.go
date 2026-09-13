@@ -13,6 +13,41 @@ import (
 	"time"
 )
 
+func checkPublicHeader(t *testing.T, text string) {
+	t.Helper()
+	if !strings.HasPrefix(text, "1️⃣ WonKey\n\n") || strings.Count(text, "WonKey\n") != 1 {
+		t.Fatalf("expected one header on the first line: %q", text)
+	}
+}
+
+func TestPublicHeaderOutputFailure(t *testing.T) {
+	for _, args := range [][]string{nil, {"key", "--help"}, {"key"}, {"key", "f13"}, {"restore"}, {"invalid"}} {
+		for _, short := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%v/short=%v", args, short), func(t *testing.T) {
+				failed := &failingHumanOutput{short: short}
+				var other bytes.Buffer
+				var out, diagnostic io.Writer = failed, &other
+				code := 1
+				if len(args) > 0 && args[0] == "invalid" {
+					out, diagnostic, code = &other, failed, 2
+				}
+				access := publicAccess{
+					interactive: func(io.Reader) bool { t.Fatal("header failure accessed runtime"); return false },
+					discover:    func() ([]Candidate, error) { t.Fatal("header failure accessed devices"); return nil, nil },
+				}
+				err := runPublic(args, &cliRuntime{strings.NewReader(""), out, diagnostic}, access)
+				want := io.ErrClosedPipe
+				if short {
+					want = io.ErrShortWrite
+				}
+				if !errors.Is(err, want) || ExitCode(err) != code || failed.calls != 1 || other.Len() != 0 {
+					t.Fatalf("error=%v writes=%d other=%q", err, failed.calls, other.String())
+				}
+			})
+		}
+	}
+}
+
 func checkPublicOutputFailure(t *testing.T, root string, args []string, input, needle string, multiple, short bool) {
 	t.Helper()
 	before, err := os.ReadDir(root)
@@ -55,7 +90,7 @@ func checkPublicOutputFailure(t *testing.T, root string, args []string, input, n
 	if short {
 		want = io.ErrShortWrite
 	}
-	if !out.failed || !errors.Is(err, want) || applied || queried == multiple {
+	if !out.failed || !errors.Is(err, want) || applied || queried != (!multiple && needle != "") {
 		t.Fatalf("output failed=%v error=%v applied=%v queried=%v", out.failed, err, applied, queried)
 	}
 	checkNoUpload(t, first)
@@ -108,7 +143,7 @@ func TestPublicParser(t *testing.T) {
 		{[]string{"key", "SUPER+f13"}, Changes{"key": 0x68, "modifiers": 8}},
 		{[]string{"key", "--on=both", "f13"}, Changes{"key": 0x68, "modifiers": 0, "trigger": 3}},
 		{[]string{"key", "f13", "--on", "press"}, Changes{"key": 0x68, "modifiers": 0, "trigger": 1}},
-		{[]string{"rgb", "steady", "0000ff"}, Changes{"rgb-mode": 1, "red": 0, "green": 0, "blue": 255}},
+		{[]string{"rgb", "static", "0000ff"}, Changes{"rgb-mode": 1, "red": 0, "green": 0, "blue": 255}},
 	} {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
 			got, err := parsePublic(tc.args)
@@ -118,7 +153,7 @@ func TestPublicParser(t *testing.T) {
 		})
 	}
 	for name, mode := range lightingValues {
-		c, err := parsePublic([]string{"rgb", name})
+		c, err := parsePublic([]string{"rgb", strings.ToUpper(name)})
 		if err != nil || !reflect.DeepEqual(c.changes, Changes{"rgb-mode": mode}) {
 			t.Fatal(c, err)
 		}
@@ -152,8 +187,66 @@ func TestPublicParser(t *testing.T) {
 	}
 }
 
+func TestPublicRGBColourArguments(t *testing.T) {
+	for _, mode := range []string{"cycle-slow", "cycle-fast", "off"} {
+		for _, spelling := range []string{mode, strings.ToUpper(mode)} {
+			for _, colour := range []string{"1234ab", "", "#1234ab", "12345", "gggggg"} {
+				t.Run(spelling+"/"+colour, func(t *testing.T) {
+					access := publicAccess{
+						interactive: func(io.Reader) bool { t.Fatal("invalid colour accessed runtime"); return false },
+						discover:    func() ([]Candidate, error) { t.Fatal("invalid colour accessed devices"); return nil, nil },
+					}
+					var diagnostic bytes.Buffer
+					err := runPublic([]string{"rgb", spelling, colour}, &cliRuntime{strings.NewReader(""), io.Discard, &diagnostic}, access)
+					want := fmt.Sprintf("RGB mode %q does not use a colour; omit RGB", mode)
+					if err == nil || ExitCode(err) != 2 || !strings.Contains(diagnostic.String(), want) {
+						t.Fatalf("error=%v output=%q", err, diagnostic.String())
+					}
+				})
+			}
+		}
+	}
+	for _, mode := range []string{"static", "breathe", "flash", "held", "toggle"} {
+		for _, spelling := range []string{mode, strings.ToUpper(mode)} {
+			t.Run(spelling, func(t *testing.T) {
+				c, err := parsePublic([]string{"rgb", spelling, "12AbEF"})
+				want := Changes{"rgb-mode": lightingValues[mode], "red": 0x12, "green": 0xab, "blue": 0xef}
+				if err != nil || !reflect.DeepEqual(c.changes, want) {
+					t.Fatal(c, err)
+				}
+			})
+		}
+	}
+}
+
+func TestPublicRGBHelpArguments(t *testing.T) {
+	for _, mode := range []string{"cycle-slow", "cycle-fast", "off"} {
+		if !strings.Contains(rgbHelp, "  "+mode+" ") || strings.Contains(rgbHelp, mode+" [RGB]") {
+			t.Fatal("unexpected colour argument for", mode)
+		}
+	}
+	for _, mode := range []string{"static", "breathe", "flash", "held", "toggle"} {
+		if !strings.Contains(rgbHelp, mode+" [RGB]") {
+			t.Fatal("missing optional colour for", mode)
+		}
+	}
+	for _, text := range []string{"six hexadecimal digits without #", "Omit RGB to preserve the current colour"} {
+		if !strings.Contains(rgbHelp, text) {
+			t.Fatal("missing colour guidance", text)
+		}
+	}
+}
+
 func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 	cases := [][]string{
+		{"rgb", "steady"},
+		{"rgb", "flowing"},
+		{"rgb", "gradient"},
+		{"rgb", "neon"},
+		{"rgb", "STEADY", "0000ff"},
+		{"rgb", "FLOWING", "0000ff"},
+		{"rgb", "GRADIENT", "gggggg"},
+		{"rgb", "NEON", "#0000ff"},
 		{"key", "gui+f13"},
 		{"key", "GUI+enter"},
 		{"key", "super+super+f13"},
@@ -196,9 +289,9 @@ func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 		{"key", "f13", "enter"},
 		{"rgb", ""},
 		{"rgb", "blue"},
-		{"rgb", "steady", "#0000ff"},
-		{"rgb", "steady", "00000"},
-		{"rgb", "steady", "gggggg"},
+		{"rgb", "static", "#0000ff"},
+		{"rgb", "static", "00000"},
+		{"rgb", "static", "gggggg"},
 		{"rgb", "off", "000000", "extra"},
 		{"--help", "--yes"},
 	}
@@ -210,6 +303,7 @@ func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var out, diagnostic bytes.Buffer
 			err := runPublic(args, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
+			checkPublicHeader(t, diagnostic.String())
 			if err == nil || ExitCode(err) != 2 || out.Len() != 0 || diagnostic.Len() == 0 {
 				t.Fatal(err, out.String(), diagnostic.String())
 			}
@@ -224,6 +318,13 @@ func TestPublicHelpNoAccess(t *testing.T) {
 		if err := runPublic(args, &cliRuntime{strings.NewReader(""), &out, io.Discard}, access); err != nil {
 			t.Fatal(err)
 		}
+		checkPublicHeader(t, out.String())
+		if strings.Contains(out.String(), "One key, to rule them all.") {
+			t.Fatal(out.String())
+		}
+		if len(args) == 0 && !strings.HasPrefix(out.String(), "1️⃣ WonKey\n\nConfigure an XFKEY One Key Max (0112).\n") {
+			t.Fatal(out.String())
+		}
 		for _, removed := range []string{"--json", "--yes", "--device", "--dry-run", "advanced", "wonkey set", "Apply result"} {
 			if strings.Contains(out.String(), removed) {
 				t.Fatal(removed, out.String())
@@ -236,12 +337,15 @@ func TestPublicHelpNoAccess(t *testing.T) {
 }
 
 func TestPublicWorkflow(t *testing.T) {
-	for _, name := range []string{"confirm", "confirm-blank", "confirm-upper", "confirm-yes", "confirm-yes-upper", "cancel-upper", "cancel-no", "cancel-no-upper", "old-confirm", "space-only", "rgb-write", "clear-modifiers", "pasted-crlf", "pasted-selection", "second-device", "query-key", "query-rgb", "query-multiple", "zero", "incompatible", "cancel", "eof", "partial-write", "invalid-confirm", "space-confirm", "blank-selection", "eof-selection", "partial-selection", "invalid-selection", "out-of-range", "no-op", "noninteractive", "noninteractive-selection", "identity-changed", "version-changed", "settings-changed", "became-no-op", "mismatch", "echo", "deadline", "unsupported", "backup-failed", "query-failed", "discover-failed", "wrong-path", "wrong-model", "missing-settings", "short-settings", "bad-settings"} {
+	for _, name := range []string{"confirm", "confirm-blank", "confirm-upper", "confirm-yes", "confirm-yes-upper", "cancel-upper", "cancel-no", "cancel-no-upper", "old-confirm", "space-only", "rgb-write", "rgb-mode-cycle-slow", "rgb-mode-cycle-fast", "rgb-mode-off", "clear-modifiers", "pasted-crlf", "pasted-selection", "second-device", "query-key", "query-rgb", "query-multiple", "zero", "incompatible", "cancel", "eof", "partial-write", "invalid-confirm", "space-confirm", "blank-selection", "eof-selection", "partial-selection", "invalid-selection", "out-of-range", "no-op", "noninteractive", "noninteractive-selection", "identity-changed", "version-changed", "settings-changed", "became-no-op", "mismatch", "echo", "deadline", "unsupported", "backup-failed", "query-failed", "discover-failed", "wrong-path", "wrong-model", "missing-settings", "short-settings", "bad-settings"} {
 		t.Run(name, func(t *testing.T) {
 			root := publicTestCaptureRoot(t)
 			args := []string{"key", "f13"}
 			if name == "rgb-write" {
-				args = []string{"rgb", "steady", "0000ff"}
+				args = []string{"rgb", "static", "0000ff"}
+			}
+			if strings.HasPrefix(name, "rgb-mode-") {
+				args = []string{"rgb", strings.ToUpper(strings.TrimPrefix(name, "rgb-mode-"))}
 			}
 			if strings.HasPrefix(name, "query-") && name != "query-failed" {
 				args = []string{"key"}
@@ -301,10 +405,16 @@ func TestPublicWorkflow(t *testing.T) {
 				input = "3\ny\n"
 			}
 			first := newSettingsTransport()
+			if strings.HasPrefix(name, "rgb-mode-") {
+				first.current[124] = 2
+			}
 			if name == "unsupported" {
 				first.current[3] = 2
 			}
 			fresh := &backupCheckingTransport{settingsTransport: newSettingsTransport()}
+			if strings.HasPrefix(name, "rgb-mode-") {
+				fresh.current = first.current
+			}
 			if name == "clear-modifiers" {
 				first.current[2], fresh.current[2] = 15, 15
 			}
@@ -391,11 +501,15 @@ func TestPublicWorkflow(t *testing.T) {
 				},
 			}
 			err := runPublic(args, &cliRuntime{strings.NewReader(input), &out, &diagnostic}, access)
+			checkPublicHeader(t, out.String())
+			if strings.Contains(diagnostic.String(), "WonKey") {
+				t.Fatal("runtime error repeated the header", diagnostic.String())
+			}
 			failure := name == "zero" || name == "incompatible" || strings.HasPrefix(name, "noninteractive") || strings.HasSuffix(name, "changed") || name == "became-no-op" || name == "mismatch" || name == "echo" || name == "deadline" || name == "unsupported" || strings.HasSuffix(name, "failed") || strings.HasPrefix(name, "wrong-") || strings.HasSuffix(name, "settings")
 			if (err != nil) != failure {
 				t.Fatal(err, out.String(), diagnostic.String())
 			}
-			success := name == "rgb-write" || name == "clear-modifiers" || name == "pasted-crlf" || strings.HasPrefix(name, "confirm") || name == "pasted-selection" || name == "second-device"
+			success := name == "rgb-write" || strings.HasPrefix(name, "rgb-mode-") || name == "clear-modifiers" || name == "pasted-crlf" || strings.HasPrefix(name, "confirm") || name == "pasted-selection" || name == "second-device"
 			wantApply := success || strings.HasSuffix(name, "changed") || name == "became-no-op" || name == "mismatch" || name == "echo" || name == "deadline" || name == "backup-failed"
 			if applied != wantApply {
 				t.Fatal("apply", applied, err)
@@ -436,6 +550,13 @@ func TestPublicWorkflow(t *testing.T) {
 					if first.current[i] != fresh.current[i] {
 						t.Fatal("RGB changed key/unrelated byte", i)
 					}
+				}
+			}
+			if strings.HasPrefix(name, "rgb-mode-") {
+				want := first.current
+				want[124] = byte(lightingValues[strings.TrimPrefix(name, "rgb-mode-")] + 1)
+				if fresh.current != want {
+					t.Fatal("mode-only command changed colour or unrelated bytes")
 				}
 			}
 			if name == "query-key" && (strings.Contains(out.String(), "Colour") || strings.Contains(out.String(), "Mode")) {

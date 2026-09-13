@@ -37,7 +37,7 @@ func TestSettingNamesAndViews(t *testing.T) {
 	}{
 		{"key", 4, keyValues, 0, supportedKeyNames()},
 		{"trigger", 1, triggerValues, 0, map[byte]string{1: "press", 2: "release", 3: "both"}},
-		{"lighting", 124, lightingValues, 1, map[byte]string{1: "gradient", 2: "steady", 3: "flowing", 4: "flash", 5: "neon", 6: "off", 7: "held", 8: "toggle"}},
+		{"lighting", 124, lightingValues, 1, map[byte]string{1: "cycle-slow", 2: "static", 3: "breathe", 4: "flash", 5: "cycle-fast", 6: "off", 7: "held", 8: "toggle"}},
 	} {
 		t.Run(tc.setting, func(t *testing.T) {
 			for value := range 256 {
@@ -104,6 +104,15 @@ func TestHumanColourPolicyAndSwatch(t *testing.T) {
 			var out bytes.Buffer
 			env := map[string]string{"TERM": tc.term, "NO_COLOR": tc.noColour, "COLORTERM": tc.capability}
 			h := humanFor(&out, tc.tty, func(k string) string { return env[k] })
+			h.width = 1
+			h.header()
+			want := "1️⃣ WonKey\n\n"
+			if tc.colour {
+				want = "\x1b[34m1️⃣ WonKey\x1b[0m\n\n"
+			}
+			if out.String() != want {
+				t.Fatalf("header=%q, want %q", out.String(), want)
+			}
 			h.heading("Current settings")
 			out.WriteString(h.rgb("#1234EF"))
 			got := out.String()

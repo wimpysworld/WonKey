@@ -31,7 +31,7 @@ Readback copies `RX6[2:64]` to `C[0:62]`, `RX7[2:64]` to `C[62:124]`, and `RX8[2
 Saved captures retain all raw replies, including unused RX8 bytes.
 Internal parsing retains unknown RGB values, labelled `unknown`.
 
-See [lighting](usage#lighting) for vendor modes and [configuration fields](usage#supported-configuration-fields) for writable offsets.
+See [lighting](usage#lighting) for public modes and [configuration fields](usage#supported-configuration-fields) for writable offsets.
 
 ## Evidence
 
@@ -47,6 +47,22 @@ Sources are pinned to `cuylerstuwe/xfkey-cross-platform` commit `d86f50af54c5ce6
 Vendor executable evidence: big-endian model at VA `0046A989–0046A9A1`, version at `0046AB17–0046AB27`, identifier at `0046A9BD–0046AA15`, readback copies at `0046ACEF–0046AE71`, and full configuration copy at `0042E8A0–0042E8D6`.
 RGB strings are at file offsets `000A6D46–000A6DA9`, indexed insertion at VA `00435234–00435618`, and assignment at `00436110–00436121`.
 The authentic fixture confirms queries only.
+
+Public names differ from the historical vendor interpretations retained by the internal parser and capture metadata:
+
+| Public mode | Stored byte | Historical vendor interpretation | Former public name |
+| --- | --- | --- | --- |
+| `static` | `02` | Single-colour steady | `steady` |
+| `breathe` | `03` | Single-colour flowing | `flowing` |
+| `cycle-slow` | `01` | Full-colour gradient | `gradient` |
+| `cycle-fast` | `05` | Neon flowing | `neon` |
+| `flash` | `04` | Flash on click | unchanged |
+| `held` | `07` | On while pressed, off on release | unchanged |
+| `toggle` | `08` | Toggle on click | unchanged |
+| `off` | `06` | Lights off | unchanged |
+
+The public descriptions reflect user observations. The rename does not add automated hardware verification or change protocol values.
+Former names are not aliases. Existing captures retain their names and remain valid restore sources.
 
 The [USB HID Usage Tables](https://www.usb.org/sites/default/files/hut1_7.pdf) define F13-F24 on keyboard page `0x07`.
 These usages fit the captured keyboard descriptor and the single-key configuration field. This confirms representation, not firmware execution.

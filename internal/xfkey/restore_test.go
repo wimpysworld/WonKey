@@ -34,6 +34,18 @@ func restoreTestSettings() configuration {
 	return c
 }
 
+func TestSharedSettingsAcceptColourForEveryMode(t *testing.T) {
+	for mode, value := range lightingValues {
+		t.Run(mode, func(t *testing.T) {
+			changes, err := parseSettings("", "", "", mode, "#1234ab")
+			want := Changes{"rgb-mode": value, "red": 0x12, "green": 0x34, "blue": 0xab}
+			if err != nil || !reflect.DeepEqual(changes, want) {
+				t.Fatal(changes, err)
+			}
+		})
+	}
+}
+
 func TestRestoreOutputFailure(t *testing.T) {
 	for _, short := range []bool{false, true} {
 		for _, tc := range []struct {
@@ -138,11 +150,14 @@ func TestRestoreSourceValidation(t *testing.T) {
 }
 
 func TestPublicRestoreWorkflow(t *testing.T) {
-	for _, name := range []string{"write", "blank", "yes", "y", "upper", "old-confirm", "no", "invalid", "leading-space", "trailing-space", "eof", "partial", "nonterminal", "no-op", "settings-drift", "became-no-op", "identity-drift", "version-drift", "backup-failure", "backup-corrupt", "upload-failure", "commit-failure", "deadline", "mismatch", "incompatible-identifier", "incompatible-version", "unsupported-current", "source-replaced"} {
+	for _, name := range []string{"write", "rgb-cycle-slow", "rgb-cycle-fast", "rgb-off", "blank", "yes", "y", "upper", "old-confirm", "no", "invalid", "leading-space", "trailing-space", "eof", "partial", "nonterminal", "no-op", "settings-drift", "became-no-op", "identity-drift", "version-drift", "backup-failure", "backup-corrupt", "upload-failure", "commit-failure", "deadline", "mismatch", "incompatible-identifier", "incompatible-version", "unsupported-current", "source-replaced"} {
 		t.Run(name, func(t *testing.T) {
 			root := publicTestCaptureRoot(t)
 			saved := newSettingsTransport()
 			saved.current = restoreTestSettings()
+			if strings.HasPrefix(name, "rgb-") {
+				saved.current[124] = byte(lightingValues[strings.TrimPrefix(name, "rgb-")] + 1)
+			}
 			if name == "incompatible-identifier" {
 				saved.identity[6] ^= 1
 			}
@@ -253,11 +268,12 @@ func TestPublicRestoreWorkflow(t *testing.T) {
 				},
 			}
 			err := runPublic([]string{"restore", source}, &cliRuntime{strings.NewReader(input), &out, io.Discard}, access)
+			checkPublicHeader(t, out.String())
 			failed := strings.Contains(name, "drift") || strings.Contains(name, "failure") || strings.Contains(name, "incompatible") || name == "became-no-op" || name == "deadline" || name == "mismatch" || name == "nonterminal" || name == "unsupported-current" || name == "backup-corrupt"
 			if (err != nil) != failed {
 				t.Fatalf("error=%v output=%s", err, out.String())
 			}
-			success := name == "write" || name == "source-replaced" || name == "blank" || name == "yes" || name == "y" || name == "upper"
+			success := name == "write" || strings.HasPrefix(name, "rgb-") || name == "source-replaced" || name == "blank" || name == "yes" || name == "y" || name == "upper"
 			if name == "nonterminal" && discovered {
 				t.Fatal("nonterminal restore accessed devices")
 			}
@@ -379,7 +395,7 @@ func TestRestoreSelectionOutput(t *testing.T) {
 				saved.current[1], saved.current[2], saved.current[4] = 2, 11, 0x28
 				saved.current[124], saved.current[125], saved.current[126], saved.current[127] = 2, 255, 0, 0
 				restoreTestSource(t, root, "20260911-093012-0000", saved)
-				want += "  2  ctrl+shift+super+enter (release) | steady #FF0000 | 11 Sep 2026 10:30\n"
+				want += "  2  ctrl+shift+super+enter (release) | static #FF0000 | 11 Sep 2026 10:30\n"
 			}
 			want += "Backup number [cancel]: "
 			var out bytes.Buffer
@@ -464,6 +480,7 @@ func TestRestoreSharesSelectionAndConfirmationReader(t *testing.T) {
 			if err := runPublic([]string{"restore"}, &cliRuntime{strings.NewReader(input), &out, io.Discard}, access); err != nil {
 				t.Fatal(err)
 			}
+			checkPublicHeader(t, out.String())
 			wantApply := input == "2\n1\ny\n" || input == "2\r\n1\r\ny\r\n" || input == "2\n1\n\n"
 			if applied != wantApply {
 				t.Fatalf("applied=%t input=%q output=%s", applied, input, out.String())
