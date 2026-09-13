@@ -71,10 +71,42 @@
           <a class="text-link" href="https://github.com/wimpysworld/WonKey/wiki">Explore the Wiki <span class="octicon inline-icon link-external" aria-hidden="true"></span></a>
         </div>
         <dl class="feature-list">
-          <div><dt><span class="feature-number" aria-hidden="true">01</span> Your key combination</dt><dd>Choose Enter or F13 to F24 with optional Ctrl, Shift, Alt, and Super modifiers. Set the trigger with <code>--on</code>. F14 to F24 remain unverified on hardware.</dd></div>
+          <div><dt><span class="feature-number" aria-hidden="true">01</span> Your key combination</dt><dd>Choose one key: Enter, A to Z, 0 to 9, or F1 to F24. Add optional Ctrl, Shift, Alt, and Super modifiers. Names ignore case and do not imply Shift. Letters and digits name HID keys, not text: the active host layout and modifiers determine the output. Set the trigger with <code>--on</code>. Letters, digits, F1 to F12, and F14 to F24 remain unverified on hardware.</dd></div>
           <div><dt><span class="feature-number" aria-hidden="true">02</span> Your RGB lighting</dt><dd>Choose the lighting mode and colour, or switch the light off. RGB changes preserve your key settings.</dd></div>
           <div><dt><span class="feature-number" aria-hidden="true">03</span> Your saved settings</dt><dd>Restore a compatible backup with <code>./wonkey restore</code>. WonKey restores key and RGB settings while preserving other current configuration bytes.</dd></div>
         </dl>
+      </section>
+      <section class="section-rule" aria-labelledby="meetings-title">
+        <div class="section-heading">
+          <p class="eyebrow">Everyday shortcuts</p>
+          <h2 id="meetings-title">Mute a meeting. Dictate a thought.</h2>
+          <p>Choose one of these alternatives. WonKey stores one key combination at a time.</p>
+        </div>
+        <div class="meeting-shortcuts">
+          <div class="meeting-card">
+            <h3><span class="octicon meeting-logo google-meet-icon" aria-hidden="true"></span> Google Meet</h3>
+            <p>Toggle your microphone in Google Meet.</p>
+            <pre><code>./wonkey key ctrl+d --on press</code></pre>
+            <p>Keep the meeting page focused. Check Ctrl+D in your Linux browser first.</p>
+            <a class="text-link" href="https://support.google.com/a/users/answer/9896256?hl=en">Google Meet shortcuts <span class="octicon inline-icon link-external" aria-hidden="true"></span></a>
+          </div>
+          <div class="meeting-card">
+            <!-- Zoom camera mark from Boxicons: https://api.iconify.design/bxl:zoom.svg -->
+            <h3><svg class="meeting-logo zoom-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M1.984 7.506v6.74c.006 1.524 1.361 2.75 3.014 2.745h10.693c.303 0 .549-.225.549-.498v-6.74c-.008-1.523-1.363-2.75-3.014-2.744H2.531c-.302 0-.547.224-.547.497m14.936 2.63l4.416-2.963c.383-.292.68-.219.68.309v9.036c0 .601-.363.528-.68.309L16.92 13.87z"/></svg> Zoom</h3>
+            <p>Toggle your microphone in the Linux desktop app.</p>
+            <pre><code>./wonkey key alt+a --on press</code></pre>
+            <p>Keep the Zoom app focused.</p>
+            <a class="text-link" href="https://support.zoom.com/hc/en/article?id=zm_kb&amp;sysparm_article=KB0067050">Zoom shortcuts <span class="octicon inline-icon link-external" aria-hidden="true"></span></a>
+          </div>
+          <div class="meeting-card">
+            <h3><span class="octicon meeting-logo handy-icon" aria-hidden="true"></span> Handy</h3>
+            <p>Press to record. Press again to transcribe.</p>
+            <pre><code>./wonkey key ctrl+shift+h --on press</code></pre>
+            <p>In Handy, set the transcription shortcut to Ctrl+Shift+H. Turn off Push To Talk for toggle mode.</p>
+            <p>On Wayland, follow Handy's <a href="https://github.com/cjpais/Handy/#linux-notes">desktop shortcut setup</a>.</p>
+            <a class="text-link" href="https://handy.computer/docs/general">Handy settings <span class="octicon inline-icon link-external" aria-hidden="true"></span></a>
+          </div>
+        </div>
       </section>
       <section class="section-rule" aria-labelledby="workflow-title">
         <div class="section-heading">

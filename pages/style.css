@@ -162,6 +162,16 @@ h3 { font-size: 1.05rem; line-height: 1.4; }
 .feature-list dd { margin: 0.4rem 0 0 2rem; color: var(--site-muted); font-size: 0.95rem; }
 .section-heading { max-width: 44rem; }
 .section-heading > p:last-child { color: var(--site-muted); }
+.meeting-shortcuts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.5rem; margin-top: 2rem; }
+.meeting-card { padding: 1.5rem; border: 1px solid var(--site-border); border-radius: var(--pico-border-radius); }
+.meeting-card h3 { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; }
+.meeting-logo { flex-shrink: 0; width: 48px; height: 48px; color: var(--site-text); }
+.google-meet-icon { --icon: url("https://cdn.jsdelivr.net/npm/simple-icons@16.30.0/icons/googlemeet.svg"); -webkit-mask-size: 40px; mask-size: 40px; }
+/* Official Handy icon: https://handy.computer/favicon.png */
+.handy-icon { --icon: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAP5SURBVHgB7ZqLcdswDIaRXgfoBtEGcScoO0HcDdwJ4g2iTtB0AiUTpBvImSDZgO4EdidAiRN9UaifomSRiu7K746nRIL4AEkAhEWUyWQymUzmf+WCIsPMn8ylMEWux4uLi5eR725MubJ1CPL+k6nnNy0Z0/mNKTVjKlOKwPs3phzYjzZlRUtDZq1n4O4ACk8dtzwcRUvCzu5QNDfLvP3+isdxcOt4N2Q2eDylU0ftGWTF/pW1pSXAePYrqxiZ2a1ncJ/s+wV4/sitGbYyrm2oaAmAGaqBTAkGubHPNuDZCtShHZloHuEDpecO3Ptir+5gfW7T3fMHisRUBRyd/zuzZwYkMu6g1vZ65dzvDN5uB1cBfygSUxXgdkRcogJyT0CuoNdg58Rf8K4C9wYHVyGmKgDtxTW4hzqsqKsAJHeN6uMm/ri1dkhsxDNbA0xzAix0x08ztvY1uLcF9WtHRgYaihp/0lwwtvIlhQeCUM47KEg68DDmUQI3S7HTSSB3P6DTK+edLU9Dhfo/2Q1aK//g3BaluLYgaLiAC7ymMNL+vaf+Nc0B45C4dmSKwGyhICqE5tYBi7vbrA71/SOdgV1aUi6pcYV7amagvYRFKcrM6k7+Mde9+X9H2K0JD6CNEF+lXitfUDdeiAuHra/LnfO+7/CkQVubkXVXIZmpg694PMglbvmtEjWDPEFAAZrfHphuPXIFxYDHJSxcFKhP7IHinmXO/UftdUvuxiNTUqTBh4xXiLOProyDpbL13JdMeaZYmMruQAM1t2aPcTB0YtLJjZstI+1V3A2UNGhP7hUUC+7OgvbI9SkhejKTsY3QYwc/JBA6DpARN1eayy/P44Lig4Kk7ye3GA3GW2DrkZUIELlJRZHh5lDUJt6+dxpC1vjAOHUFlyUlgM+I+hDBLWAjuZ1zW3zwI9hvClTxg+ZhT6lgnJntGB3z99p5XlIiQF/SZorZH5lpoATxCIoSMrsCbKODlDBDP1AOoqQ56FFCGiuM+4AM83y/FrE/6JklDeVpX9Gc9ChBUWK46wKj/VAytiOPQAHiLQpKBOMt+D6/FXJjjDTokERp0bMz3Lhj/R6rrq9TvnO7jrkSegafJNIc27m+9HU1RRF2lblZpDYFLQEO5/1rtgFSX6ftTK/5NQ/Ql4MsaUlwf04AIYPTtoxJtp5QNJHY3weM/XDh9EldQeeltAuaSGwFpM3LdxmUrOkjtgImd2gke5pIii9FJSqbYyW8mFzFZ5pIim+E5kiAyEr7RkvlDG8wBpiOWxzc+HHNcal5KYHPELgJauTw8szno7lZUUlmPboR9GFnbmWLGMlLemssj7bIl2J7W3b2A4xMJpPJZDKZ6PwD7sbhgGpN57EAAAAASUVORK5CYII="); }
+.meeting-card p { color: var(--site-muted); font-size: 0.9rem; margin-bottom: 1rem; }
+.meeting-card pre { padding: 1rem; font-size: 0.85rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.meeting-card pre code { padding: 0; }
 .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2rem; padding: 0; margin: 2.5rem 0 2rem; list-style: none; counter-reset: steps; }
 .steps li { list-style: none; counter-increment: steps; }
 .steps li:nth-child(1) { --step-accent: var(--site-mauve); }
@@ -206,6 +216,7 @@ h3 { font-size: 1.05rem; line-height: 1.4; }
   .hero { gap: 2rem; padding-block: 4rem; }
   .features, .install { gap: 3rem; }
   .steps { gap: 1.25rem; }
+  .meeting-shortcuts { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 760px) {

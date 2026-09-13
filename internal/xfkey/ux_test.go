@@ -35,11 +35,7 @@ func TestSettingNamesAndViews(t *testing.T) {
 		shift   int
 		names   map[byte]string
 	}{
-		{"key", 4, keyValues, 0, map[byte]string{
-			0x28: "enter", 0x68: "f13", 0x69: "f14", 0x6a: "f15", 0x6b: "f16",
-			0x6c: "f17", 0x6d: "f18", 0x6e: "f19", 0x6f: "f20",
-			0x70: "f21", 0x71: "f22", 0x72: "f23", 0x73: "f24",
-		}},
+		{"key", 4, keyValues, 0, supportedKeyNames()},
 		{"trigger", 1, triggerValues, 0, map[byte]string{1: "press", 2: "release", 3: "both"}},
 		{"lighting", 124, lightingValues, 1, map[byte]string{1: "gradient", 2: "steady", 3: "flowing", 4: "flash", 5: "neon", 6: "off", 7: "held", 8: "toggle"}},
 	} {

@@ -28,14 +28,22 @@ These commands change stored key settings after confirmation:
 ```sh
 ./wonkey key f13
 ./wonkey key ctrl+shift+f13
+./wonkey key ctrl+a
+./wonkey key shift+1
+./wonkey key f12
 ./wonkey key f13 --on release
 ./wonkey key enter --on press
 ```
 
 A key expression is the complete combination. `key f13` means **<kbd>F13</kbd> without modifiers**, not <kbd>F13</kbd> with the previous modifiers.
-The base key must be `enter` or `f13` to `f24`. Keys `f1` to `f12` and all other base keys are unsupported.
+
+Use exactly one base key: `enter`, `a` to `z`, `0` to `9`, or `f1` to `f24`.
+Other base keys, aliases, punctuation, navigation keys, keypad keys, media keys, and macros are unsupported.
 Prefix modifiers with `+`: `ctrl`, `shift`, `alt`, and `super`, each at most once.
 `super` is the <kbd>Super</kbd>/<kbd>Windows</kbd>/<kbd>Command</kbd> modifier. Put the base key last. Names ignore letter case.
+
+Uppercase names do not imply <kbd>Shift</kbd>: `A` and `a` select the same key. Use `shift+a` to include <kbd>Shift</kbd>.
+Letters and digits name HID keys, not guaranteed text. The active host layout and modifiers determine the output.
 
 `--on` accepts `press`, `release`, or `both`. Omit it to preserve the current trigger.
 It requires a key expression, so `key --on release` is rejected.
@@ -43,7 +51,7 @@ Repeated `--on`, repeated modifiers, unsupported keys, and extra arguments are r
 Key changes preserve lighting and all unrelated bytes.
 
 Hardware tests confirmed <kbd>F13</kbd> events and persistence, as recorded in [hardware verification](protocol#hardware-verification).
-<kbd>F14</kbd> to <kbd>F24</kbd> are software-supported but remain unverified on hardware.
+Letters, digits, <kbd>F1</kbd> to <kbd>F12</kbd>, and <kbd>F14</kbd> to <kbd>F24</kbd> are software-supported but remain unverified on hardware.
 Desktop keymaps can show different symbols for function keys. Check the key name in your target shortcut editor.
 
 ## Lighting
@@ -144,13 +152,24 @@ See [hardware safety and records](hardware#apply-safety-and-records) for durable
 |---|---|
 | Trigger | 1 |
 | Complete modifier mask | 2 |
-| <kbd>Enter</kbd> (`0x28`) or <kbd>F13</kbd> to <kbd>F24</kbd> (`0x68` to `0x73`) | 4 |
+| Base key (HID usage below) | 4 |
 | Lighting mode | 124 |
 | RGB channels | 125 to 127 |
 
 Bytes 0 and 3 must be `00` and `01`. WonKey preserves those bytes and bytes 5 to 123.
-Only known single-key layouts for <kbd>Enter</kbd> or <kbd>F13</kbd> to <kbd>F24</kbd>, trigger values, modifiers, and RGB modes are accepted.
+Only known single-key layouts for the supported base keys, trigger values, modifiers, and RGB modes are accepted.
 Unknown layouts fail closed, even for RGB-only changes. Macros, mouse/media commands, and multi-key layouts are not converted.
+
+| Base key | HID usage at byte 4 |
+|---|---|
+| `a` to `z` | `0x04` to `0x1d` |
+| `1` to `9` | `0x1e` to `0x26` |
+| `0` | `0x27` |
+| `enter` | `0x28` |
+| `f1` to `f12` | `0x3a` to `0x45` |
+| `f13` to `f24` | `0x68` to `0x73` |
+
+The [pinned upstream key table](protocol#evidence) confirms these byte values, not hardware effects or persistence.
 
 ## Output and options
 

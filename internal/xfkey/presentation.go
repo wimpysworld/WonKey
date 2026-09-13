@@ -12,8 +12,18 @@ var settingOrder = []string{"key", "trigger", "modifiers", "rgb-mode", "red", "g
 
 var (
 	keyValues = map[string]int{
+		"a": 0x04, "b": 0x05, "c": 0x06, "d": 0x07, "e": 0x08, "f": 0x09,
+		"g": 0x0a, "h": 0x0b, "i": 0x0c, "j": 0x0d, "k": 0x0e, "l": 0x0f,
+		"m": 0x10, "n": 0x11, "o": 0x12, "p": 0x13, "q": 0x14, "r": 0x15,
+		"s": 0x16, "t": 0x17, "u": 0x18, "v": 0x19, "w": 0x1a, "x": 0x1b,
+		"y": 0x1c, "z": 0x1d,
+		"1": 0x1e, "2": 0x1f, "3": 0x20, "4": 0x21, "5": 0x22,
+		"6": 0x23, "7": 0x24, "8": 0x25, "9": 0x26, "0": 0x27,
 		"enter": 0x28,
-		"f13":   0x68, "f14": 0x69, "f15": 0x6a, "f16": 0x6b,
+		"f1":    0x3a, "f2": 0x3b, "f3": 0x3c, "f4": 0x3d,
+		"f5": 0x3e, "f6": 0x3f, "f7": 0x40, "f8": 0x41,
+		"f9": 0x42, "f10": 0x43, "f11": 0x44, "f12": 0x45,
+		"f13": 0x68, "f14": 0x69, "f15": 0x6a, "f16": 0x6b,
 		"f17": 0x6c, "f18": 0x6d, "f19": 0x6e, "f20": 0x6f,
 		"f21": 0x70, "f22": 0x71, "f23": 0x72, "f24": 0x73,
 	}
@@ -26,7 +36,7 @@ func parseSettings(key, trigger, modifiers, lighting, colour string) (Changes, e
 	if key != "" {
 		value, ok := keyValues[strings.ToLower(key)]
 		if !ok {
-			return nil, fmt.Errorf("invalid --key %q; accepted values: enter, f13 through f24", key)
+			return nil, fmt.Errorf("invalid --key %q; accepted values: a-z, 0-9, enter, f1 through f24", key)
 		}
 		changes["key"] = value
 	}
