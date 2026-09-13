@@ -330,19 +330,7 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 	return c.runObserved(observed, *selected, target, input, h, access)
 }
 
-func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, target ApplyTarget, input *bufio.Reader, h human, access publicAccess) error {
-	raw, err := hex.DecodeString(observed.Readback.Configuration)
-	if err != nil {
-		return err
-	}
-	var current configuration
-	if len(raw) != len(current) {
-		return fmt.Errorf("device settings need exactly 128 bytes")
-	}
-	copy(current[:], raw)
-	if err := supportedConfiguration(current); err != nil {
-		return err
-	}
+func (c publicCommand) showCurrentSettings(current configuration, selected Candidate, target ApplyTarget, h human) {
 	heading := "Current " + c.name
 	if c.name == "restore" {
 		heading = "Current settings"
@@ -364,6 +352,22 @@ func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, t
 		h.field("Mode", settingName(lightingValues, int(current[124])-1))
 		fmt.Fprintf(h.out, "  %-10s %s\n", "Colour", h.rgb(fmt.Sprintf("#%02X%02X%02X", current[125], current[126], current[127])))
 	}
+}
+
+func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, target ApplyTarget, input *bufio.Reader, h human, access publicAccess) error {
+	raw, err := hex.DecodeString(observed.Readback.Configuration)
+	if err != nil {
+		return err
+	}
+	var current configuration
+	if len(raw) != len(current) {
+		return fmt.Errorf("device settings need exactly 128 bytes")
+	}
+	copy(current[:], raw)
+	if err := supportedConfiguration(current); err != nil {
+		return err
+	}
+	c.showCurrentSettings(current, selected, target, h)
 	if h.out.err != nil {
 		return h.out.err
 	}
