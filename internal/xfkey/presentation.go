@@ -11,7 +11,12 @@ import (
 var settingOrder = []string{"key", "trigger", "modifiers", "rgb-mode", "red", "green", "blue"}
 
 var (
-	keyValues      = map[string]int{"enter": 0x28, "f13": 0x68}
+	keyValues = map[string]int{
+		"enter": 0x28,
+		"f13":   0x68, "f14": 0x69, "f15": 0x6a, "f16": 0x6b,
+		"f17": 0x6c, "f18": 0x6d, "f19": 0x6e, "f20": 0x6f,
+		"f21": 0x70, "f22": 0x71, "f23": 0x72, "f24": 0x73,
+	}
 	triggerValues  = map[string]int{"press": 1, "release": 2, "both": 3}
 	lightingValues = map[string]int{"gradient": 0, "steady": 1, "flowing": 2, "flash": 3, "neon": 4, "off": 5, "held": 6, "toggle": 7}
 )
@@ -21,7 +26,7 @@ func parseSettings(key, trigger, modifiers, lighting, colour string) (Changes, e
 	if key != "" {
 		value, ok := keyValues[strings.ToLower(key)]
 		if !ok {
-			return nil, fmt.Errorf("invalid --key %q; accepted values: enter, f13", key)
+			return nil, fmt.Errorf("invalid --key %q; accepted values: enter, f13 through f24", key)
 		}
 		changes["key"] = value
 	}

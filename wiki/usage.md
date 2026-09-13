@@ -33,13 +33,18 @@ These commands change stored key settings after confirmation:
 ```
 
 A key expression is the complete combination. `key f13` means **<kbd>F13</kbd> without modifiers**, not <kbd>F13</kbd> with the previous modifiers.
-The base key must be `enter` or `f13`. Prefix modifiers with `+`: `ctrl`, `shift`, `alt`, and `super`, each at most once.
+The base key must be `enter` or `f13` to `f24`. Keys `f1` to `f12` and all other base keys are unsupported.
+Prefix modifiers with `+`: `ctrl`, `shift`, `alt`, and `super`, each at most once.
 `super` is the <kbd>Super</kbd>/<kbd>Windows</kbd>/<kbd>Command</kbd> modifier. Put the base key last. Names ignore letter case.
 
 `--on` accepts `press`, `release`, or `both`. Omit it to preserve the current trigger.
 It requires a key expression, so `key --on release` is rejected.
 Repeated `--on`, repeated modifiers, unsupported keys, and extra arguments are rejected before device access.
 Key changes preserve lighting and all unrelated bytes.
+
+Hardware tests confirmed <kbd>F13</kbd> events and persistence, as recorded in [hardware verification](protocol#hardware-verification).
+<kbd>F14</kbd> to <kbd>F24</kbd> are software-supported but remain unverified on hardware.
+Desktop keymaps can show different symbols for function keys. Check the key name in your target shortcut editor.
 
 ## Lighting
 
@@ -139,12 +144,12 @@ See [hardware safety and records](hardware#apply-safety-and-records) for durable
 |---|---|
 | Trigger | 1 |
 | Complete modifier mask | 2 |
-| <kbd>Enter</kbd> (`28`) or <kbd>F13</kbd> (`68`) | 4 |
+| <kbd>Enter</kbd> (`0x28`) or <kbd>F13</kbd> to <kbd>F24</kbd> (`0x68` to `0x73`) | 4 |
 | Lighting mode | 124 |
 | RGB channels | 125 to 127 |
 
 Bytes 0 and 3 must be `00` and `01`. WonKey preserves those bytes and bytes 5 to 123.
-Only known single-key <kbd>Enter</kbd>/<kbd>F13</kbd> layouts, trigger values, modifiers, and RGB modes are accepted.
+Only known single-key layouts for <kbd>Enter</kbd> or <kbd>F13</kbd> to <kbd>F24</kbd>, trigger values, modifiers, and RGB modes are accepted.
 Unknown layouts fail closed, even for RGB-only changes. Macros, mouse/media commands, and multi-key layouts are not converted.
 
 ## Output and options
