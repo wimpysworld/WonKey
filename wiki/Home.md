@@ -10,7 +10,7 @@ Read [device access requirements](hardware#device-selection-and-access) before a
 
 | Task | Guide |
 |---|---|
-| Assign <kbd>Enter</kbd> or <kbd>F13</kbd> with modifiers and a trigger | [Set the key](usage#set-the-key) |
+| Assign <kbd>Enter</kbd> or <kbd>F13</kbd> to <kbd>F24</kbd> with modifiers and a trigger | [Set the key](usage#set-the-key) |
 | Choose an RGB mode and colour | [Lighting](usage#lighting) |
 | Restore settings from an automatic backup or a moved capture | [Restore saved settings](usage#restore-saved-settings) |
 | Review and confirm a change | [Selection and confirmation](usage#selection-and-confirmation) |

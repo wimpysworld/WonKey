@@ -16,7 +16,7 @@ type Changes map[string]int
 type fieldSpec struct{ offset, min, max, shift int }
 
 var settingsFields = map[string]fieldSpec{
-	"key":       {4, 0x28, 0x68, 0},
+	"key":       {4, 0x28, 0x73, 0},
 	"trigger":   {1, 1, 3, 0},
 	"modifiers": {2, 0, 15, 0},
 	"rgb-mode":  {124, 0, 7, 1},
@@ -35,7 +35,7 @@ func (changes Changes) validate() error {
 			continue
 		}
 		spec := settingsFields[name]
-		if value < spec.min || value > spec.max || (name == "key" && value != 0x28 && value != 0x68) {
+		if value < spec.min || value > spec.max || (name == "key" && settingName(keyValues, value) == "") {
 			return fmt.Errorf("unsupported setting %s=%d", name, value)
 		}
 	}
@@ -48,7 +48,7 @@ func (changes Changes) validate() error {
 }
 
 func supportedConfiguration(c configuration) error {
-	if c[0] != 0 || c[3] != 1 || (c[4] != 0x28 && c[4] != 0x68) || c[1] < 1 || c[1] > 3 || c[2] > 15 {
+	if c[0] != 0 || c[3] != 1 || settingName(keyValues, int(c[4])) == "" || c[1] < 1 || c[1] > 3 || c[2] > 15 {
 		return fmt.Errorf("unsupported current single-key layout %x; no conversion attempted", c[:5])
 	}
 	if c[124] < 1 || c[124] > 8 {

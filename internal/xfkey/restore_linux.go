@@ -152,7 +152,7 @@ func chooseRestore(path string, identity deviceIdentity, current configuration, 
 	}
 	h.line("36", "Restore a backup:")
 	for i, source := range sources {
-		key := map[byte]string{0x28: "enter", 0x68: "f13"}[source.config[4]]
+		key := settingName(keyValues, int(source.config[4]))
 		if source.config[2] != 0 {
 			key = strings.ReplaceAll(modifierName(source.config[2]), ",", "+") + "+" + key
 		}
