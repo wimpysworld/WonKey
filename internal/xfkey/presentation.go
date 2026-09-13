@@ -51,7 +51,7 @@ func parseSettings(key, trigger, modifiers, lighting, colour string) (Changes, e
 		mask := 0
 		seen := map[string]bool{}
 		if strings.ToLower(modifiers) != "none" {
-			for _, name := range strings.Split(strings.ToLower(modifiers), ",") {
+			for name := range strings.SplitSeq(strings.ToLower(modifiers), ",") {
 				bit, ok := map[string]int{"ctrl": 1, "shift": 2, "alt": 4, "super": 8}[name]
 				if !ok || seen[name] {
 					return nil, fmt.Errorf("invalid --modifiers %q; accepted values: none or comma-separated ctrl,shift,alt,super", modifiers)
