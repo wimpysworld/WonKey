@@ -28,7 +28,7 @@ HOME/.local/state/wonkey/captures when XDG_STATE_HOME is not absolute.
 Options:
   -h, --help   Show help without device access.
 
-Changes require a terminal. At [Y/n], Enter accepts. No or EOF cancels.
+At [Y/n], Enter accepts. No or EOF cancels.
 WonKey saves and validates a fresh backup before writing.
 Readback does not prove hardware effects or persistence after reconnect.
 `
@@ -157,7 +157,7 @@ func chooseRestore(path string, identity deviceIdentity, current configuration, 
 			key = strings.ReplaceAll(modifierName(source.config[2]), ",", "+") + "+" + key
 		}
 		trigger := map[byte]string{1: "press", 2: "release", 3: "both"}[source.config[1]]
-		mode := []string{"", "gradient", "steady", "flowing", "flash", "neon", "off", "held", "toggle"}[source.config[124]]
+		mode := settingName(lightingValues, int(source.config[124])-1)
 		h.line("", fmt.Sprintf("  %d  %s (%s) | %s #%02X%02X%02X | %s", i+1, key, trigger, mode,
 			source.config[125], source.config[126], source.config[127], source.created.Local().Format("02 Jan 2006 15:04")))
 	}

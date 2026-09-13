@@ -45,11 +45,11 @@ func TestCapturedSettingsLabels(t *testing.T) {
 		value  byte
 		want   string
 	}{
-		{0, 1, "key-unknown-0101000128_rgb-gradient-ffffff"},
-		{1, 0, "key-unknown-0000000128_rgb-gradient-ffffff"},
-		{2, 128, "key-unknown-0001800128_rgb-gradient-ffffff"},
-		{3, 2, "key-unknown-0001000228_rgb-gradient-ffffff"},
-		{4, 0x2f, "key-unknown-000100012f_rgb-gradient-ffffff"},
+		{0, 1, "key-unknown-0101000128_rgb-cycle-slow-ffffff"},
+		{1, 0, "key-unknown-0000000128_rgb-cycle-slow-ffffff"},
+		{2, 128, "key-unknown-0001800128_rgb-cycle-slow-ffffff"},
+		{3, 2, "key-unknown-0001000228_rgb-cycle-slow-ffffff"},
+		{4, 0x2f, "key-unknown-000100012f_rgb-cycle-slow-ffffff"},
 		{124, 255, "key-enter_rgb-unknown-ff-ffffff"},
 	} {
 		c := syntheticSettings()
@@ -82,7 +82,7 @@ func TestNamedCaptureCollisionsAndEvidence(t *testing.T) {
 		transport.current[2], transport.current[4], transport.current[124] = 13, 0x68, 2
 		copy(transport.current[125:], []byte{0, 0, 255})
 		result, err := captureNamedQueries(transport, dir, true)
-		want := captureCollisionName("260912-083853_key-ctrl-alt-super-f13_rgb-steady-0000ff", attempt)
+		want := captureCollisionName("260912-083853_key-ctrl-alt-super-f13_rgb-static-0000ff", attempt)
 		if err != nil || filepath.Base(result.Directory) != want {
 			t.Fatalf("result=%+v err=%v want=%s", result, err, want)
 		}
@@ -104,7 +104,7 @@ func TestNamedApplyUsesCapturedNotProposedSettings(t *testing.T) {
 	current := transport.current
 	result, err := applySettingsWithCapture(transport, dir, settingsTarget(), Changes{"key": 0x68, "rgb-mode": 1, "red": 0, "green": 0, "blue": 255}, true, time.Second,
 		func(configuration, configuration, string) (bool, error) { return true, nil }, captureNamedQueries)
-	if err != nil || !result.ReadbackVerified || filepath.Base(result.Directory) != "260912-083853_key-enter_rgb-gradient-ffffff" {
+	if err != nil || !result.ReadbackVerified || filepath.Base(result.Directory) != "260912-083853_key-enter_rgb-cycle-slow-ffffff" {
 		t.Fatal(result, err)
 	}
 	_, captured, err := loadCapture(result.Directory)

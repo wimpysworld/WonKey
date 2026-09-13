@@ -4,8 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
-    <meta name="description" content="Configure your XFKEY One Key Max on Linux. Set the key combination, choose the RGB lighting, and restore saved settings. One key. Your rules.">
-    <title>WonKey · One key. Your rules.</title>
+    <meta name="description" content="Configure your XFKEY One Key Max on Linux. Set the key combination, choose the RGB lighting, and restore saved settings. One key, to rule them all.">
+    <title>WonKey · One key, to rule them all.</title>
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <script src="theme.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css">
@@ -56,8 +56,8 @@
           <pre><code><span class="terminal-comment"># Set your key combination</span>
 <span class="prompt">$ </span><span class="terminal-command">./wonkey key</span> <span class="terminal-argument">ctrl+shift+f13</span>
 
-<span class="terminal-comment"># Choose steady blue</span>
-<span class="prompt">$ </span><span class="terminal-command">./wonkey rgb</span> <span class="terminal-argument">steady 0000ff</span>
+<span class="terminal-comment"># Choose static blue</span>
+<span class="prompt">$ </span><span class="terminal-command">./wonkey rgb</span> <span class="terminal-argument">static 0000ff</span>
 
 <span class="terminal-comment"># Restore saved settings</span>
 <span class="prompt">$ </span><span class="terminal-command">./wonkey restore</span></code></pre>
@@ -72,7 +72,7 @@
         </div>
         <dl class="feature-list">
           <div><dt><span class="feature-number" aria-hidden="true">01</span> Your key combination</dt><dd>Choose one key: Enter, A to Z, 0 to 9, or F1 to F24. Add optional Ctrl, Shift, Alt, and Super modifiers. Names ignore case and do not imply Shift. Letters and digits name HID keys, not text: the active host layout and modifiers determine the output. Set the trigger with <code>--on</code>. Letters, digits, F1 to F12, and F14 to F24 remain unverified on hardware.</dd></div>
-          <div><dt><span class="feature-number" aria-hidden="true">02</span> Your RGB lighting</dt><dd>Choose the lighting mode and colour, or switch the light off. RGB changes preserve your key settings.</dd></div>
+          <div><dt><span class="feature-number" aria-hidden="true">02</span> Your RGB lighting</dt><dd>Choose the lighting mode. <code>static</code>, <code>breathe</code>, <code>flash</code>, <code>held</code>, and <code>toggle</code> accept an optional colour: six hexadecimal digits without <code>#</code>. Omit the colour to preserve it. <code>cycle-slow</code>, <code>cycle-fast</code>, and <code>off</code> do not use a colour and reject supplied colours. RGB changes preserve your key settings.</dd></div>
           <div><dt><span class="feature-number" aria-hidden="true">03</span> Your saved settings</dt><dd>Restore a compatible backup with <code>./wonkey restore</code>. WonKey restores key and RGB settings while preserving other current configuration bytes.</dd></div>
         </dl>
       </section>
@@ -155,7 +155,7 @@ just build
             <img class="brand-mark" src="icon.svg" alt="" width="40" height="40">
             WonKey
           </a>
-          <p>One key. Your rules. 1️⃣</p>
+          <p>One key, to rule them all. 1️⃣</p>
         </div>
         <nav class="footer-links" aria-label="Footer navigation">
           <div><h3>Resources</h3><ul>
@@ -180,7 +180,7 @@ just build
         </nav>
       </div>
       <div class="footer-bottom">
-        <p><small>© <span id="copyright-year">2026</span> Project contributors</small></p>
+        <p><small>© <span id="copyright-year">2026</span> <a href="https://github.com/flexiondotorg">Martin Wimpress <span class="octicon inline-icon link-external" aria-hidden="true"></span></a></small></p>
         <!-- tailor:links:start -->
         <nav class="connection-links" aria-label="Connect" style="display:flex;flex-wrap:wrap;gap:0.4rem">
           <a class="icon-button" href="https://wimpys.world/" aria-label="Website" title="Website" style="display:inline-flex;padding:10px;color:inherit"><span aria-hidden="true" style="display:block;width:24px;height:24px;background-color:currentColor;-webkit-mask:url('https://cdn.jsdelivr.net/npm/@primer/octicons@19.36.0/build/svg/globe-24.svg') center/contain no-repeat;mask:url('https://cdn.jsdelivr.net/npm/@primer/octicons@19.36.0/build/svg/globe-24.svg') center/contain no-repeat"></span></a>

@@ -28,7 +28,7 @@ var (
 		"f21": 0x70, "f22": 0x71, "f23": 0x72, "f24": 0x73,
 	}
 	triggerValues  = map[string]int{"press": 1, "release": 2, "both": 3}
-	lightingValues = map[string]int{"gradient": 0, "steady": 1, "flowing": 2, "flash": 3, "neon": 4, "off": 5, "held": 6, "toggle": 7}
+	lightingValues = map[string]int{"static": 1, "breathe": 2, "cycle-slow": 0, "cycle-fast": 4, "flash": 3, "held": 6, "toggle": 7, "off": 5}
 )
 
 func parseSettings(key, trigger, modifiers, lighting, colour string) (Changes, error) {
@@ -65,7 +65,7 @@ func parseSettings(key, trigger, modifiers, lighting, colour string) (Changes, e
 	if lighting != "" {
 		value, ok := lightingValues[strings.ToLower(lighting)]
 		if !ok {
-			return nil, fmt.Errorf("invalid --lighting %q; accepted values: gradient, steady, flowing, flash, neon, off, held, toggle", lighting)
+			return nil, fmt.Errorf("invalid --lighting %q; accepted values: static, breathe, cycle-slow, cycle-fast, flash, held, toggle, off", lighting)
 		}
 		changes["rgb-mode"] = value
 	}

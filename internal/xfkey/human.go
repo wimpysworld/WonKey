@@ -91,8 +91,11 @@ func (h human) line(code, text string) {
 	fmt.Fprintln(h.out, h.style(code, text))
 }
 
+func (h human) header() {
+	fmt.Fprintln(h.out, h.style("34", "1️⃣ WonKey")+"\n")
+}
+
 func (h human) heading(text string) {
-	h.line("35", "WonKey")
 	h.line("36", text)
 }
 

@@ -59,28 +59,29 @@ Desktop keymaps can show different symbols for function keys. Check the key name
 These commands change stored lighting settings after confirmation:
 
 ```sh
-./wonkey rgb steady 0000ff
-./wonkey rgb steady
+./wonkey rgb static 0000ff
+./wonkey rgb static
 ./wonkey rgb off
 ```
 
-The optional colour must contain exactly six hexadecimal digits, with no leading `#`.
-`0000ff` is blue. Omit the colour to preserve all three RGB bytes, including when switching to `off`.
+`static`, `breathe`, `flash`, `held`, and `toggle` accept an optional colour: exactly six hexadecimal digits without `#`.
+`0000ff` is blue. Omit the colour to preserve all three RGB bytes.
+`cycle-slow`, `cycle-fast`, and `off` do not use a colour. They reject supplied colours before device access and preserve the stored colour.
 RGB commands preserve the key, modifiers, trigger, and unrelated bytes.
 
-| Mode | Vendor interpretation | Stored byte |
+| Mode | Description | Stored byte |
 |---|---|---|
-| `gradient` | Full-colour gradient | `01` |
-| `steady` | Single-colour steady | `02` |
-| `flowing` | Single-colour flowing | `03` |
+| `static` | Single static colour | `02` |
+| `breathe` | Single breathing colour | `03` |
+| `cycle-slow` | Full-colour slow cycle | `01` |
+| `cycle-fast` | Full-colour fast cycle | `05` |
 | `flash` | Flash on click | `04` |
-| `neon` | Neon flowing | `05` |
-| `off` | Lights off | `06` |
 | `held` | On while pressed, off on release | `07` |
 | `toggle` | Toggle on click | `08` |
+| `off` | Lights off | `06` |
 
-Mode descriptions use vendor labels. Hardware tests confirmed steady-blue lighting, as recorded in [hardware verification](protocol#hardware-verification).
-Other mode effects remain unverified. WonKey has no brightness or speed option.
+Descriptions reflect user observations, not automated hardware verification. See [protocol evidence](protocol#evidence) for the original vendor labels.
+Old public names are not accepted. Existing captures remain compatible. WonKey has no brightness or speed option.
 
 ## Restore saved settings
 

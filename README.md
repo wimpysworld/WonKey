@@ -1,8 +1,14 @@
-# WonKey 1️⃣
+<h1 align="center">
+  <img src="pages/icon.svg" width="256" height="256" alt="WonKey">
+  <br />
+  WonKey
+</h1>
 
-One key. Your rules.
+<p align="center"><b>Configure your XFKEY One Key Max on Linux. One key, to rule them all 1️⃣</b></p>
 
-Configure your XFKEY One Key Max on Linux. Set the key combination, choose the RGB lighting, and restore saved settings.
+<p align="center">Made with 💝 for 🐧</p>
+
+Set the key combination, choose the RGB lighting, and restore saved settings.
 
 WonKey previews changes, asks for confirmation, and validates an automatic backup before it writes settings.
 
@@ -46,14 +52,16 @@ Omit `--on` to preserve the current trigger.
 Names ignore letter case. `A` means the same key as `a`, without an implied <kbd>Shift</kbd>.
 Letters and digits name HID keys, not guaranteed text. The active host layout and modifiers determine the output.
 
-Choose steady blue or turn the lighting off:
+Choose static blue or turn the lighting off:
 
 ```sh
-./wonkey rgb steady 0000ff
+./wonkey rgb static 0000ff
 ./wonkey rgb off
 ```
 
-Omit the six-digit RGB value to preserve the colour. RGB commands preserve key settings.
+`static`, `breathe`, `flash`, `held`, and `toggle` accept an optional colour: six hexadecimal digits without `#`.
+Omit the colour to preserve it. `cycle-slow`, `cycle-fast`, and `off` do not use a colour and reject supplied colours.
+RGB commands preserve key settings.
 
 Choose a compatible backup and restore its settings:
 
@@ -66,7 +74,7 @@ Restore does not recover firmware.
 
 ## Before you save
 
-Changes require a terminal. WonKey shows the selected device and current-to-proposed settings before it asks `Save settings? [Y/n]: `.
+Changes require a terminal. WonKey shows the selected device and current-to-proposed settings before it asks `Save settings? [Y/n]:`.
 Press <kbd>Enter</kbd> to save, or enter `n` to cancel. Cancellation and unchanged settings create no backup and send no settings writes.
 
 If backup validation fails or the device state changes after the preview, WonKey stops before it writes settings.

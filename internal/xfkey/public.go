@@ -10,15 +10,14 @@ import (
 	"strings"
 )
 
-const publicHelp = `WonKey  One key. Your rules.
-Configure an XFKEY One Key Max (0112).
+const publicHelp = `Configure an XFKEY One Key Max (0112).
 
 Usage: wonkey <command> [options]
 
 Commands:
   key [COMBINATION]   Read or change the key.
-  rgb [MODE [RGB]]    Read or change lighting.
-  restore [DIRECTORY] Restore saved key and lighting settings.
+  rgb [MODE [RGB]]    Read or change the RGB.
+  restore [DIRECTORY] Restore saved key and RGB settings.
 
 Options:
   -h, --help          Show help without device access.
@@ -27,7 +26,7 @@ Examples:
   wonkey key
   wonkey key f13
   wonkey key ctrl+shift+f13 --on release
-  wonkey rgb steady 0000ff
+  wonkey rgb static 0000ff
   wonkey rgb off
 
 Run "wonkey <command> --help" for values and options.
@@ -51,38 +50,37 @@ Examples:
   wonkey key ctrl+shift+f13
   wonkey key f13 --on release
 
-Changes require a terminal. At [Y/n], Enter accepts. No or EOF cancels.
+At [Y/n], Enter accepts. No or EOF cancels.
 WonKey saves and validates a fresh backup before writing.
 `
 
 const rgbHelp = `Usage: wonkey rgb [MODE [RGB]]
 
 Without a mode, read current lighting. Create no files.
-RGB is exactly six hexadecimal digits, for example 0000ff for blue.
+RGB is six hexadecimal digits without #, for example 0000ff for blue.
 Omit RGB to preserve the current colour. Key settings stay unchanged.
 
 Modes:
-  gradient    Full-colour gradient
-  steady      Single-colour steady
-  flowing     Single-colour flowing
-  flash       Flash on click
-  neon        Neon flowing
-  off         Lights off
-  held        On while pressed, off on release
-  toggle      Toggle on click
+  static [RGB]   Single static colour
+  breathe [RGB]  Single breathing colour
+  cycle-slow     Full-colour slow cycle
+  cycle-fast     Full-colour fast cycle
+  flash [RGB]    Flash on click
+  held [RGB]     On while pressed, off on release
+  toggle [RGB]   Toggle on click
+  off            Lights off
 
 Options:
   -h, --help   Show help without device access.
 
 Examples:
   wonkey rgb
-  wonkey rgb steady 0000ff
-  wonkey rgb steady
+  wonkey rgb static 0000ff
+  wonkey rgb static
   wonkey rgb off
 
-Changes require a terminal. At [Y/n], Enter accepts. No or EOF cancels.
+At [Y/n], Enter accepts. No or EOF cancels.
 WonKey saves and validates a fresh backup before writing.
-Mode descriptions are vendor labels, not verified lighting effects.
 `
 
 type publicCommand struct {
@@ -184,11 +182,15 @@ func (c publicCommand) parseValues(positional []string, on string) (publicComman
 		if len(positional) > 2 {
 			return c, fmt.Errorf("rgb accepts a mode and optional six-digit colour")
 		}
-		if _, ok := lightingValues[strings.ToLower(positional[0])]; !ok {
+		mode := strings.ToLower(positional[0])
+		if _, ok := lightingValues[mode]; !ok {
 			return c, fmt.Errorf("unknown RGB mode %q", positional[0])
 		}
 		colour := ""
 		if len(positional) == 2 {
+			if mode == "cycle-slow" || mode == "cycle-fast" || mode == "off" {
+				return c, fmt.Errorf("RGB mode %q does not use a colour; omit RGB", mode)
+			}
 			colour = positional[1]
 			if len(colour) != 6 {
 				return c, fmt.Errorf("RGB needs exactly six hexadecimal digits")
@@ -231,8 +233,17 @@ func RunIO(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 func runPublic(args []string, rt *cliRuntime, access publicAccess) error {
 	c, err := parsePublic(args)
 	code := 2
+	out := rt.errOut
 	if err == nil {
 		code = 1
+		out = rt.out
+	}
+	h := newHuman(out)
+	h.header()
+	if h.out.err != nil {
+		return &CLIError{Err: h.out.err, Code: code}
+	}
+	if err == nil {
 		if c.help {
 			text := publicHelp
 			if c.name == "key" {
@@ -382,7 +393,7 @@ func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, t
 		if c.source != "" {
 			h.field("Source", source.directory)
 		}
-		h.line("", "Restore saved key and lighting settings. Keep all other current bytes.")
+		h.line("", "Restore saved key and RGB settings. Keep all other current bytes.")
 		c.changes = restoreChanges(source.config)
 		restored, err := changeConfiguration(current, c.changes)
 		if err != nil {

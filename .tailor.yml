@@ -5,7 +5,7 @@ languages:
   go: true
 
 repository:
-  description: One key. Your rules. 1️⃣
+  description: Configure your XFKEY One Key Max on Linux. One key, to rule them all 1️⃣
   homepage: https://wimpysworld.github.io/WonKey/
   has_wiki: true
   has_discussions: false
