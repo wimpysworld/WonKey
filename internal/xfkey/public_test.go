@@ -344,8 +344,8 @@ func TestPublicWorkflow(t *testing.T) {
 			if name == "rgb-write" {
 				args = []string{"rgb", "static", "0000ff"}
 			}
-			if strings.HasPrefix(name, "rgb-mode-") {
-				args = []string{"rgb", strings.ToUpper(strings.TrimPrefix(name, "rgb-mode-"))}
+			if mode, ok := strings.CutPrefix(name, "rgb-mode-"); ok {
+				args = []string{"rgb", strings.ToUpper(mode)}
 			}
 			if strings.HasPrefix(name, "query-") && name != "query-failed" {
 				args = []string{"key"}
@@ -552,9 +552,9 @@ func TestPublicWorkflow(t *testing.T) {
 					}
 				}
 			}
-			if strings.HasPrefix(name, "rgb-mode-") {
+			if mode, ok := strings.CutPrefix(name, "rgb-mode-"); ok {
 				want := first.current
-				want[124] = byte(lightingValues[strings.TrimPrefix(name, "rgb-mode-")] + 1)
+				want[124] = map[string]byte{"cycle-slow": 1, "cycle-fast": 5, "off": 6}[mode]
 				if fresh.current != want {
 					t.Fatal("mode-only command changed colour or unrelated bytes")
 				}
