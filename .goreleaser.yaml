@@ -33,7 +33,7 @@ nfpms:
 aurs:
   - ids:
       - compressed
-    name: wonkey-bin
+    name: xfkey-wonkey-bin
     provides: [wonkey]
     conflicts: [wonkey]
     description: "Configure your XFKEY One Key Max on Linux."
@@ -42,7 +42,7 @@ aurs:
       - "Martin Wimpress <code@wimpress.io>"
     license: BlueOak-1.0.0
     private_key: "{{ .Env.AUR_KEY }}"
-    git_url: "ssh://aur@aur.archlinux.org/wonkey-bin.git"
+    git_url: "ssh://aur@aur.archlinux.org/xfkey-wonkey-bin.git"
     package: |
       install -Dm755 wonkey "${pkgdir}/usr/bin/wonkey"
 
