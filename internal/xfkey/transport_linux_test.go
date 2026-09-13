@@ -359,7 +359,7 @@ func TestStartWriteDuplicateSurvivesCloseAndTimeoutOffline(t *testing.T) {
 	if err != nil {
 		t.Fatal("drain did not reach EOF:", err)
 	}
-	if want := append(filler, payload...); !bytes.Equal(got, want) {
+	if want := append(bytes.Clone(filler), payload...); !bytes.Equal(got, want) {
 		t.Fatalf("pipe payload differs: got %d bytes, want %d", len(got), len(want))
 	}
 	select {
