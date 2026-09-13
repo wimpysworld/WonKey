@@ -17,7 +17,7 @@ Add optional <kbd>Ctrl</kbd>, <kbd>Shift</kbd>, <kbd>Alt</kbd>, and <kbd>Super</
 
 ## Get started
 
-Requires Linux, Go 1.23 or later, and [just](https://just.systems/). Run commands from the project root.
+Requires Linux, Go 1.25 or later, and [just](https://just.systems/). Run commands from the project root.
 
 ```sh
 just build

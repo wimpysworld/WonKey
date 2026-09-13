@@ -146,7 +146,7 @@ func TestHumanNarrowOutputRetainsCopyableValues(t *testing.T) {
 	h := newHuman(&out)
 	h.width = 24
 	h.line("", "Descriptions wrap at spaces on narrow terminals.")
-	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
 		if len(line) > 24 {
 			t.Fatal(out.String())
 		}
