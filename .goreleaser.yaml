@@ -16,7 +16,8 @@ builds:
     ldflags: [-s -w]
 
 archives:
-  - formats:
+  - id: compressed
+    formats:
       - tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
@@ -28,6 +29,22 @@ nfpms:
     maintainer: '{{ .Env.GITHUB_REPOSITORY_OWNER }}'
     homepage: 'https://github.com/{{ .Env.GITHUB_REPOSITORY }}'
     bindir: /usr/bin
+
+aurs:
+  - ids:
+      - compressed
+    name: wonkey-bin
+    provides: [wonkey]
+    conflicts: [wonkey]
+    description: "Configure your XFKEY One Key Max on Linux."
+    homepage: https://github.com/wimpysworld/WonKey
+    maintainers:
+      - "Martin Wimpress <code@wimpress.io>"
+    license: BlueOak-1.0.0
+    private_key: "{{ .Env.AUR_KEY }}"
+    git_url: "ssh://aur@aur.archlinux.org/wonkey-bin.git"
+    package: |
+      install -Dm755 wonkey "${pkgdir}/usr/bin/wonkey"
 
 nix:
   - name: wonkey

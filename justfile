@@ -50,3 +50,4 @@ release VERSION:
     echo "  - Create GitHub release with tarballs and checksums"
     echo "  - Build and publish native packages (deb, rpm, apk)"
     echo "  - Publish the Nix package to wimpysworld/nix-packages"
+    echo "  - Publish wonkey-bin to the AUR"

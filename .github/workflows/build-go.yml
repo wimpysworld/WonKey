@@ -203,5 +203,6 @@ jobs:
           version: "v2.18.0"
           args: release --clean
         env:
+          AUR_KEY: ${{ secrets.AUR_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
