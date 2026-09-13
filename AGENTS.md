@@ -12,11 +12,28 @@
 
 ## Build and test
 
-Run these offline checks from the project root on Linux:
+After code or test changes, run these mandatory checks from the project root on Linux before a commit or PR:
 
 ```sh
-go test ./...
-go vet ./...
+just test
+just lint
+```
+
+Do not replace these recipes with direct `go test` or `go vet` checks.
+Fix all failures, including failures from optional CI checks.
+After fixes, rerun both recipes.
+If tools or network access are unavailable, report the blocked checks, not a pass.
+When local and CI results differ, compare tool versions with the current CI configuration.
+
+Check formatting without changing source:
+
+```sh
+unformatted=$(gofmt -l cmd internal) && printf '%s' "$unformatted" && test -z "$unformatted"
+```
+
+Validate compilation in a fresh temporary directory:
+
+```sh
 (
   set -eu
   build=$(mktemp -d)
@@ -25,14 +42,10 @@ go vet ./...
 )
 ```
 
-Use `-buildvcs=false` when VCS metadata is unavailable or stamping fails. It disables stamping, not compilation checks.
-Build into a fresh temporary directory to avoid overwriting an existing `wonkey` binary.
-
-Check formatting without changing source:
-
-```sh
-unformatted=$(gofmt -l cmd internal) && printf '%s' "$unformatted" && test -z "$unformatted"
-```
+Do not use `just build` for validation because it overwrites an existing `wonkey` binary.
+`-buildvcs=false` disables VCS stamping, not compilation checks.
+Keep tests independent of connected hardware.
+Obtain explicit user authority before device access.
 
 ## Testing
 
@@ -51,7 +64,7 @@ unformatted=$(gofmt -l cmd internal) && printf '%s' "$unformatted" && test -z "$
 - For public changes, acquire expected identity/version freshly. Retain the shared guarded transaction and automatic backup root.
 - Auto-select one compatible device. For multiple matches, require terminal selection tied to a displayed physical path, never persistent list numbering. Revalidate selected descriptors, node, path, identity, and version before the transaction.
 - Refuse public changes without a terminal before device access. Read and show current-to-proposed values before confirmation. Then save, reopen, and validate a fresh durable backup before upload.
-- Use `Save settings? [Y/n]: ` with no bypass. Accept Enter, `y`, or `yes`, ignoring letter case. Cancel on EOF, `n`, `no`, or invalid input.
+- Use `Save settings? [Y/n]:` with no bypass. Accept Enter, `y`, or `yes`, ignoring letter case. Cancel on EOF, `n`, `no`, or invalid input.
 - Share one buffered reader across device selection, capture selection, and confirmation. Cancel device or capture selection on blank input, EOF, or invalid input. Reject settings drift after preview, including drift that makes the request a no-op.
 - Keep bare `key` and `rgb` query-only with no saved captures. Keep no-args/help and rejected syntax free of hardware access. No-op and cancellation must send no settings upload or commit.
 - Require a new durable backup and revalidate it before upload. A saved offline plan never authorises a live write.
