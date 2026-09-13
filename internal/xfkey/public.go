@@ -36,8 +36,9 @@ Run "wonkey <command> --help" for values and options.
 const keyHelp = `Usage: wonkey key [COMBINATION] [--on WHEN]
 
 Without a combination, read the current key. Create no files.
-A combination is the complete key: enter or f13 through f24, optionally preceded by
-ctrl+, shift+, alt+ or super+, each at most once.
+A combination contains one key: a-z, 0-9, enter or f1 through f24.
+Optional modifiers precede the key: ctrl+, shift+, alt+ or super+, each at most once.
+Key names ignore case. Uppercase letters do not add Shift.
 Unspecified modifiers are cleared. Omitted --on preserves the trigger.
 
 Options:
@@ -167,7 +168,7 @@ func (c publicCommand) parseValues(positional []string, on string) (publicComman
 		}
 		parts := strings.Split(strings.ToLower(positional[0]), "+")
 		if _, ok := keyValues[parts[len(parts)-1]]; !ok {
-			return c, fmt.Errorf("supported keys are enter and f13 through f24")
+			return c, fmt.Errorf("supported keys are a-z, 0-9, enter and f1 through f24")
 		}
 		modifiers := "none"
 		if len(parts) > 1 {

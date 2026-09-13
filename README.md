@@ -6,7 +6,8 @@ Configure your XFKEY One Key Max on Linux. Set the key combination, choose the R
 
 WonKey previews changes, asks for confirmation, and validates an automatic backup before it writes settings.
 
-Supports model `0112` with <kbd>Enter</kbd> or <kbd>F13</kbd> to <kbd>F24</kbd> and optional <kbd>Ctrl</kbd>, <kbd>Shift</kbd>, <kbd>Alt</kbd>, and <kbd>GUI</kbd> modifiers.
+Supports model `0112` with one base key: `enter`, `a` to `z`, `0` to `9`, or `f1` to `f24`.
+Add optional <kbd>Ctrl</kbd>, <kbd>Shift</kbd>, <kbd>Alt</kbd>, and <kbd>Super</kbd> modifiers.
 
 ## Get started
 
@@ -33,12 +34,17 @@ Set the key combination:
 
 ```sh
 ./wonkey key f13
-./wonkey key ctrl+shift+f13
+./wonkey key ctrl+shift+a
+./wonkey key 0
+./wonkey key f12
 ./wonkey key f13 --on release
 ```
 
 A key expression is the **complete combination**. `key f13` clears all modifiers.
 Omit `--on` to preserve the current trigger.
+
+Names ignore letter case. `A` means the same key as `a`, without an implied <kbd>Shift</kbd>.
+Letters and digits name HID keys, not guaranteed text. The active host layout and modifiers determine the output.
 
 Choose steady blue or turn the lighting off:
 
@@ -71,7 +77,8 @@ After a write, it compares all 128 configuration bytes. Errors stop the transact
 WonKey checks exact device descriptors as well as the model. It rejects unsupported layouts, including macros and mouse or media commands.
 
 Hardware checks on one unit confirmed <kbd>F13</kbd> press/release events, steady-blue lighting, and persistence of both settings after reconnect.
-<kbd>F14</kbd> to <kbd>F24</kbd> are software-supported but remain unverified on hardware, as do other settings and devices.
+Letters, digits, <kbd>F1</kbd> to <kbd>F12</kbd>, and <kbd>F14</kbd> to <kbd>F24</kbd> are software-supported but remain unverified on hardware.
+Other settings and devices also remain unverified.
 Configuration readback alone does not prove physical effects or persistence.
 
 ## Documentation

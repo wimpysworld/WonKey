@@ -16,7 +16,7 @@ type Changes map[string]int
 type fieldSpec struct{ offset, min, max, shift int }
 
 var settingsFields = map[string]fieldSpec{
-	"key":       {4, 0x28, 0x73, 0},
+	"key":       {4, 0x04, 0x73, 0},
 	"trigger":   {1, 1, 3, 0},
 	"modifiers": {2, 0, 15, 0},
 	"rgb-mode":  {124, 0, 7, 1},

@@ -10,15 +10,35 @@ import (
 	"time"
 )
 
-func TestExtendedFunctionKeys(t *testing.T) {
-	for number := 14; number <= 24; number++ {
-		name, usage := fmt.Sprintf("f%d", number), 0x69+number-14
+func supportedKeyNames() map[byte]string {
+	names := map[byte]string{0x27: "0", 0x28: "enter"}
+	for i, name := range "abcdefghijklmnopqrstuvwxyz" {
+		names[0x04+byte(i)] = string(name)
+	}
+	for i, name := range "123456789" {
+		names[0x1e+byte(i)] = string(name)
+	}
+	for number := 1; number <= 12; number++ {
+		names[0x3a+byte(number-1)] = fmt.Sprintf("f%d", number)
+		names[0x68+byte(number-1)] = fmt.Sprintf("f%d", number+12)
+	}
+	return names
+}
+
+func TestSupportedKeys(t *testing.T) {
+	names := supportedKeyNames()
+	if len(keyValues) != len(names) {
+		t.Fatalf("got %d key names, want %d", len(keyValues), len(names))
+	}
+	for value, name := range names {
+		usage := int(value)
 		t.Run(name, func(t *testing.T) {
 			for _, tc := range []struct {
 				expression string
 				modifiers  int
 			}{
 				{name, 0},
+				{strings.ToUpper(name), 0},
 				{"CTRL+SHIFT+ALT+SUPER+" + strings.ToUpper(name), 15},
 			} {
 				command, err := parsePublic([]string{"key", tc.expression})
@@ -52,13 +72,13 @@ func TestExtendedFunctionKeys(t *testing.T) {
 }
 
 func TestUnsupportedKeysRemainRejected(t *testing.T) {
-	for _, name := range []string{"f0", "f1", "f12", "f25", "f014", "f24x", "escape", "a"} {
+	for _, name := range []string{"f0", "f25", "f01", "f014", "f24x", "escape", "left", "home", "space", "!", ";", "0x04", "04", "a+b", "ctrl+a+b"} {
 		if _, err := parsePublic([]string{"key", name}); err == nil {
 			t.Fatalf("accepted unsupported key %q", name)
 		}
 	}
 	for usage := -1; usage <= 256; usage++ {
-		want := usage == 0x28 || (usage >= 0x68 && usage <= 0x73)
+		want := (usage >= 0x04 && usage <= 0x28) || (usage >= 0x3a && usage <= 0x45) || (usage >= 0x68 && usage <= 0x73)
 		if err := (Changes{"key": usage}).validate(); (err == nil) != want {
 			t.Fatalf("usage %d: validation error=%v", usage, err)
 		}
@@ -76,9 +96,8 @@ func TestUnsupportedKeysRemainRejected(t *testing.T) {
 	}
 }
 
-func TestExtendedFunctionKeyRestore(t *testing.T) {
-	for number := 14; number <= 24; number++ {
-		name, usage := fmt.Sprintf("f%d", number), byte(0x69+number-14)
+func TestSupportedKeyRestore(t *testing.T) {
+	for usage, name := range supportedKeyNames() {
 		t.Run(name, func(t *testing.T) {
 			root := publicTestCaptureRoot(t)
 			saved := newSettingsTransport()
