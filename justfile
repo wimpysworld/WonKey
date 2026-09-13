@@ -49,3 +49,4 @@ release VERSION:
     echo "  - Generate changelog from commits"
     echo "  - Create GitHub release with tarballs and checksums"
     echo "  - Build and publish native packages (deb, rpm, apk)"
+    echo "  - Publish the Nix package to wimpysworld/nix-packages"

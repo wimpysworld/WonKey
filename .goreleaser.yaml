@@ -29,6 +29,17 @@ nfpms:
     homepage: 'https://github.com/{{ .Env.GITHUB_REPOSITORY }}'
     bindir: /usr/bin
 
+nix:
+  - name: wonkey
+    repository:
+      owner: wimpysworld
+      name: nix-packages
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    path: pkgs/wonkey/default.nix
+    description: "Configure your XFKEY One Key Max on Linux."
+    homepage: https://github.com/wimpysworld/WonKey
+    license: blueOak100
+
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
 
