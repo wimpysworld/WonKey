@@ -12,11 +12,11 @@ import (
 
 func supportedKeyNames() map[byte]string {
 	names := map[byte]string{0x27: "0", 0x28: "enter"}
-	for i, name := range "abcdefghijklmnopqrstuvwxyz" {
-		names[0x04+byte(i)] = string(name)
+	for name := byte('a'); name <= 'z'; name++ {
+		names[0x04+name-'a'] = string(name)
 	}
-	for i, name := range "123456789" {
-		names[0x1e+byte(i)] = string(name)
+	for name := byte('1'); name <= '9'; name++ {
+		names[0x1e+name-'1'] = string(name)
 	}
 	for number := 1; number <= 12; number++ {
 		names[0x3a+byte(number-1)] = fmt.Sprintf("f%d", number)
@@ -35,14 +35,14 @@ func TestSupportedKeys(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			for _, tc := range []struct {
 				expression string
-				modifiers  int
+				modifiers  byte
 			}{
 				{name, 0},
 				{strings.ToUpper(name), 0},
 				{"CTRL+SHIFT+ALT+SUPER+" + strings.ToUpper(name), 15},
 			} {
 				command, err := parsePublic([]string{"key", tc.expression})
-				want := Changes{"key": usage, "modifiers": tc.modifiers}
+				want := Changes{"key": usage, "modifiers": int(tc.modifiers)}
 				if err != nil || !reflect.DeepEqual(command.changes, want) {
 					t.Fatalf("parse %q: changes=%v error=%v", tc.expression, command.changes, err)
 				}
@@ -50,7 +50,7 @@ func TestSupportedKeys(t *testing.T) {
 				current[1], current[2] = 3, 7
 				intended, err := changeConfiguration(current, command.changes)
 				expected := current
-				expected[2], expected[4] = byte(tc.modifiers), byte(usage)
+				expected[2], expected[4] = tc.modifiers, value
 				if err != nil || intended != expected {
 					t.Fatalf("key change lost omitted settings or unknown bytes: %v", err)
 				}
