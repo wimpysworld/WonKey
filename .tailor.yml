@@ -30,7 +30,15 @@ repository:
   secret_scanning: enabled
   secret_scanning_push_protection: enabled
   secret_scanning_non_provider_patterns: enabled
-  topics: []
+  topics:
+    - xfkey
+    - usb-hid
+    - one-key-max
+    - single-key
+    - flash-tool
+    - Xuanfang
+    - media-keys
+    - mouse-events
 
 immutable_releases:
   enabled: true
