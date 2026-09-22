@@ -47,6 +47,18 @@ Do not use `just build` for validation because it overwrites an existing `wonkey
 Keep tests independent of connected hardware.
 Obtain explicit user authority before device access.
 
+## Pages preview with Playwright MCP
+
+- Enter `nix develop`, or load the development environment through direnv. Nix supplies `miniserve` and Chromium-only `playwright-mcp`.
+- Reuse a suitable preview, or start `just pages` from the project root. It serves `pages/` at `http://127.0.0.1:18080` without a build.
+- If the port is occupied, use another port, for example `just pages 18081`. Never stop an existing service automatically.
+- Start, restart, or reload the client from the development environment, with normal approval checks.
+- Use the configured `playwright-mcp --headless --isolated` server in Claude Code, Codex, OpenCode, or Pi. In Pi, discover browser tools through the MCP proxy's lazy tool loading.
+- Use the connected MCP browser to navigate to the preview URL, with the selected port. MCP starts its own browser. Do not start a manual stdio session, CDP browser, or `run-cdp`.
+- When a proxy is necessary, set `HTTPS_PROXY` in the development environment. The shared Nix wrapper passes the proxy only when `HTTPS_PROXY` is non-empty.
+- Do not hard-code a proxy or reduce sandbox, certificate, or file-access restrictions.
+- Verify actual CDN, font, and icon requests in the browser. Capture and inspect light and dark screenshots at narrow and wide viewport sizes. Do not treat HTTP 200 alone as proof that the page works.
+
 ## Testing
 
 - Use synthetic transports and temporary captures for failure tests. Do not make tests depend on connected hardware.
