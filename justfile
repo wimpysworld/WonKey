@@ -16,6 +16,10 @@ lint:
     @golangci-lint run ./...
     @govulncheck ./...
 
+# Preview static pages
+pages PORT="18080":
+    miniserve --index index.html --interfaces 127.0.0.1 --port {{quote(PORT)}} pages/
+
 # Create a local release tag (usage: just release x.y.z)
 release VERSION:
     #!/usr/bin/env bash

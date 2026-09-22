@@ -1,0 +1,14 @@
+{
+	"mcpServers": {
+		"playwright": {
+			"command": "playwright-mcp",
+			"args": ["--headless", "--isolated"],
+			"disabled": false,
+			"lifecycle": "lazy",
+			"directTools": false
+		}
+	},
+	"settings": {
+		"directTools": false
+	}
+}
