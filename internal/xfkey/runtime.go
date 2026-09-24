@@ -25,8 +25,7 @@ func (e *CLIError) Error() string { return e.Err.Error() }
 func (e *CLIError) Unwrap() error { return e.Err }
 
 func ExitCode(err error) int {
-	var cliErr *CLIError
-	if errors.As(err, &cliErr) {
+	if cliErr, ok := errors.AsType[*CLIError](err); ok {
 		return cliErr.Code
 	}
 	return 1
