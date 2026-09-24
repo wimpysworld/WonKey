@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -21,6 +22,15 @@ func supportedKeyNames() map[byte]string {
 	for number := 1; number <= 12; number++ {
 		names[0x3a+byte(number-1)] = fmt.Sprintf("f%d", number)
 		names[0x68+byte(number-1)] = fmt.Sprintf("f%d", number+12)
+	}
+	for start, group := range map[byte]string{
+		0x29: "esc backspace tab space minus equal leftbracket rightbracket backslash nonushash semicolon apostrophe grave comma period slash capslock",
+		0x46: "printscreen scrolllock pause insert home pageup delete end pagedown right left down up numlock keypaddivide keypadmultiply keypadminus keypadplus keypadenter keypad1 keypad2 keypad3 keypad4 keypad5 keypad6 keypad7 keypad8 keypad9 keypad0 keypadperiod nonusbackslash application power keypadequal",
+		0x74: "execute help menu select stop again undo cut copy paste find mute volumeup volumedown lockingcapslock lockingnumlock lockingscrolllock keypadcomma keypadequalas400 international1 international2 international3 international4 international5 international6 international7 international8 international9 lang1 lang2",
+	} {
+		for offset, name := range strings.Fields(group) {
+			names[start+byte(offset)] = name
+		}
 	}
 	return names
 }
@@ -72,13 +82,23 @@ func TestSupportedKeys(t *testing.T) {
 }
 
 func TestUnsupportedKeysRemainRejected(t *testing.T) {
-	for _, name := range []string{"f0", "f25", "f01", "f014", "f24x", "escape", "left", "home", "space", "!", ";", "0x04", "04", "a+b", "ctrl+a+b"} {
-		if _, err := parsePublic([]string{"key", name}); err == nil {
-			t.Fatalf("accepted unsupported key %q", name)
+	for _, name := range []string{
+		"f0", "f25", "f01", "f014", "f24x", "!", ";", "+", "-", "0x04", "04", "145", "0x91", "0x92",
+		"a+b", "ctrl+a+b", "ctrl+", "ctrl+ctrl+esc", "keypad10", "international0", "international10", "lang3",
+		"none", "errorrollover", "postfail", "errorundefined", "reserved", "rightctrl+a", "altgr+a",
+		"rightshift", "rightalt", "rightsuper", "leftctrl", "playpause", "return", " space", "space ",
+	} {
+		access := publicAccess{
+			interactive: func(io.Reader) bool { t.Fatal("invalid key accessed runtime"); return false },
+			discover:    func() ([]Candidate, error) { t.Fatal("invalid key accessed devices"); return nil, nil },
+		}
+		err := runPublic([]string{"key", name}, &cliRuntime{strings.NewReader(""), io.Discard, io.Discard}, access)
+		if err == nil || ExitCode(err) != 2 {
+			t.Fatalf("unsupported key %q: %v", name, err)
 		}
 	}
 	for usage := -1; usage <= 256; usage++ {
-		want := (usage >= 0x04 && usage <= 0x28) || (usage >= 0x3a && usage <= 0x45) || (usage >= 0x68 && usage <= 0x73)
+		want := usage >= 0x04 && usage <= 0x91
 		if err := (Changes{"key": usage}).validate(); (err == nil) != want {
 			t.Fatalf("usage %d: validation error=%v", usage, err)
 		}
@@ -93,6 +113,34 @@ func TestUnsupportedKeysRemainRejected(t *testing.T) {
 		if _, err := changeConfiguration(current, Changes{"rgb-mode": 5}); (err == nil) != want {
 			t.Fatalf("usage %d: RGB change error=%v", usage, err)
 		}
+	}
+}
+
+func TestKeyAliases(t *testing.T) {
+	aliases := map[string]string{
+		"escape": "esc", "pgup": "pageup", "pgdn": "pagedown",
+		"arrowright": "right", "arrowleft": "left", "arrowdown": "down", "arrowup": "up",
+	}
+	if !reflect.DeepEqual(keyAliases, aliases) {
+		t.Fatalf("unexpected aliases: %v", keyAliases)
+	}
+	for alias, canonical := range aliases {
+		t.Run(alias, func(t *testing.T) {
+			for _, name := range []string{alias, strings.ToUpper(alias)} {
+				command, err := parsePublic([]string{"key", "ctrl+" + name})
+				want := Changes{"key": keyValues[canonical], "modifiers": 1}
+				if err != nil || !reflect.DeepEqual(command.changes, want) {
+					t.Fatalf("alias %q: %v, %v", name, command.changes, err)
+				}
+				changes, err := parseSettings(name, "", "ctrl", "", "")
+				if err != nil || !reflect.DeepEqual(changes, want) {
+					t.Fatalf("settings alias %q: %v, %v", name, changes, err)
+				}
+				if got := settingName(keyValues, changes["key"]); got != canonical {
+					t.Fatalf("alias display %q, want %q", got, canonical)
+				}
+			}
+		})
 	}
 }
 
@@ -120,7 +168,11 @@ func TestSupportedKeyRestore(t *testing.T) {
 				t.Fatalf("missing restore key name: %s", out.String())
 			}
 			backup := settingsDir(t)
-			result, err := applySettings(current, backup, settingsTarget(), restoreChanges(source.config), true, time.Second)
+			changes, err := restoreChanges(source.config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := applySettings(current, backup, settingsTarget(), changes, true, time.Second)
 			if err != nil || !result.ReadbackVerified || len(current.packets) != 11 {
 				t.Fatalf("restore transaction=%v error=%v", result, err)
 			}

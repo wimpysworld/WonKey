@@ -61,15 +61,15 @@ type ApplyResult struct {
 }
 
 // This transaction is the only live configuration path. Query permissions stay unchanged.
-func applySettings(t queryTransport, dir string, target ApplyTarget, changes Changes, write bool, timeout time.Duration) (ApplyResult, error) {
+func applySettings(t queryTransport, dir string, target ApplyTarget, changes configurationChanges, write bool, timeout time.Duration) (ApplyResult, error) {
 	return applySettingsConfirmed(t, dir, target, changes, write, timeout, func(configuration, configuration, string) (bool, error) { return true, nil })
 }
 
-func applySettingsConfirmed(t queryTransport, dir string, target ApplyTarget, changes Changes, write bool, timeout time.Duration, confirm func(configuration, configuration, string) (bool, error), checkNoOp ...bool) (result ApplyResult, err error) {
+func applySettingsConfirmed(t queryTransport, dir string, target ApplyTarget, changes configurationChanges, write bool, timeout time.Duration, confirm func(configuration, configuration, string) (bool, error), checkNoOp ...bool) (result ApplyResult, err error) {
 	return applySettingsWithCapture(t, dir, target, changes, write, timeout, confirm, captureQueries, checkNoOp...)
 }
 
-func applySettingsWithCapture(t queryTransport, dir string, target ApplyTarget, changes Changes, write bool, timeout time.Duration, confirm func(configuration, configuration, string) (bool, error), capture func(queryTransport, string, bool) (CaptureResult, error), checkNoOp ...bool) (result ApplyResult, err error) {
+func applySettingsWithCapture(t queryTransport, dir string, target ApplyTarget, changes configurationChanges, write bool, timeout time.Duration, confirm func(configuration, configuration, string) (bool, error), capture func(queryTransport, string, bool) (CaptureResult, error), checkNoOp ...bool) (result ApplyResult, err error) {
 	result = ApplyResult{Directory: dir, Outcome: "failed-before-upload", Warning: "No automatic retry or rollback. Readback verifies current state only, not persistence after reconnect. A timed-out submitted write can still complete in the kernel."}
 	if !write {
 		return result, errWriteRequired
@@ -109,11 +109,11 @@ func applySettingsWithCapture(t queryTransport, dir string, target ApplyTarget, 
 	if err = saveBackupRecord(dir, backup.Identity); err != nil {
 		return result, err
 	}
-	intended, err := changeConfiguration(current, changes)
+	intended, err := changes.configuration(current)
 	if err != nil {
 		return result, err
 	}
-	result.Changes = settingViews(current, intended)
+	result.Changes = actionSettingViews(current, intended)
 	plan := settingsPlan(current, intended)
 	b, err := json.MarshalIndent(plan, "", "  ")
 	if err != nil {
@@ -203,7 +203,7 @@ func verifyAppliedSettings(t queryTransport, dir string, intended configuration,
 	return nil
 }
 
-func liveApplyBound(path, root string, target ApplyTarget, changes Changes, write bool, confirm func(configuration, configuration, string) (bool, error), pinned *Candidate, checkNoOp ...bool) (result ApplyResult, err error) {
+func liveApplyBound(path, root string, target ApplyTarget, changes configurationChanges, write bool, confirm func(configuration, configuration, string) (bool, error), pinned *Candidate, checkNoOp ...bool) (result ApplyResult, err error) {
 	if !write {
 		return result, errWriteRequired
 	}

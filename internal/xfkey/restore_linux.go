@@ -17,7 +17,7 @@ import (
 
 const restoreHelp = `Usage: wonkey restore [CAPTURE-DIRECTORY]
 
-Restore saved key, modifiers, trigger, RGB mode and colour only.
+Restore the saved keyboard, mouse, media or multi-key action and RGB only.
 Keep every other current byte. This is not a firmware or full-image restore.
 Without a directory, select a compatible capture from automatic storage.
 Captures with matching supported settings are excluded from the list.
@@ -40,12 +40,18 @@ type restoreSource struct {
 	created   time.Time
 }
 
-func restoreChanges(saved configuration) Changes {
-	changes := make(Changes, len(settingsFields))
-	for name, spec := range settingsFields {
-		changes[name] = int(saved[spec.offset]) - spec.shift
+func restoreChanges(saved configuration) (ActionChanges, error) {
+	action, err := decodeAction(saved)
+	if err != nil {
+		return ActionChanges{}, err
 	}
-	return changes
+	changes := ActionChanges{Action: action, RGB: Changes{
+		"rgb-mode": int(saved[124]) - 1,
+		"red":      int(saved[125]),
+		"green":    int(saved[126]),
+		"blue":     int(saved[127]),
+	}}
+	return changes, changes.validate()
 }
 
 func loadRestoreSourceAt(parentFD int, path, directory string) (restoreSource, error) {
@@ -59,7 +65,7 @@ func loadRestoreSourceAt(parentFD int, path, directory string) (restoreSource, e
 	if err != nil {
 		return source, err
 	}
-	if err := supportedConfiguration(source.config); err != nil {
+	if _, err := restoreChanges(source.config); err != nil {
 		return source, err
 	}
 	var stat unix.Stat_t
@@ -79,6 +85,15 @@ func loadRestoreSource(path string) (restoreSource, error) {
 		return restoreSource{}, err
 	}
 	return loadRestoreSourceAt(unix.AT_FDCWD, directory, directory)
+}
+
+func (source restoreSource) hasDifferentPreservedBytes(current, restored configuration) bool {
+	for offset, saved := range source.config {
+		if current[offset] == restored[offset] && current[offset] != saved {
+			return true
+		}
+	}
+	return false
 }
 
 func (source restoreSource) compatible(identity deviceIdentity) bool {
@@ -113,7 +128,11 @@ func listRestoreSources(root string, identity deviceIdentity, current configurat
 		if err != nil || !source.compatible(identity) {
 			continue
 		}
-		intended, err := changeConfiguration(current, restoreChanges(source.config))
+		changes, err := restoreChanges(source.config)
+		if err != nil {
+			continue
+		}
+		intended, err := changes.configuration(current)
 		if err == nil && intended != current {
 			sources = append(sources, source)
 		}
@@ -152,13 +171,10 @@ func chooseRestore(path string, identity deviceIdentity, current configuration, 
 	}
 	h.line("36", "Restore a backup:")
 	for i, source := range sources {
-		key := settingName(keyValues, int(source.config[4]))
-		if source.config[2] != 0 {
-			key = strings.ReplaceAll(modifierName(source.config[2]), ",", "+") + "+" + key
-		}
-		trigger := map[byte]string{1: "press", 2: "release", 3: "both"}[source.config[1]]
+		action, _ := decodeAction(source.config)
+		label := strings.TrimPrefix(actionDescription(action), "keyboard ")
 		mode := settingName(lightingValues, int(source.config[124])-1)
-		h.line("", fmt.Sprintf("  %d  %s (%s) | %s #%02X%02X%02X | %s", i+1, key, trigger, mode,
+		h.line("", fmt.Sprintf("  %d  %s | %s #%02X%02X%02X | %s", i+1, label, mode,
 			source.config[125], source.config[126], source.config[127], source.created.Local().Format("02 Jan 2006 15:04")))
 	}
 	fmt.Fprint(h.out, "Backup number [cancel]: ")
