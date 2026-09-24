@@ -1,6 +1,8 @@
 package xfkey
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -26,6 +28,28 @@ func (f *backupCheckingTransport) StartWrite(b []byte, deadline time.Time) (<-ch
 		f.checked = true
 	}
 	return f.settingsTransport.StartWrite(b, deadline)
+}
+
+func TestExitCode(t *testing.T) {
+	plainErr := errors.New("failure")
+	cliErr := &CLIError{Err: plainErr, Code: 2}
+	for _, tt := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"nil", nil, 1},
+		{"plain", plainErr, 1},
+		{"wrapped plain", fmt.Errorf("context: %w", plainErr), 1},
+		{"CLI", cliErr, 2},
+		{"wrapped CLI", fmt.Errorf("context: %w", cliErr), 2},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ExitCode(tt.err); got != tt.want {
+				t.Fatalf("ExitCode(%v) = %d, want %d", tt.err, got, tt.want)
+			}
+		})
+	}
 }
 
 func TestSaveConfirmation(t *testing.T) {
