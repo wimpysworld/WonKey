@@ -2,9 +2,9 @@
 
 [Wiki home](Home) · [Usage and configuration](usage)
 
-`key COMBINATION`, `rgb MODE [RGB]`, and `restore [capture-directory]` change stored settings after confirmation.
-Bare `key` and `rgb` only read the device.
-Restore changes supported settings, not firmware or the complete historical configuration.
+`key COMBINATION`, `mouse BUTTONS`, `media ACTION`, `multi KEY,...`, `rgb MODE [RGB]`, and `restore [capture-directory]` change settings after confirmation.
+Bare `key`, `mouse`, `media`, `multi`, and `rgb` only read the device.
+Restore changes the supported typed action and RGB, not firmware or the complete historical configuration.
 
 [Device access](#device-selection-and-access) · [Restore sources](#restore-sources) · [Hardware checks](#check-hardware-effects-and-persistence) · [Apply safety and records](#apply-safety-and-records)
 
@@ -37,18 +37,21 @@ An explicit source can be an old or moved capture outside automatic storage.
 Compatibility checks compare model, version, and protocol identifier.
 These values do not prove physical-device identity.
 The fresh physical path, descriptors, and node bind the transaction to the selected device.
-Restore preserves current unknown bytes, even when they differ from the source.
+Restore preserves unrelated current bytes, even when they differ from the source. The preview warns about these differences.
+A type change clears retired active bytes, but conversion to or from a keyboard action with `both` is blocked.
+Malformed known actions and unsupported special, macro, touch, or unknown types are not restore sources.
 
 ## Check hardware effects and persistence
 
 An exact readback comparison proves the returned configuration bytes, not emitted key events or visible lighting effects.
-Check the key and lighting separately after a successful change.
+Check the configured keyboard, mouse, media, or multi-key action and lighting separately after a successful change.
+The new action types and expanded keyboard usages have no hardware validation yet.
 If keyd holds an exclusive input grab, another event viewer can report no events.
 Silence does not prove that configuration failed.
 Stop or reconfigure keyd only with separate authority.
 
 Persistence requires a separate check after a manual reconnect.
-Run `wonkey key` and `wonkey rgb` again.
+Run the relevant bare action command and `wonkey rgb` again.
 Check the physical effects.
 WonKey never reconnects or resets the device automatically.
 
@@ -63,7 +66,7 @@ After confirmation, WonKey revalidates the selected descriptor, physical path, a
 The transaction uses the freshly acquired identifier and version as expected values. It also checks every configuration byte against the approved plan.
 Changed identity, version, or settings stop before upload, even if the new settings already match the requested values.
 A no-op or cancellation sends no settings upload or commit and creates no backup.
-Bare `key` and `rgb` read hardware without saved captures. No files does not mean offline.
+Bare `key`, `mouse`, `media`, `multi`, and `rgb` read hardware without saved captures. No files does not mean offline.
 
 ### Durable backup storage
 
@@ -78,17 +81,22 @@ Apply holds one capture-root lock, then creates a private backup.
 
 ### Capture names
 
-New captures use `YYMMDD-HHMMSS_key-KEY_rgb-MODE-COLOUR`, with a UTC start time.
-An example is `260912-083853_key-ctrl-alt-f13_rgb-static-0000ff`.
+New captures use `YYMMDD-HHMMSS_ACTION_rgb-MODE-COLOUR`, with a UTC start time.
+Keyboard labels keep `key-KEY`, for example `260912-083853_key-ctrl-alt-f13_rgb-static-0000ff`.
+Mouse labels include buttons and movement, for example `mouse-left-x--127-y-0-wheel-1`.
+Media labels include the name and usage, for example `media-playpause-0x00cd`. Unnamed usages use `media-0xHHHH` with lowercase hex digits.
+Multi labels use `multi-COUNT-keys-interval-MS-repeat-N-DIGEST`. The digest is the first 12 hex digits of SHA-256 over the active encoded action bytes.
+The count and digest distinguish sequences without listing every key. Labels remain bounded for 115-key sequences.
 Names describe the captured bytes, not the requested settings. Names are lowercase, with modifiers ordered `ctrl-shift-alt-super` and six RGB hex digits without `#`.
 Collisions add `-2`, `-3`, and so on, with an exclusive limit of 100 candidates. Existing directories are never overwritten.
 Before settings arrive, the new directory uses `key-unknown_rgb-unknown-unknown`. Identity-only and failed queries retain this fallback.
 After a complete settings query, WonKey labels only the new unfinished directory.
 The rename is atomic, prevents replacement, and includes directory synchronisation.
 
-Unsupported key layouts use `key-unknown-HEX`, where `HEX` contains the first five configuration bytes.
+Unsupported action layouts use `key-unknown-HEX`, where `HEX` contains the first five configuration bytes. Restore lists validated action descriptions instead of relying on directory names.
 Unknown lighting modes use `rgb-unknown-XX-COLOUR`, where `XX` is the raw mode byte. Available RGB bytes remain six hex digits.
-WonKey does not migrate or rename existing captures. Internal filenames and retention safety checks stay unchanged.
+WonKey does not migrate or rename existing captures. Historical `key-*` and `key-unknown-*` names remain recognised, including for retention.
+Internal filenames and retention safety checks stay unchanged.
 
 ### Backup validation
 

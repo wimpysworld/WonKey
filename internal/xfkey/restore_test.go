@@ -56,7 +56,7 @@ func TestRestoreOutputFailure(t *testing.T) {
 			{"selection-row", "f13 (both)", false},
 			{"selection-prompt", "Backup number", false},
 			{"source", "Source", true},
-			{"preview", "Restore saved key", true},
+			{"preview", "Restore saved action", true},
 			{"changes", " -> ", false},
 			{"confirmation", "Save settings?", false},
 		} {
@@ -150,11 +150,21 @@ func TestRestoreSourceValidation(t *testing.T) {
 }
 
 func TestPublicRestoreWorkflow(t *testing.T) {
+	for _, action := range actionExamples() {
+		t.Run(fmt.Sprintf("%T", action), func(t *testing.T) {
+			testPublicRestoreWorkflow(t, action)
+		})
+	}
+}
+
+func testPublicRestoreWorkflow(t *testing.T, action Action) {
+	t.Helper()
 	for _, name := range []string{"write", "rgb-cycle-slow", "rgb-cycle-fast", "rgb-off", "blank", "yes", "y", "upper", "old-confirm", "no", "invalid", "leading-space", "trailing-space", "eof", "partial", "nonterminal", "no-op", "settings-drift", "became-no-op", "identity-drift", "version-drift", "backup-failure", "backup-corrupt", "upload-failure", "commit-failure", "deadline", "mismatch", "incompatible-identifier", "incompatible-version", "unsupported-current", "source-replaced"} {
 		t.Run(name, func(t *testing.T) {
 			root := publicTestCaptureRoot(t)
 			saved := newSettingsTransport()
-			saved.current = restoreTestSettings()
+			saved.current = actionConfiguration(t, action)
+			saved.current[124], saved.current[125], saved.current[126], saved.current[127] = 8, 12, 34, 56
 			if mode, ok := strings.CutPrefix(name, "rgb-"); ok {
 				saved.current[124] = map[string]byte{"cycle-slow": 1, "cycle-fast": 5, "off": 6}[mode]
 			}
@@ -215,7 +225,7 @@ func TestPublicRestoreWorkflow(t *testing.T) {
 					q.result.PhysicalPath = c.PhysicalPath
 					return q.result, err
 				},
-				apply: func(c Candidate, destination string, target ApplyTarget, changes Changes, guard func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
+				apply: func(c Candidate, destination string, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
 					applied = true
 					if destination != root || destination == source || target != settingsTarget() {
 						t.Fatal("wrong backup destination or target")
@@ -227,7 +237,7 @@ func TestPublicRestoreWorkflow(t *testing.T) {
 					case "settings-drift":
 						fresh.current[63] ^= 1
 					case "became-no-op":
-						fresh.current, _ = changeConfiguration(fresh.current, changes)
+						fresh.current, _ = changes.configuration(fresh.current)
 					case "identity-drift":
 						fresh.identity[6] ^= 1
 					case "version-drift":
@@ -283,9 +293,15 @@ func TestPublicRestoreWorkflow(t *testing.T) {
 					t.Fatal("restore omitted fresh backup or transaction")
 				}
 				want := original
-				for _, offset := range []int{1, 2, 4, 124, 125, 126, 127} {
-					want[offset] = saved.current[offset]
+				if original[0] != saved.current[0] {
+					clear(want[:5])
 				}
+				encoded, err := action.actionBytes()
+				if err != nil {
+					t.Fatal(err)
+				}
+				copy(want[:], encoded)
+				copy(want[124:], saved.current[124:])
 				if fresh.current != want {
 					t.Fatal("restore changed unknown bytes or missed saved fields")
 				}
@@ -421,7 +437,7 @@ func TestRestoreWithoutEligibleCapturesDoesNotApply(t *testing.T) {
 			q.result.PhysicalPath = c.PhysicalPath
 			return q.result, err
 		},
-		apply: func(Candidate, string, ApplyTarget, Changes, func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
+		apply: func(Candidate, string, ApplyTarget, configurationChanges, func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
 			t.Fatal("restore applied without an eligible capture")
 			return ApplyResult{}, nil
 		},
@@ -465,7 +481,7 @@ func TestRestoreSharesSelectionAndConfirmationReader(t *testing.T) {
 					q.result.PhysicalPath = c.PhysicalPath
 					return q.result, err
 				},
-				apply: func(c Candidate, destination string, target ApplyTarget, changes Changes, guard func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
+				apply: func(c Candidate, destination string, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
 					applied = true
 					if !strings.Contains(out.String(), "Backup number") || strings.Contains(out.String(), source) {
 						t.Fatal("backup selection missing or source path repeated", out.String())

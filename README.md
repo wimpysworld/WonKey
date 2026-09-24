@@ -8,16 +8,18 @@
 
 <p align="center">Made with 💝 for 🐧</p>
 
-Set the key combination, choose the RGB lighting, and restore saved settings.
+Set a keyboard, relative mouse, consumer media, or multi-key action, choose RGB lighting, and restore saved settings.
 
 WonKey previews changes, asks for confirmation, and validates an automatic backup before it writes settings.
 
-Supports model `0112` with one base key: `enter`, `a` to `z`, `0` to `9`, or `f1` to `f24`.
-Add optional <kbd>Ctrl</kbd>, <kbd>Shift</kbd>, <kbd>Alt</kbd>, and <kbd>Super</kbd> modifiers.
+Supports only the verified descriptor profile for model `0112`. Keyboard actions use one base key with optional <kbd>Ctrl</kbd>, <kbd>Shift</kbd>, <kbd>Alt</kbd>, and <kbd>Super</kbd> modifiers.
+Current source supports letters, digits, function keys, navigation, punctuation names, keypad keys, and other defined keyboard usages through `0x91`.
+See [supported key names and aliases](wiki/usage.md#supported-key-names).
 
 ## Get started
 
 WonKey 0.1.1 is available for Linux. Download a package from the [release](https://github.com/wimpysworld/WonKey/releases/tag/v0.1.1), then run its command from the download directory.
+The new action commands and expanded key names describe the current source, not the 0.1.1 release. Build this checkout to use them.
 For ARM64, replace `amd64` in the x86_64 examples with `arm64`.
 
 | Distribution | Package | Install |
@@ -45,13 +47,12 @@ sudo install -m 0755 wonkey /usr/local/bin/wonkey
 Requires Git, Go 1.25 or later, and [just](https://just.systems/).
 
 ```sh
-git clone --branch v0.1.1 --depth 1 https://github.com/wimpysworld/WonKey.git
-cd WonKey
+# From a checkout that contains the current source:
 just build
-sudo install -m 0755 ./wonkey /usr/local/bin/wonkey
+sudo install -m 0755 ./bin/wonkey /usr/local/bin/wonkey
 ```
 
-The build replaces `./wonkey` in the source directory.
+The build replaces `./bin/wonkey` in the source directory.
 
 ### Check the installation
 
@@ -68,6 +69,9 @@ Read the current settings without changing them or creating files:
 
 ```sh
 wonkey key
+wonkey mouse
+wonkey media
+wonkey multi
 wonkey rgb
 ```
 
@@ -82,10 +86,23 @@ wonkey key f13 --on release
 ```
 
 A key expression is the **complete combination**. `key f13` clears all modifiers.
-Omit `--on` to preserve the current trigger.
+Omit `--on` to preserve a keyboard trigger. When replacing another action, the default is `press`.
 
 Names ignore letter case. `A` means the same key as `a`, without an implied <kbd>Shift</kbd>.
 Letters and digits name HID keys, not guaranteed text. The active host layout and modifiers determine the output.
+
+Set a mouse movement, a consumer media action, or a key sequence:
+
+```sh
+wonkey mouse left+right --x -20 --y 10
+wonkey mouse wheelup
+wonkey media playpause
+wonkey media 0x00e9
+wonkey multi a,f13,enter --interval 50 --repeat 2
+```
+
+Mouse coordinates and wheel ticks are relative; omitted values are zero. The multi-key defaults are 50 milliseconds and one repetition.
+See [action syntax and limits](wiki/usage.md#mouse-media-and-multi-key-actions) before a change.
 
 Choose static blue or turn the lighting off:
 
@@ -104,7 +121,7 @@ Choose a compatible backup and restore its settings:
 wonkey restore
 ```
 
-Restore changes only the saved key, modifiers, trigger, RGB mode, and colour. It preserves all other current configuration bytes.
+Restore copies the saved keyboard, mouse, media, or multi-key action and RGB mode and colour. It preserves unrelated current configuration bytes.
 Restore does not recover firmware.
 
 ## Before you save
@@ -117,11 +134,12 @@ After a write, it compares all 128 configuration bytes. Errors stop the transact
 
 ## Compatibility
 
-WonKey checks exact device descriptors as well as the model. It rejects unsupported layouts, including macros and mouse or media commands.
+WonKey checks exact device descriptors as well as the model. It rejects unsupported special, macro, touch, and unknown layouts.
+The `key` names `mute`, `volumeup`, and `volumedown` use keyboard-page usages. The `media` command uses consumer-page usages. Right-hand modifiers are unsupported.
 
 Hardware checks on one unit confirmed <kbd>F13</kbd> press/release events, steady-blue lighting, and persistence of both settings after reconnect.
-Letters, digits, <kbd>F1</kbd> to <kbd>F12</kbd>, and <kbd>F14</kbd> to <kbd>F24</kbd> are software-supported but remain unverified on hardware.
-Other settings and devices also remain unverified.
+All other selectable keys and the new mouse, media, and multi-key actions remain hardware-unverified. Descriptor coverage does not prove firmware execution.
+Other devices and descriptor profiles remain unsupported.
 Configuration readback alone does not prove physical effects or persistence.
 
 ## Documentation

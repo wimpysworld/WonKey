@@ -45,11 +45,12 @@ func TestCapturedSettingsLabels(t *testing.T) {
 		value  byte
 		want   string
 	}{
-		{0, 1, "key-unknown-0101000128_rgb-cycle-slow-ffffff"},
+		{0, 1, "mouse-left-x-0-y-1-wheel-40_rgb-cycle-slow-ffffff"},
+		{0, 255, "key-unknown-ff01000128_rgb-cycle-slow-ffffff"},
 		{1, 0, "key-unknown-0000000128_rgb-cycle-slow-ffffff"},
 		{2, 128, "key-unknown-0001800128_rgb-cycle-slow-ffffff"},
 		{3, 2, "key-unknown-0001000228_rgb-cycle-slow-ffffff"},
-		{4, 0x2f, "key-unknown-000100012f_rgb-cycle-slow-ffffff"},
+		{4, 0x92, "key-unknown-0001000192_rgb-cycle-slow-ffffff"},
 		{124, 255, "key-enter_rgb-unknown-ff-ffffff"},
 	} {
 		c := syntheticSettings()

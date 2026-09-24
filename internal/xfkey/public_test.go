@@ -72,7 +72,7 @@ func checkPublicOutputFailure(t *testing.T, root string, args []string, input, n
 			q.result.PhysicalPath = c.PhysicalPath
 			return q.result, err
 		},
-		apply: func(c Candidate, destination string, target ApplyTarget, changes Changes, guard func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
+		apply: func(c Candidate, destination string, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
 			applied = true
 			dir, err := newCapture(destination, c)
 			if err != nil {
@@ -277,7 +277,7 @@ func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 		{"key", "f13", "--on"},
 		{"rgb", "off", "--on", "press"},
 		{"key", "!"},
-		{"key", "left"},
+		{"key", "rightctrl+left"},
 		{"key", "0x04"},
 		{"key", "a+b"},
 		{"key", ""},
@@ -466,7 +466,7 @@ func TestPublicWorkflow(t *testing.T) {
 					}
 					return q.result, err
 				},
-				apply: func(c Candidate, r string, target ApplyTarget, changes Changes, guard func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
+				apply: func(c Candidate, r string, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
 					applied = true
 					if c.PhysicalPath != wantPath || r != root || target != settingsTarget() || !strings.Contains(out.String(), " -> ") || !strings.Contains(out.String(), "Save settings? [Y/n]: ") {
 						t.Fatal(c, r, target, out.String())
@@ -479,7 +479,7 @@ func TestPublicWorkflow(t *testing.T) {
 					case "settings-changed":
 						fresh.current[63] ^= 1
 					case "became-no-op":
-						fresh.current, _ = changeConfiguration(fresh.current, changes)
+						fresh.current, _ = changes.configuration(fresh.current)
 					case "mismatch":
 						fresh.mismatch = true
 					case "echo":
@@ -603,6 +603,118 @@ func TestPublicRGBReadDoesNotCreateBackupRoot(t *testing.T) {
 	}
 	if _, err := os.Stat(root); !os.IsNotExist(err) {
 		t.Fatal("query created root", err)
+	}
+}
+
+func TestPublicUnknownConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		offset int
+		value  byte
+	}{
+		{"type-ff", 0, 0xff},
+		{"key-count", 3, 2},
+		{"key", 4, 0xff},
+		{"trigger", 1, 0xff},
+		{"modifiers", 2, 0xff},
+		{"rgb-mode", 124, 0xff},
+	} {
+		for _, args := range [][]string{{"key"}, {"rgb"}, {"key", "f13"}, {"key", "enter"}, {"rgb", "off"}, {"rgb", "cycle-slow"}, {"restore"}, {"restore", "absent-source"}} {
+			t.Run(tc.name+"/"+strings.Join(args, " "), func(t *testing.T) {
+				root := filepath.Join(t.TempDir(), "absent-state")
+				t.Setenv("XDG_STATE_HOME", root)
+				transport := newSettingsTransport()
+				transport.current[tc.offset] = tc.value
+				original := transport.current
+				query := len(args) == 1 && args[0] != "restore"
+				access := publicAccess{
+					interactive: func(io.Reader) bool { return !query },
+					discover: func() ([]Candidate, error) {
+						return []Candidate{{PhysicalPath: "synthetic", Compatible: true}}, nil
+					},
+					query: func(c Candidate) (CaptureResult, error) {
+						q, err := queryCapture(transport, true)
+						q.result.PhysicalPath = c.PhysicalPath
+						return q.result, err
+					},
+					apply: func(Candidate, string, ApplyTarget, configurationChanges, func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
+						t.Fatal("unsupported configuration reached apply")
+						return ApplyResult{}, nil
+					},
+				}
+				var out, diagnostic bytes.Buffer
+				input := strings.NewReader("yes\n")
+				err := runPublic(args, &cliRuntime{input, &out, &diagnostic}, access)
+				if query {
+					want := fmt.Sprintf("1️⃣ WonKey\n\nCurrent %s\n"+
+						"  Device     One Key Max 0112\n  USB path   synthetic\n"+
+						"  Identifier be077ba2\n  Version    1014\n"+
+						"  Layout     Unknown (unsupported configuration)\n"+
+						"  Raw type   0x%02x (byte 0)\n  Raw 0-15   %x\n"+
+						"Fields are not decoded. Changes and restore are blocked.\n", args[0], original[0], original[:16])
+					if err != nil || diagnostic.Len() != 0 || out.String() != want {
+						t.Fatalf("error=%v diagnostic=%q output=%q want=%q", err, diagnostic.String(), out.String(), want)
+					}
+				} else if err == nil || ExitCode(err) != 1 || !strings.Contains(err.Error(), "unsupported current") || out.String() != "1️⃣ WonKey\n\n" {
+					t.Fatalf("error=%v output=%q", err, out.String())
+				}
+				if input.Len() != len("yes\n") || transport.current != original {
+					t.Fatal("read confirmation or changed settings")
+				}
+				checkNoUpload(t, transport)
+				if len(transport.packets) != 4 {
+					t.Fatal("unexpected query count", len(transport.packets))
+				}
+				for i, opcode := range []byte{1, 6, 7, 8} {
+					want := vendorPacket{0xaf, opcode}
+					if transport.packets[i] != want {
+						t.Fatalf("unexpected query packet %x", transport.packets[i])
+					}
+				}
+				if _, err := os.Stat(root); !os.IsNotExist(err) {
+					t.Fatal("created backup storage", err)
+				}
+			})
+		}
+	}
+}
+
+func TestPublicSupportedQueryOutput(t *testing.T) {
+	for _, command := range []string{"key", "rgb"} {
+		t.Run(command, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "absent-state")
+			t.Setenv("XDG_STATE_HOME", root)
+			transport := newSettingsTransport()
+			transport.current[2] = 3
+			access := publicAccess{
+				interactive: func(io.Reader) bool { return false },
+				discover: func() ([]Candidate, error) {
+					return []Candidate{{PhysicalPath: "synthetic", Compatible: true}}, nil
+				},
+				query: func(c Candidate) (CaptureResult, error) {
+					q, err := queryCapture(transport, true)
+					q.result.PhysicalPath = c.PhysicalPath
+					return q.result, err
+				},
+			}
+			var out, diagnostic bytes.Buffer
+			err := runPublic([]string{command}, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
+			want := "1️⃣ WonKey\n\nCurrent " + command + "\n" +
+				"  Device     One Key Max 0112\n  USB path   synthetic\n" +
+				"  Identifier be077ba2\n  Version    1014\n"
+			if command == "key" {
+				want += "  Key        ctrl+shift+enter\n  On         press\n"
+			} else {
+				want += "  Mode       cycle-slow\n  Colour     #FFFFFF\n"
+			}
+			if err != nil || diagnostic.Len() != 0 || out.String() != want {
+				t.Fatalf("error=%v diagnostic=%q output=%q want=%q", err, diagnostic.String(), out.String(), want)
+			}
+			checkNoUpload(t, transport)
+			if _, err := os.Stat(root); !os.IsNotExist(err) {
+				t.Fatal("created backup storage", err)
+			}
+		})
 	}
 }
 

@@ -1,6 +1,7 @@
 package xfkey
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -44,7 +45,7 @@ type backupRecord struct {
 var (
 	backupNamePattern         = regexp.MustCompile(`^([0-9]{8})-([0-9]{6})-([0-9a-f]{4})$`)
 	captureNow                = func() time.Time { return time.Now().UTC() }
-	labelledBackupNamePattern = regexp.MustCompile(`^([0-9]{6})-([0-9]{6})_key-[a-z0-9-]+_rgb-[a-z0-9-]+-([0-9a-f]{6}|unknown)(-[2-9]|-[1-9][0-9]+)?$`)
+	labelledBackupNamePattern = regexp.MustCompile(`^([0-9]{6})-([0-9]{6})_(?:key|mouse|media|multi)-[a-z0-9-]+_rgb-[a-z0-9-]+-([0-9a-f]{6}|unknown)(-[2-9]|-[1-9][0-9]+)?$`)
 	renameCapture             = unix.Renameat2
 	renameBackup              = unix.Renameat2
 	unlinkBackup              = unix.Unlinkat
@@ -182,11 +183,23 @@ func captureSettingsLabel(raw []byte) string {
 			}
 		}
 	}
+	actionLabel := "key-" + key
+	var config configuration
+	copy(config[:], raw)
+	if action, err := decodeAction(config); err == nil {
+		switch a := action.(type) {
+		case MouseAction, MediaAction:
+			actionLabel = strings.NewReplacer(" (", "-", ")", "", ", ", "-", "=", "-", "+", "-", " ", "-").Replace(actionDescription(action))
+		case MultiAction:
+			digest := sha256.Sum256(raw[:5+len(a.Keys)])
+			actionLabel = fmt.Sprintf("multi-%d-keys-interval-%d-repeat-%d-%x", len(a.Keys), a.Interval, a.Repeat, digest[:6])
+		}
+	}
 	mode := fmt.Sprintf("unknown-%02x", raw[124])
 	if name := settingName(lightingValues, int(raw[124])-1); name != "" {
 		mode = name
 	}
-	return fmt.Sprintf("key-%s_rgb-%s-%x", key, mode, raw[125:128])
+	return fmt.Sprintf("%s_rgb-%s-%x", actionLabel, mode, raw[125:128])
 }
 
 // Only the newly created, unfinished capture is named here, before its completion record.

@@ -67,7 +67,11 @@ func TestPublicRGBNamesRoundTrip(t *testing.T) {
 			if err != nil || selected == nil || selected.directory != source || !strings.Contains(output.String(), " | "+mode.name+" #") {
 				t.Fatal(selected, err, output.String())
 			}
-			restored, err := changeConfiguration(current, restoreChanges(selected.config))
+			changes, err := restoreChanges(selected.config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			restored, err := changes.configuration(current)
 			if err != nil || restored != changed {
 				t.Fatal("restore changed saved settings", err)
 			}

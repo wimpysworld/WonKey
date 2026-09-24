@@ -16,8 +16,11 @@ Usage: wonkey <command> [options]
 
 Commands:
   key [COMBINATION]   Read or change the key.
+  mouse [BUTTONS]     Read or change the mouse action.
+  media [ACTION]      Read or change the media action.
+  multi [KEY,...]     Read or change the key sequence.
   rgb [MODE [RGB]]    Read or change the RGB.
-  restore [DIRECTORY] Restore saved key and RGB settings.
+  restore [DIRECTORY] Restore saved action and RGB settings.
 
 Options:
   -h, --help          Show help without device access.
@@ -35,10 +38,32 @@ Run "wonkey <command> --help" for values and options.
 const keyHelp = `Usage: wonkey key [COMBINATION] [--on WHEN]
 
 Without a combination, read the current key. Create no files.
-A combination contains one key: a-z, 0-9, enter or f1 through f24.
+A combination contains exactly one base key from the names below.
 Optional modifiers precede the key: ctrl+, shift+, alt+ or super+, each at most once.
 Key names ignore case. Uppercase letters do not add Shift.
-Unspecified modifiers are cleared. Omitted --on preserves the trigger.
+Unspecified modifiers are cleared. Omitted --on preserves a keyboard trigger.
+When replacing another action, the default trigger is press.
+
+Base keys:
+  a-z, 0-9, f1-f24, enter, esc, backspace, tab, space
+  minus, equal, leftbracket, rightbracket, backslash, nonushash
+  semicolon, apostrophe, grave, comma, period, slash, capslock
+  printscreen, scrolllock, pause, insert, home, pageup, delete, end, pagedown
+  right, left, down, up, numlock
+  keypad0-keypad9, keypaddivide, keypadmultiply, keypadminus, keypadplus
+  keypadenter, keypadperiod, keypadequal, keypadcomma, keypadequalas400
+  nonusbackslash, application, power, execute, help, menu, select, stop
+  again, undo, cut, copy, paste, find, mute, volumeup, volumedown
+  lockingcapslock, lockingnumlock, lockingscrolllock
+  international1-international9, lang1, lang2
+
+Aliases:
+  escape=esc, pgup=pageup, pgdn=pagedown
+  arrowright=right, arrowleft=left, arrowdown=down, arrowup=up
+
+Names select HID keyboard usages, not text or consumer media commands.
+Raw usage numbers, punctuation symbols and right modifiers are unsupported.
+Added keys fit the captured descriptor but remain hardware-unverified.
 
 Options:
   --on WHEN     press, release or both. Requires a key combination.
@@ -83,10 +108,48 @@ At [Y/n], Enter accepts. No or EOF cancels.
 WonKey saves and validates a fresh backup before writing.
 `
 
+const mouseHelp = `Usage: wonkey mouse [BUTTONS] [--x N] [--y N] [--wheel N]
+
+Without buttons or options, read the current action. Create no files.
+Buttons: left, right, middle, none. Join buttons with +, for example left+right.
+Use none alone for movement without a button, or a zero action.
+Use wheelup or wheeldown alone for one wheel tick. Do not combine with --wheel.
+X, Y and wheel accept -127..127. Omitted values are zero.
+
+At [Y/n], Enter accepts. No or EOF cancels.
+WonKey saves and validates a fresh backup before writing.
+`
+
+const mediaHelp = `Usage: wonkey media [ACTION|0xHHHH]
+
+Without an action, read the current action. Create no files.
+Names ignore case:
+  play, pause, record, fastforward, rewind, next, prev, previous, stop, eject
+  playpause, mute, volumeup, volumedown, calculator, mycomputer, browser, email
+  search, home, back, forward, refresh, bookmarks
+Raw usages need exactly four hexadecimal digits and must be 0x0001..0x023c.
+
+At [Y/n], Enter accepts. No or EOF cancels.
+WonKey saves and validates a fresh backup before writing.
+`
+
+const multiHelp = `Usage: wonkey multi [KEY[,KEY...]] [--interval MS] [--repeat COUNT]
+
+Without keys or options, read the current action. Create no files.
+Use 1..115 comma-separated base key names from "wonkey key --help".
+Modifiers and raw usage numbers are unsupported.
+--interval accepts 1..65535 milliseconds (default: 50).
+--repeat accepts 1..255 repetitions (default: 1).
+
+At [Y/n], Enter accepts. No or EOF cancels.
+WonKey saves and validates a fresh backup before writing.
+`
+
 type publicCommand struct {
 	name    string
 	source  string
 	changes Changes
+	action  Action
 	help    bool
 }
 
@@ -104,10 +167,13 @@ func parsePublic(args []string) (publicCommand, error) {
 		return c, nil
 	}
 	c.name = args[0]
-	if c.name != "key" && c.name != "rgb" && c.name != "restore" {
-		return c, fmt.Errorf("unknown command %q; use key, rgb or restore", c.name)
+	switch c.name {
+	case "key", "mouse", "media", "multi", "rgb", "restore":
+	default:
+		return c, fmt.Errorf("unknown command %q; use key, mouse, media, multi, rgb or restore", c.name)
 	}
 	var positional []string
+	options := map[string]int{}
 	on, seenOn := "", false
 	args = args[1:]
 	for len(args) > 0 {
@@ -134,7 +200,11 @@ func parsePublic(args []string) (publicCommand, error) {
 				return c, fmt.Errorf("--on needs press, release or both")
 			}
 		case strings.HasPrefix(arg, "-"):
-			return c, fmt.Errorf("unknown option %q", arg)
+			var err error
+			args, err = parseActionOption(c.name, arg, args, options)
+			if err != nil {
+				return c, err
+			}
 		default:
 			positional = append(positional, arg)
 		}
@@ -143,9 +213,106 @@ func parsePublic(args []string) (publicCommand, error) {
 		if seenOn {
 			return c, fmt.Errorf("--on requires a key combination")
 		}
+		if len(options) > 0 {
+			return c, fmt.Errorf("%s options require an action", c.name)
+		}
 		return c, nil
 	}
+	if c.name == "mouse" || c.name == "media" || c.name == "multi" {
+		return c.parseAction(positional, options)
+	}
 	return c.parseValues(positional, on)
+}
+
+func parseActionOption(command, arg string, args []string, options map[string]int) ([]string, error) {
+	option, value, equals := strings.Cut(arg, "=")
+	min, max := -127, 127
+	switch {
+	case command == "mouse" && (option == "--x" || option == "--y" || option == "--wheel"):
+	case command == "multi" && option == "--interval":
+		min, max = 1, 65535
+	case command == "multi" && option == "--repeat":
+		min, max = 1, 255
+	default:
+		return args, fmt.Errorf("unknown option %q", arg)
+	}
+	if _, seen := options[option]; seen {
+		return args, fmt.Errorf("%s is accepted once", option)
+	}
+	if !equals && len(args) > 0 {
+		value, args = args[0], args[1:]
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n < min || n > max {
+		return args, fmt.Errorf("%s needs an integer from %d to %d", option, min, max)
+	}
+	options[option] = n
+	return args, nil
+}
+
+func (c publicCommand) parseAction(positional []string, options map[string]int) (publicCommand, error) {
+	if len(positional) != 1 {
+		return c, fmt.Errorf("%s accepts one action", c.name)
+	}
+	value := strings.ToLower(positional[0])
+	switch c.name {
+	case "mouse":
+		a := MouseAction{X: options["--x"], Y: options["--y"], Wheel: options["--wheel"]}
+		switch value {
+		case "wheelup", "wheeldown":
+			if _, present := options["--wheel"]; present {
+				return c, fmt.Errorf("%s cannot be combined with --wheel", value)
+			}
+			a.Wheel = 1
+			if value == "wheeldown" {
+				a.Wheel = -1
+			}
+		case "none":
+		default:
+			for button := range strings.SplitSeq(value, "+") {
+				bit := map[string]int{"left": 1, "right": 2, "middle": 4}[button]
+				if bit == 0 || a.Buttons&bit != 0 {
+					return c, fmt.Errorf("invalid or repeated mouse button %q; use left, right, middle or none", button)
+				}
+				a.Buttons |= bit
+			}
+		}
+		c.action = a
+	case "media":
+		usage, ok := mediaValues[value]
+		if !ok && len(value) == 6 && strings.HasPrefix(value, "0x") {
+			b, err := hex.DecodeString(value[2:])
+			if err == nil {
+				usage, ok = int(b[0])<<8|int(b[1]), true
+			}
+		}
+		if !ok {
+			return c, fmt.Errorf("unsupported media action %q; use wonkey media --help", value)
+		}
+		c.action = MediaAction{Usage: usage}
+	case "multi":
+		a := MultiAction{Interval: 50, Repeat: 1}
+		if n, present := options["--interval"]; present {
+			a.Interval = n
+		}
+		if n, present := options["--repeat"]; present {
+			a.Repeat = n
+		}
+		keys := strings.Split(value, ",")
+		if len(keys) > 115 {
+			return c, fmt.Errorf("multi requires 1..115 keys")
+		}
+		for _, key := range keys {
+			code, ok := keyValues[canonicalKeyName(key)]
+			if !ok {
+				return c, fmt.Errorf("unsupported multi key %q; use wonkey key --help", key)
+			}
+			a.Keys = append(a.Keys, byte(code&255))
+		}
+		c.action = a
+	}
+	_, err := c.action.actionBytes()
+	return c, err
 }
 
 func (c publicCommand) parseValues(positional []string, on string) (publicCommand, error) {
@@ -165,8 +332,9 @@ func (c publicCommand) parseValues(positional []string, on string) (publicComman
 			return c, fmt.Errorf("key accepts one complete combination")
 		}
 		parts := strings.Split(strings.ToLower(positional[0]), "+")
+		parts[len(parts)-1] = canonicalKeyName(parts[len(parts)-1])
 		if _, ok := keyValues[parts[len(parts)-1]]; !ok {
-			return c, fmt.Errorf("supported keys are a-z, 0-9, enter and f1 through f24")
+			return c, fmt.Errorf("unsupported key %q; use wonkey key --help for supported names", parts[len(parts)-1])
 		}
 		modifiers := "none"
 		if len(parts) > 1 {
@@ -207,7 +375,7 @@ func (c publicCommand) parseValues(positional []string, on string) (publicComman
 type publicAccess struct {
 	discover    func() ([]Candidate, error)
 	query       func(Candidate) (CaptureResult, error)
-	apply       func(Candidate, string, ApplyTarget, Changes, func(configuration, configuration, string) (bool, error)) (ApplyResult, error)
+	apply       func(Candidate, string, ApplyTarget, configurationChanges, func(configuration, configuration, string) (bool, error)) (ApplyResult, error)
 	interactive func(io.Reader) bool
 }
 
@@ -215,7 +383,7 @@ func publicDeviceAccess() publicAccess {
 	return publicAccess{
 		discover: func() ([]Candidate, error) { return liveDiscover("/sys/bus/usb/devices", "/dev") },
 		query:    func(selected Candidate) (CaptureResult, error) { return querySelected(selected, true) },
-		apply: func(selected Candidate, root string, target ApplyTarget, changes Changes, guard func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
+		apply: func(selected Candidate, root string, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
 			return liveApplyBound(selected.PhysicalPath, root, target, changes, true, guard, &selected, true)
 		},
 		interactive: readerInteractive,
@@ -254,6 +422,14 @@ func runPublic(args []string, rt *cliRuntime, access publicAccess) error {
 			}
 			if c.name == "restore" {
 				text = restoreHelp
+			}
+			switch c.name {
+			case "mouse":
+				text = mouseHelp
+			case "media":
+				text = mediaHelp
+			case "multi":
+				text = multiHelp
 			}
 			return printHumanHelp(rt.out, text)
 		}
@@ -307,7 +483,7 @@ func choosePublic(candidates []Candidate, input *bufio.Reader, h human, interact
 
 func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 	interactive := access.interactive(rt.in)
-	if (len(c.changes) > 0 || c.name == "restore") && !interactive {
+	if (len(c.changes) > 0 || c.action != nil || c.name == "restore") && !interactive {
 		return fmt.Errorf("changes require an interactive terminal; no device access")
 	}
 	input := bufio.NewReader(rt.in)
@@ -351,18 +527,57 @@ func (c publicCommand) showCurrentSettings(current configuration, selected Candi
 	h.field("USB path", selected.PhysicalPath)
 	h.field("Identifier", target.Identifier)
 	h.field("Version", target.Version)
-	if c.name != "rgb" {
-		key := settingName(keyValues, int(current[4]))
-		if current[2] != 0 {
-			key = strings.ReplaceAll(modifierName(current[2]), ",", "+") + "+" + key
-		}
-		h.field("Key", key)
-		h.field("On", settingName(triggerValues, int(current[1])))
+	if c.supportedConfiguration(current) != nil {
+		h.field("Layout", "Unknown (unsupported configuration)")
+		h.field("Raw type", fmt.Sprintf("0x%02x (byte 0)", current[0]))
+		h.field("Raw 0-15", hex.EncodeToString(current[:16]))
+		h.line("33", "Fields are not decoded. Changes and restore are blocked.")
+		return
 	}
-	if c.name != "key" {
+	if c.name != "rgb" {
+		action, _ := decodeAction(current)
+		if keyboard, ok := action.(KeyboardAction); ok {
+			key := settingName(keyValues, keyboard.Key)
+			if keyboard.Modifiers != 0 {
+				key = strings.ReplaceAll(modifierName(current[2]), ",", "+") + "+" + key
+			}
+			h.field("Key", key)
+			h.field("On", settingName(triggerValues, keyboard.Trigger))
+		} else {
+			h.field("Action", actionDescription(action))
+		}
+	}
+	if c.name == "rgb" || c.name == "restore" {
 		h.field("Mode", settingName(lightingValues, int(current[124])-1))
 		fmt.Fprintf(h.out, "  %-10s %s\n", "Colour", h.rgb(fmt.Sprintf("#%02X%02X%02X", current[125], current[126], current[127])))
 	}
+}
+
+func (c publicCommand) supportedConfiguration(current configuration) error {
+	if _, err := decodeAction(current); err != nil {
+		return fmt.Errorf("unsupported current action layout: %w", err)
+	}
+	if current[124] < 1 || current[124] > 8 {
+		return fmt.Errorf("unsupported current RGB mode %02x", current[124])
+	}
+	return nil
+}
+
+func (c publicCommand) configurationChanges(current configuration) configurationChanges {
+	if c.action != nil {
+		return ActionChanges{Action: c.action}
+	}
+	if current[0] == 0 {
+		return c.changes
+	}
+	if c.name == "key" {
+		trigger, present := c.changes["trigger"]
+		if !present {
+			trigger = triggerValues["press"]
+		}
+		return ActionChanges{Action: KeyboardAction{Trigger: trigger, Modifiers: c.changes["modifiers"], Key: c.changes["key"]}}
+	}
+	return ActionChanges{RGB: c.changes}
 }
 
 func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, target ApplyTarget, input *bufio.Reader, h human, access publicAccess) error {
@@ -375,13 +590,18 @@ func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, t
 		return fmt.Errorf("device settings need exactly 128 bytes")
 	}
 	copy(current[:], raw)
-	if err := supportedConfiguration(current); err != nil {
+	if c.name != "restore" && len(c.changes) == 0 && c.action == nil {
+		c.showCurrentSettings(current, selected, target, h)
+		return h.out.err
+	}
+	if err := c.supportedConfiguration(current); err != nil {
 		return err
 	}
 	c.showCurrentSettings(current, selected, target, h)
 	if h.out.err != nil {
 		return h.out.err
 	}
+	changes := c.configurationChanges(current)
 	if c.name == "restore" {
 		source, err := chooseRestore(c.source, observed.Identity, current, input, h)
 		if err != nil {
@@ -393,24 +613,24 @@ func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, t
 		if c.source != "" {
 			h.field("Source", source.directory)
 		}
-		h.line("", "Restore saved key and RGB settings. Keep all other current bytes.")
-		c.changes = restoreChanges(source.config)
-		restored, err := changeConfiguration(current, c.changes)
+		h.line("", "Restore saved action and RGB settings. Keep all other current bytes.")
+		changes, err = restoreChanges(source.config)
 		if err != nil {
 			return err
 		}
-		if restored != source.config {
+		restored, err := changes.configuration(current)
+		if err != nil {
+			return err
+		}
+		if source.hasDifferentPreservedBytes(current, restored) {
 			h.line("33", "Other saved bytes differ. Those current bytes will remain unchanged.")
 		}
 	}
-	if len(c.changes) == 0 {
-		return h.out.err
-	}
-	intended, err := changeConfiguration(current, c.changes)
+	intended, err := changes.configuration(current)
 	if err != nil {
 		return err
 	}
-	views := settingViews(current, intended)
+	views := publicActionViews(current, intended)
 	h.changes(views)
 	if len(views) == 0 {
 		h.line("", "No settings write sent.")
@@ -438,7 +658,7 @@ func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, t
 		}
 		return true, nil
 	}
-	result, err := access.apply(selected, root, target, c.changes, guard)
+	result, err := access.apply(selected, root, target, changes, guard)
 	if err != nil {
 		if result.Directory != "" {
 			h.field("Records", result.Directory)
@@ -459,5 +679,5 @@ func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, t
 	if result.CleanupWarning != "" {
 		h.line("33", "Warning: "+result.CleanupWarning+". Do not retry a successful write.")
 	}
-	return nil
+	return h.out.err
 }
