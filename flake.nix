@@ -56,13 +56,10 @@
               [
                 actionlint
                 gh
-                go
-                golangci-lint
-                govulncheck
                 just
-                miniserve
                 playwright-mcp
               ]
+              ++ import ./nix/loader.nix { inherit pkgs; }
               ++ (if tailorPkgs ? tailor then [ tailorPkgs.tailor ] else [ ]);
           };
         }

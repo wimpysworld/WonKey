@@ -19,7 +19,8 @@ just test
 just lint
 ```
 
-Do not replace these recipes with direct `go test` or `go vet` checks.
+Use `just test` for all enabled tests and `just test-go` for Go tests only.
+Do not replace the mandatory recipes with `just test-go`, direct `go test`, or `go vet` checks.
 Fix all failures, including failures from optional CI checks.
 After fixes, rerun both recipes.
 If tools or network access are unavailable, report the blocked checks, not a pass.
@@ -42,7 +43,9 @@ Validate compilation in a fresh temporary directory:
 )
 ```
 
-Do not use `just build` for validation because it overwrites an existing `wonkey` binary.
+Use `just build` or `just build-go` only in a temporary project copy for build validation.
+Both managed recipes write `bin/wonkey`; repeated builds replace that generated file.
+Do not use `just build-wonkey` for validation because it writes `wonkey` at the project root and overwrites an existing root binary.
 `-buildvcs=false` disables VCS stamping, not compilation checks.
 Keep tests independent of connected hardware.
 Obtain explicit user authority before device access.
@@ -50,8 +53,8 @@ Obtain explicit user authority before device access.
 ## Pages preview with Playwright MCP
 
 - Enter `nix develop`, or load the development environment through direnv. Nix supplies `miniserve` and Chromium-only `playwright-mcp`.
-- Reuse a suitable preview, or start `just pages` from the project root. It serves `pages/` at `http://127.0.0.1:18080` without a build.
-- If the port is occupied, use another port, for example `just pages 18081`. Never stop an existing service automatically.
+- Reuse a suitable preview, or start `just pages-port` from the project root. It serves `pages/` at `http://127.0.0.1:18080` without a build.
+- If the port is occupied, use another port, for example `just pages-port 18081`. Never stop an existing service automatically.
 - Start, restart, or reload the client from the development environment, with normal approval checks.
 - Use the configured `playwright-mcp --headless --isolated` server in Claude Code, Codex, OpenCode, or Pi. In Pi, discover browser tools through the MCP proxy's lazy tool loading.
 - Use the connected MCP browser to navigate to the preview URL, with the selected port. MCP starts its own browser. Do not start a manual stdio session, CDP browser, or `run-cdp`.
