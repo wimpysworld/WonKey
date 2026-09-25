@@ -51,6 +51,7 @@
         in
         {
           default = pkgs.mkShell {
+            shellHook = import ./nix/hooks.nix { inherit pkgs; };
             packages =
               with pkgs;
               [

@@ -52,7 +52,7 @@ just build
 sudo install -m 0755 ./bin/wonkey /usr/local/bin/wonkey
 ```
 
-The build replaces `./bin/wonkey` in the source directory.
+The build replaces `./bin/wonkey` and `./wonkey` in the source directory.
 
 ### Check the installation
 

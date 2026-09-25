@@ -19,8 +19,14 @@ just test
 just lint
 ```
 
-Use `just test` for all enabled tests and `just test-go` for Go tests only.
-Do not replace the mandatory recipes with `just test-go`, direct `go test`, or `go vet` checks.
+Use only `just build`, `just test`, and `just lint` for quality work.
+Use `just lint` or `just lint check` for read-only checks.
+Use `just lint correct` only when source correction is authorised.
+Keep project quality work in `just/project/build.sh`, `test.sh`, or `lint.sh`.
+Keep lint script check mode read-only. The lint script receives `check` or `correct`.
+Do not replace the mandatory recipes with direct `go test` or `go vet` checks.
+Call `tailor alter`, `tailor baste`, and `tailor measure` directly, without Just wrappers.
+Keep `just setup` and release commands separate from quality checks. Never run them implicitly.
 Fix all failures, including failures from optional CI checks.
 After fixes, rerun both recipes.
 If tools or network access are unavailable, report the blocked checks, not a pass.
@@ -43,9 +49,9 @@ Validate compilation in a fresh temporary directory:
 )
 ```
 
-Use `just build` or `just build-go` only in a temporary project copy for build validation.
-Both managed recipes write `bin/wonkey`; repeated builds replace that generated file.
-Do not use `just build-wonkey` for validation because it writes `wonkey` at the project root and overwrites an existing root binary.
+Use `just build` only in a temporary project copy for build validation.
+The managed build writes `bin/wonkey`, then `just/project/build.sh` writes `wonkey` with `-buildvcs=false`.
+Repeated builds replace both generated files. Never overwrite an existing root binary for validation.
 `-buildvcs=false` disables VCS stamping, not compilation checks.
 Keep tests independent of connected hardware.
 Obtain explicit user authority before device access.
@@ -53,8 +59,8 @@ Obtain explicit user authority before device access.
 ## Pages preview with Playwright MCP
 
 - Enter `nix develop`, or load the development environment through direnv. Nix supplies `miniserve` and Chromium-only `playwright-mcp`.
-- Reuse a suitable preview, or start `just pages-port` from the project root. It serves `pages/` at `http://127.0.0.1:18080` without a build.
-- If the port is occupied, use another port, for example `just pages-port 18081`. Never stop an existing service automatically.
+- Reuse a suitable preview, or start `just pages` from the project root. It serves `pages/` at `http://127.0.0.1:18473` without a build.
+- If the port is occupied, use another port, for example `miniserve --index index.html --interfaces 127.0.0.1 --port 18081 pages/`. Never stop an existing service automatically.
 - Start, restart, or reload the client from the development environment, with normal approval checks.
 - Use the configured `playwright-mcp --headless --isolated` server in Claude Code, Codex, OpenCode, or Pi. In Pi, discover browser tools through the MCP proxy's lazy tool loading.
 - Use the connected MCP browser to navigate to the preview URL, with the selected port. MCP starts its own browser. Do not start a manual stdio session, CDP browser, or `run-cdp`.
