@@ -8,6 +8,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"wonkey/internal/xfkey/trisat"
 )
 
 const publicHelp = `Configure an XFKEY One Key Max (0112).
@@ -36,6 +37,7 @@ Run "wonkey <command> --help" for values and options.
 `
 
 const keyHelp = `Usage: wonkey key [COMBINATION] [--on WHEN]
+       wonkey key --device 1189:8890 [--report output]
 
 Without a combination, read the current key. Create no files.
 A combination contains exactly one base key from the names below.
@@ -67,6 +69,10 @@ Added keys fit the captured descriptor but remain hardware-unverified.
 
 Options:
   --on WHEN     press, release or both. Requires a key combination.
+  --device 1189:8890  Read-only raw input probe. No combination or --on.
+                     Raw input is not decoded settings. Create no files.
+  --report output    Read Output report ID 3 instead of Input. Requires --device.
+                     GET_REPORT is control IN. Raw bytes are not decoded settings.
   -h, --help    Show help without device access.
 
 Examples:
@@ -148,6 +154,8 @@ WonKey saves and validates a fresh backup before writing.
 type publicCommand struct {
 	name    string
 	source  string
+	device  string
+	report  string
 	changes Changes
 	action  Action
 	help    bool
@@ -182,6 +190,18 @@ func parsePublic(args []string) (publicCommand, error) {
 		switch {
 		case arg == "--help" || arg == "-h":
 			c.help = true
+		case arg == "--device" || strings.HasPrefix(arg, "--device="):
+			var err error
+			args, err = c.parseDeviceOption(arg, args)
+			if err != nil {
+				return c, err
+			}
+		case arg == "--report" || strings.HasPrefix(arg, "--report="):
+			var err error
+			args, err = c.parseReportOption(arg, args)
+			if err != nil {
+				return c, err
+			}
 		case arg == "--on" || strings.HasPrefix(arg, "--on="):
 			if c.name != "key" || seenOn {
 				return c, fmt.Errorf("--on is accepted once, for key only")
@@ -209,6 +229,16 @@ func parsePublic(args []string) (publicCommand, error) {
 			positional = append(positional, arg)
 		}
 	}
+	return c.parsePositionals(positional, options, on, seenOn)
+}
+
+func (c publicCommand) parsePositionals(positional []string, options map[string]int, on string, seenOn bool) (publicCommand, error) {
+	if c.report != "" && c.device == "" {
+		return c, fmt.Errorf("--report requires --device 1189:8890")
+	}
+	if c.device != "" && (len(positional) != 0 || seenOn) {
+		return c, fmt.Errorf("--device requires a bare key query without a combination or action options")
+	}
 	if len(positional) == 0 {
 		if seenOn {
 			return c, fmt.Errorf("--on requires a key combination")
@@ -222,6 +252,42 @@ func parsePublic(args []string) (publicCommand, error) {
 		return c.parseAction(positional, options)
 	}
 	return c.parseValues(positional, on)
+}
+
+func (c *publicCommand) parseDeviceOption(arg string, args []string) ([]string, error) {
+	if c.name != "key" || c.device != "" {
+		return args, fmt.Errorf("--device is accepted once, for bare key queries only")
+	}
+	value := strings.TrimPrefix(arg, "--device=")
+	if arg == "--device" {
+		if len(args) == 0 {
+			return args, fmt.Errorf("--device needs 1189:8890")
+		}
+		value, args = args[0], args[1:]
+	}
+	if value != "1189:8890" {
+		return args, fmt.Errorf("--device accepts only 1189:8890")
+	}
+	c.device = value
+	return args, nil
+}
+
+func (c *publicCommand) parseReportOption(arg string, args []string) ([]string, error) {
+	if c.name != "key" || c.report != "" {
+		return args, fmt.Errorf("--report is accepted once, for bare key queries only")
+	}
+	value := strings.TrimPrefix(arg, "--report=")
+	if arg == "--report" {
+		if len(args) == 0 {
+			return args, fmt.Errorf("--report needs output")
+		}
+		value, args = args[0], args[1:]
+	}
+	if value != "output" {
+		return args, fmt.Errorf("--report accepts only output")
+	}
+	c.report = value
+	return args, nil
 }
 
 func parseActionOption(command, arg string, args []string, options map[string]int) ([]string, error) {
@@ -373,16 +439,22 @@ func (c publicCommand) parseValues(positional []string, on string) (publicComman
 }
 
 type publicAccess struct {
-	discover    func() ([]Candidate, error)
-	query       func(Candidate) (CaptureResult, error)
-	apply       func(Candidate, string, ApplyTarget, configurationChanges, func(configuration, configuration, string) (bool, error)) (ApplyResult, error)
-	interactive func(io.Reader) bool
+	discoverTriSat    func(string) ([]trisat.DiscoveredCandidate, error)
+	probeTriSat       func(string, string, trisat.DiscoveredCandidate) (trisat.ProbeResult, error)
+	probeTriSatOutput func(string, string, trisat.DiscoveredCandidate) (trisat.ProbeResult, error)
+	discover          func() ([]Candidate, error)
+	query             func(Candidate) (CaptureResult, error)
+	apply             func(Candidate, string, ApplyTarget, configurationChanges, func(configuration, configuration, string) (bool, error)) (ApplyResult, error)
+	interactive       func(io.Reader) bool
 }
 
 func publicDeviceAccess() publicAccess {
 	return publicAccess{
-		discover: func() ([]Candidate, error) { return liveDiscover("/sys/bus/usb/devices", "/dev") },
-		query:    func(selected Candidate) (CaptureResult, error) { return querySelected(selected, true) },
+		discoverTriSat:    trisat.DiscoverCandidates,
+		probeTriSat:       trisat.ProbeCandidate,
+		probeTriSatOutput: trisat.ProbeOutputCandidate,
+		discover:          func() ([]Candidate, error) { return liveDiscover("/sys/bus/usb/devices", "/dev") },
+		query:             func(selected Candidate) (CaptureResult, error) { return querySelected(selected, true) },
 		apply: func(selected Candidate, root string, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
 			return liveApplyBound(selected.PhysicalPath, root, target, changes, true, guard, &selected, true)
 		},
@@ -488,6 +560,9 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 	}
 	input := bufio.NewReader(rt.in)
 	h := newHuman(rt.out)
+	if c.device != "" {
+		return c.runTriSatQuery(input, h, interactive, access)
+	}
 	candidates, err := access.discover()
 	if err != nil {
 		return err
@@ -515,6 +590,59 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 		return fmt.Errorf("device settings are missing")
 	}
 	return c.runObserved(observed, *selected, target, input, h, access)
+}
+
+func (c publicCommand) runTriSatQuery(input *bufio.Reader, h human, interactive bool, access publicAccess) error {
+	const sysRoot, devRoot = "/sys/bus/usb/devices", "/dev/bus/usb"
+	candidates, err := access.discoverTriSat(sysRoot)
+	if err != nil {
+		return err
+	}
+	if len(candidates) == 0 {
+		return fmt.Errorf("no exact 1189:8890 descriptor candidate found; no USB device opened")
+	}
+	choices := make([]Candidate, 0, len(candidates))
+	byPath := make(map[string]trisat.DiscoveredCandidate, len(candidates))
+	for _, candidate := range candidates {
+		choices = append(choices, Candidate{
+			PhysicalPath: candidate.PhysicalPath, Compatible: true,
+			VendorNode: NodeMetadata{Path: fmt.Sprintf("%s/%03d/%03d", devRoot, candidate.BusNumber, candidate.DeviceNumber)},
+		})
+		byPath[candidate.PhysicalPath] = candidate
+	}
+	selected, err := choosePublic(choices, input, h, interactive)
+	if err != nil {
+		return err
+	}
+	if selected == nil {
+		h.line("", "Cancelled. No USB device opened.")
+		return h.out.err
+	}
+	report, label, probe := "input", "Input", access.probeTriSat
+	if c.report == "output" {
+		report, label, probe = "output", "Output", access.probeTriSatOutput
+	}
+	h.heading("Raw " + report + " probe")
+	if c.report == "output" {
+		h.field("Request", "GET_REPORT(Output, report ID 3), control IN, 0xa1/0x01/0x0203, interface 1, max 65 bytes, timeout 1000 ms")
+	}
+	h.field("Device", "1189:8890 (provisional descriptor match)")
+	h.field("USB path", selected.PhysicalPath)
+	if h.out.err != nil {
+		return h.out.err
+	}
+	result, err := probe(sysRoot, devRoot, byPath[selected.PhysicalPath])
+	h.field("Status", string(result.Status))
+	if result.ReportDescriptor != nil || result.ReportDescriptorCount != 0 {
+		h.field("Descriptor bytes", strconv.Itoa(result.ReportDescriptorCount))
+		h.field("Descriptor hex", hex.EncodeToString(result.ReportDescriptor))
+	}
+	if result.Raw != nil || result.Count != 0 || result.Status == trisat.ProbeTransferFailed {
+		h.field(label+" bytes", strconv.Itoa(result.Count))
+		h.field(label+" hex", hex.EncodeToString(result.Raw))
+	}
+	h.line("33", "Raw "+report+" is not decoded settings. Firmware identity and settings readback remain unverified.")
+	return errors.Join(err, h.out.err)
 }
 
 func (c publicCommand) showCurrentSettings(current configuration, selected Candidate, target ApplyTarget, h human) {
