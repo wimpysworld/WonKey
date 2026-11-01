@@ -91,6 +91,7 @@ func TestDiscoverCandidatesRejectsAttributes(t *testing.T) {
 		{"dev", "1:18\n"},
 		{"descriptors", ""},
 		{"descriptors", candidateUSBDescriptor + "x"},
+		{"descriptors", candidateUSBDescriptor[:8] + "\x00" + candidateUSBDescriptor[9:]},
 	} {
 		t.Run(tt.name+"="+tt.value, func(t *testing.T) {
 			root := makeProbeSysfs(t)
@@ -98,8 +99,53 @@ func TestDiscoverCandidatesRejectsAttributes(t *testing.T) {
 				t.Fatal(err)
 			}
 			candidates, err := DiscoverCandidates(root)
-			if err != nil || len(candidates) != 0 {
-				t.Fatalf("accepted invalid attribute: %v, %v", candidates, err)
+			wantError := tt.name != "descriptors"
+			if (err != nil) != wantError || len(candidates) != 0 {
+				t.Fatalf("invalid attribute: candidates=%v, error=%v, wantError=%v", candidates, err, wantError)
+			}
+			if wantError && !strings.Contains(err.Error(), "1-2.3") {
+				t.Fatalf("missing candidate path: %v", err)
+			}
+		})
+	}
+}
+
+func TestDiscoverCandidatesInspectionFailures(t *testing.T) {
+	for _, operation := range []string{"descriptors", "busnum", "devnum", "dev", "second stat", "identity"} {
+		t.Run(operation, func(t *testing.T) {
+			fake := newFakeProbe(t)
+			if operation == "second stat" || operation == "identity" {
+				stat := fake.ops.stat
+				calls := 0
+				fake.ops.stat = func(path string) (os.FileInfo, error) {
+					calls++
+					if calls == 2 {
+						if operation == "identity" {
+							return os.Stat(t.TempDir())
+						}
+						return nil, unix.EACCES
+					}
+					return stat(path)
+				}
+			} else {
+				readFile := fake.ops.readFile
+				fake.ops.readFile = func(path string, limit int) ([]byte, error) {
+					if filepath.Base(path) == operation {
+						return nil, unix.EACCES
+					}
+					return readFile(path, limit)
+				}
+			}
+			candidates, err := fake.ops.discover(fake.root)
+			wantError := operation != "descriptors"
+			if (err != nil) != wantError || len(candidates) != 0 {
+				t.Fatalf("inspection failure: candidates=%v, error=%v, wantError=%v", candidates, err, wantError)
+			}
+			if wantError && (!strings.Contains(err.Error(), "1-2.3") || (operation != "identity" && !errors.Is(err, unix.EACCES))) {
+				t.Fatalf("lost candidate path or cause: %v", err)
+			}
+			if fake.opened != 0 || len(fake.calls) != 0 {
+				t.Fatal("discovery accessed a USB device node")
 			}
 		})
 	}

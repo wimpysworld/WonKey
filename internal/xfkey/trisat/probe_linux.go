@@ -113,6 +113,9 @@ func (ops probeOps) discover(sysRoot string) ([]DiscoveredCandidate, error) {
 		}
 		candidate, err := ops.inspect(sysRoot, name)
 		if err != nil {
+			if candidate.PhysicalPath != "" {
+				return nil, fmt.Errorf("inspect candidate %s: %w", name, err)
+			}
 			continue
 		}
 		candidates = append(candidates, candidate)
@@ -120,6 +123,7 @@ func (ops probeOps) discover(sysRoot string) ([]DiscoveredCandidate, error) {
 	return candidates, nil
 }
 
+// inspect preserves Candidate after an exact descriptor match, even if later checks fail.
 func (ops probeOps) inspect(sysRoot, physicalPath string) (DiscoveredCandidate, error) {
 	var result DiscoveredCandidate
 	if !filepath.IsAbs(sysRoot) || len(physicalPath) > 255 || !physicalUSBPath.MatchString(physicalPath) {
@@ -148,6 +152,7 @@ func (ops probeOps) inspect(sysRoot, physicalPath string) (DiscoveredCandidate, 
 	if err != nil {
 		return result, err
 	}
+	result.Candidate = candidate
 	bus, err := ops.number(path, "busnum", 65535)
 	if err != nil {
 		return result, err
