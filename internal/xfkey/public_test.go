@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"wonkey/internal/xfkey/trisat"
 )
 
 func checkPublicHeader(t *testing.T, text string) {
@@ -21,7 +22,7 @@ func checkPublicHeader(t *testing.T, text string) {
 }
 
 func TestPublicHeaderOutputFailure(t *testing.T) {
-	for _, args := range [][]string{nil, {"key", "--help"}, {"key"}, {"key", "f13"}, {"restore"}, {"invalid"}} {
+	for _, args := range [][]string{nil, {"key", "--help"}, {"key"}, {"key", "--device=1189:8890"}, {"key", "f13"}, {"restore"}, {"invalid"}} {
 		for _, short := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%v/short=%v", args, short), func(t *testing.T) {
 				failed := &failingHumanOutput{short: short}
@@ -294,6 +295,24 @@ func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 		{"rgb", "static", "gggggg"},
 		{"rgb", "off", "000000", "extra"},
 		{"--help", "--yes"},
+		{"key", "--device"},
+		{"key", "--device="},
+		{"key", "--device", "1189:8891"},
+		{"key", "--device=0x1189:0x8890"},
+		{"key", "--device", "1189:8890", "--device=1189:8890"},
+		{"key", "--device=1189:8890", "--device", "1189:8890"},
+		{"key", "--device=1189:8890", "f13"},
+		{"key", "f13", "--device", "1189:8890"},
+		{"key", "--device=1189:8890", "--on", "press"},
+		{"key", "--on=press", "--device=1189:8890"},
+		{"key", "--device=1189:8890", "--help", "f13"},
+		{"key", "--device=1189:8890", "--write"},
+		{"key", "--device=1189:8890", "--x=1"},
+		{"mouse", "--device=1189:8890"},
+		{"media", "--device=1189:8890"},
+		{"multi", "--device=1189:8890"},
+		{"rgb", "--device=1189:8890"},
+		{"restore", "--device=1189:8890"},
 	}
 	for _, flag := range []string{"--device", "--capture-root", "--json", "--yes", "--dry-run", "--write", "--target", "--path", "--key", "--modifiers", "--trigger", "--lighting", "--colour", "--rgb-mode", "--red", "--expect-identifier", "--expect-version", "--json=false", "--yes=false"} {
 		cases = append(cases, []string{"key", "f13", flag}, []string{"rgb", "off", flag}, []string{"key", "--help", flag})
@@ -313,7 +332,7 @@ func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 
 func TestPublicHelpNoAccess(t *testing.T) {
 	access := publicAccess{interactive: func(io.Reader) bool { t.Fatal("help accessed runtime"); return false }}
-	for _, args := range [][]string{nil, {"--help"}, {"-h"}, {"key", "--help"}, {"rgb", "--help"}, {"restore", "--help"}, {"key", "f13", "--help"}, {"rgb", "off", "-h"}} {
+	for _, args := range [][]string{nil, {"--help"}, {"-h"}, {"key", "--help"}, {"key", "--device=1189:8890", "--help"}, {"key", "-h", "--device", "1189:8890"}, {"rgb", "--help"}, {"restore", "--help"}, {"key", "f13", "--help"}, {"rgb", "off", "-h"}} {
 		var out bytes.Buffer
 		if err := runPublic(args, &cliRuntime{strings.NewReader(""), &out, io.Discard}, access); err != nil {
 			t.Fatal(err)
@@ -325,10 +344,13 @@ func TestPublicHelpNoAccess(t *testing.T) {
 		if len(args) == 0 && !strings.HasPrefix(out.String(), "1️⃣ WonKey\n\nConfigure an XFKEY One Key Max (0112).\n") {
 			t.Fatal(out.String())
 		}
-		for _, removed := range []string{"--json", "--yes", "--device", "--dry-run", "advanced", "wonkey set", "Apply result"} {
+		for _, removed := range []string{"--json", "--yes", "--dry-run", "advanced", "wonkey set", "Apply result"} {
 			if strings.Contains(out.String(), removed) {
 				t.Fatal(removed, out.String())
 			}
+		}
+		if strings.Contains(out.String(), "--device") != (len(args) > 0 && args[0] == "key") {
+			t.Fatal("device option belongs only in key help", out.String())
 		}
 		if !strings.Contains(out.String(), "Usage:") || strings.Contains(out.String(), "\x1b") {
 			t.Fatal(out.String())
@@ -571,6 +593,281 @@ func TestPublicWorkflow(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func triSatTestAccess(t *testing.T) publicAccess {
+	t.Helper()
+	return publicAccess{
+		interactive: func(io.Reader) bool { return true },
+		discover: func() ([]Candidate, error) {
+			t.Fatal("TriSat probe reached XFKEY discovery")
+			return nil, nil
+		},
+		query: func(Candidate) (CaptureResult, error) {
+			t.Fatal("TriSat probe reached XFKEY query")
+			return CaptureResult{}, nil
+		},
+		apply: func(Candidate, string, ApplyTarget, configurationChanges, func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
+			t.Fatal("TriSat probe reached apply")
+			return ApplyResult{}, nil
+		},
+	}
+}
+
+func TestPublicTriSatOutputReport(t *testing.T) {
+	for _, option := range [][]string{{"--device", "1189:8890", "--report", "output"}, {"--report=output", "--device=1189:8890"}} {
+		for _, status := range []trisat.ProbeStatus{trisat.ProbeRawReport, trisat.ProbeInvalidReport, trisat.ProbeTransferFailed} {
+			t.Run(strings.Join(option, " ")+"/"+string(status), func(t *testing.T) {
+				root := filepath.Join(t.TempDir(), "absent")
+				t.Setenv("XDG_STATE_HOME", root)
+				access := triSatTestAccess(t)
+				access.interactive = func(io.Reader) bool { return false }
+				target := trisat.DiscoveredCandidate{Candidate: trisat.Candidate{PhysicalPath: "1-2"}, BusNumber: 1, DeviceNumber: 19}
+				access.discoverTriSat = func(string) ([]trisat.DiscoveredCandidate, error) {
+					return []trisat.DiscoveredCandidate{target}, nil
+				}
+				access.probeTriSat = func(string, string, trisat.DiscoveredCandidate) (trisat.ProbeResult, error) {
+					t.Fatal("Output option sent Input GET_REPORT")
+					return trisat.ProbeResult{}, nil
+				}
+				probes := 0
+				access.probeTriSatOutput = func(sysRoot, devRoot string, selected trisat.DiscoveredCandidate) (trisat.ProbeResult, error) {
+					probes++
+					if selected != target || sysRoot != "/sys/bus/usb/devices" || devRoot != "/dev/bus/usb" {
+						t.Fatal("wrong Output probe target", selected, sysRoot, devRoot)
+					}
+					var err error
+					if status != trisat.ProbeRawReport {
+						err = errors.New("synthetic Output reply failure")
+					}
+					return trisat.ProbeResult{Status: status, Raw: []byte{0xaa}, Count: 1}, err
+				}
+				var out, diagnostic bytes.Buffer
+				err := runPublic(append([]string{"key"}, option...), &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
+				if (err != nil) != (status != trisat.ProbeRawReport) || probes != 1 {
+					t.Fatal(err, probes, diagnostic.String())
+				}
+				for _, text := range []string{"Raw output probe", "GET_REPORT(Output, report ID 3)", "control IN", "0xa1/0x01/0x0203", "interface 1", "max 65 bytes", "timeout 1000 ms", "Output bytes 1", "Output hex aa", string(status), "Raw output is not decoded settings", "remain unverified"} {
+					if !strings.Contains(out.String(), text) {
+						t.Fatal("missing Output diagnostic", text, out.String())
+					}
+				}
+				for _, text := range []string{"Input bytes", "Input hex", "Settings saved", "Save settings?"} {
+					if strings.Contains(out.String(), text) {
+						t.Fatal("incorrect Output diagnostic", out.String())
+					}
+				}
+				if _, err := os.Stat(root); !os.IsNotExist(err) {
+					t.Fatal("Output probe created backup storage", err)
+				}
+			})
+		}
+	}
+}
+
+func TestPublicRejectsReportSyntaxBeforeDiscovery(t *testing.T) {
+	for _, args := range [][]string{
+		{"key", "--report", "output"},
+		{"key", "--report=output", "--help"},
+		{"key", "--device=1189:8890", "--report"},
+		{"key", "--device=1189:8890", "--report="},
+		{"key", "--device=1189:8890", "--report=input"},
+		{"key", "--device=1189:8890", "--report=feature"},
+		{"key", "--device=1189:8890", "--report=OUTPUT"},
+		{"key", "--device=1189:8890", "--report=output", "--report", "output"},
+		{"key", "--device=1189:8890", "--report=output", "--report=input"},
+		{"key", "--device=1189:8890", "--report=output", "f13"},
+		{"key", "f13", "--report=output", "--device=1189:8890"},
+		{"key", "--device=1189:8890", "--report=output", "--on=press"},
+		{"key", "--device=1189:8890", "--report=output", "--write"},
+		{"key", "--device=1189:0112", "--report=output"},
+		{"mouse", "--report=output"},
+		{"media", "--report=output"},
+		{"multi", "--report=output"},
+		{"rgb", "--report=output"},
+		{"restore", "--report=output"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			err := runPublic(args, &cliRuntime{strings.NewReader(""), io.Discard, io.Discard}, publicAccess{})
+			if err == nil || ExitCode(err) != 2 {
+				t.Fatal("accepted invalid report syntax", err)
+			}
+		})
+	}
+	var out bytes.Buffer
+	err := runPublic([]string{"key", "--device=1189:8890", "--report=output", "--help"}, &cliRuntime{strings.NewReader(""), &out, io.Discard}, publicAccess{})
+	if err != nil || !strings.Contains(out.String(), "--report output") || !strings.Contains(out.String(), "Raw bytes are not decoded settings") {
+		t.Fatal("missing Output help", err, out.String())
+	}
+}
+
+func TestPublicTriSatSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name, input, wantPath string
+		count                 int
+		interactive, failure  bool
+	}{
+		{"single", "", "1-2", 1, false, false},
+		{"first", "1\n", "1-2", 2, true, false},
+		{"second", "2\r\n", "1-3", 2, true, false},
+		{"blank", "\n", "", 2, true, false},
+		{"eof", "", "", 2, true, false},
+		{"partial", "1", "", 2, true, false},
+		{"invalid", "no\n", "", 2, true, false},
+		{"range", "3\n", "", 2, true, false},
+		{"nonterminal", "1\n", "", 2, false, true},
+		{"none", "", "", 0, false, true},
+		{"discovery-error", "", "", 0, false, true},
+	} {
+		for _, option := range [][]string{{"--device", "1189:8890"}, {"--device=1189:8890"}} {
+			t.Run(tc.name+"/"+option[0], func(t *testing.T) {
+				root := filepath.Join(t.TempDir(), "absent")
+				t.Setenv("XDG_STATE_HOME", root)
+				access := triSatTestAccess(t)
+				access.interactive = func(io.Reader) bool { return tc.interactive }
+				candidates := []trisat.DiscoveredCandidate{
+					{Candidate: trisat.Candidate{PhysicalPath: "1-2"}, BusNumber: 1, DeviceNumber: 19},
+					{Candidate: trisat.Candidate{PhysicalPath: "1-3"}, BusNumber: 1, DeviceNumber: 20},
+				}
+				discovered, probed := 0, 0
+				access.discoverTriSat = func(sysRoot string) ([]trisat.DiscoveredCandidate, error) {
+					discovered++
+					if sysRoot != "/sys/bus/usb/devices" {
+						t.Fatal(sysRoot)
+					}
+					if tc.name == "discovery-error" {
+						return nil, errors.New("synthetic discovery failure")
+					}
+					return candidates[:tc.count], nil
+				}
+				access.probeTriSat = func(sysRoot, devRoot string, selected trisat.DiscoveredCandidate) (trisat.ProbeResult, error) {
+					probed++
+					if tc.wantPath == "" || selected.PhysicalPath != tc.wantPath || sysRoot != "/sys/bus/usb/devices" || devRoot != "/dev/bus/usb" {
+						t.Fatal("wrong probe selection", selected, sysRoot, devRoot)
+					}
+					for _, candidate := range candidates {
+						if candidate.PhysicalPath == tc.wantPath && candidate != selected {
+							t.Fatal("candidate binding changed")
+						}
+					}
+					raw := append([]byte{3}, bytes.Repeat([]byte{0xab}, 64)...)
+					return trisat.ProbeResult{Status: trisat.ProbeRawReport, Raw: raw, Count: len(raw), ReportDescriptorVerified: true}, nil
+				}
+				args := append([]string{"key"}, option...)
+				command, err := parsePublic(args)
+				if err != nil || command.device != "1189:8890" || len(command.changes) != 0 || command.action != nil {
+					t.Fatal(command, err)
+				}
+				var out, diagnostic bytes.Buffer
+				err = runPublic(args, &cliRuntime{strings.NewReader(tc.input), &out, &diagnostic}, access)
+				wantProbes := 0
+				if tc.wantPath != "" {
+					wantProbes = 1
+				}
+				if (err != nil) != tc.failure || discovered != 1 || probed != wantProbes {
+					t.Fatalf("error=%v discovered=%d probed=%d output=%q", err, discovered, probed, out.String())
+				}
+				if tc.wantPath != "" {
+					for _, text := range []string{tc.wantPath, "raw-report-only", "65", "03" + strings.Repeat("ab", 64), "Raw input is not decoded settings", "remain unverified"} {
+						if !strings.Contains(out.String(), text) {
+							t.Fatal("missing output", text, out.String())
+						}
+					}
+				} else if !tc.failure && !strings.Contains(out.String(), "Cancelled. No USB device opened.") {
+					t.Fatal(out.String())
+				}
+				if tc.count == 2 && tc.interactive {
+					for _, text := range []string{"1-2 (/dev/bus/usb/001/019)", "1-3 (/dev/bus/usb/001/020)", "Device number [cancel]: "} {
+						if !strings.Contains(out.String(), text) {
+							t.Fatal("missing physical path selection", out.String())
+						}
+					}
+				}
+				if strings.Contains(out.String(), "Settings saved") || strings.Contains(out.String(), "Save settings?") {
+					t.Fatal("probe claimed a settings write", out.String())
+				}
+				if _, err := os.Stat(root); !os.IsNotExist(err) {
+					t.Fatal("probe created backup storage", err)
+				}
+			})
+		}
+	}
+}
+
+func TestPublicTriSatProbeFailures(t *testing.T) {
+	for _, result := range []trisat.ProbeResult{
+		{Status: trisat.ProbeRefused},
+		{Status: trisat.ProbeDescriptorFailed, ReportDescriptor: []byte{6, 0, 0xfe}, ReportDescriptorCount: 3},
+		{Status: trisat.ProbeTransferFailed, Count: 0, ReportDescriptorVerified: true},
+		{Status: trisat.ProbeInvalidReport, Raw: []byte{3, 0xaa}, Count: 2, ReportDescriptorVerified: true},
+		{Status: trisat.ProbeCloseFailed, Raw: []byte{3, 0xbb}, Count: 2, ReportDescriptorVerified: true},
+	} {
+		t.Run(string(result.Status), func(t *testing.T) {
+			access := triSatTestAccess(t)
+			access.discoverTriSat = func(string) ([]trisat.DiscoveredCandidate, error) {
+				return []trisat.DiscoveredCandidate{{Candidate: trisat.Candidate{PhysicalPath: "1-2"}}}, nil
+			}
+			failure := errors.New("synthetic probe failure")
+			probes := 0
+			access.probeTriSat = func(string, string, trisat.DiscoveredCandidate) (trisat.ProbeResult, error) {
+				probes++
+				return result, failure
+			}
+			var out, diagnostic bytes.Buffer
+			err := runPublic([]string{"key", "--device=1189:8890"}, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
+			if !errors.Is(err, failure) || ExitCode(err) != 1 || probes != 1 || !strings.Contains(diagnostic.String(), failure.Error()) {
+				t.Fatal(err, probes, diagnostic.String())
+			}
+			for _, text := range []string{string(result.Status), "Raw input is not decoded settings", "remain unverified"} {
+				if !strings.Contains(out.String(), text) {
+					t.Fatal("missing failure output", text, out.String())
+				}
+			}
+			if result.ReportDescriptor != nil && (!strings.Contains(out.String(), "Descriptor bytes 3") || !strings.Contains(out.String(), "0600fe")) {
+				t.Fatal("missing descriptor diagnostic", out.String())
+			}
+			if result.Raw != nil && (!strings.Contains(out.String(), "Input bytes 2") || !strings.Contains(out.String(), fmt.Sprintf("%x", result.Raw))) {
+				t.Fatal("missing input diagnostic", out.String())
+			}
+		})
+	}
+}
+
+func TestPublicTriSatOutputFailure(t *testing.T) {
+	for _, needle := range []string{"Select a device", "1-3", "Device number", "Raw input probe", "USB path", "Status", "Input hex", "Raw input is not decoded settings"} {
+		for _, short := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/short=%v", needle, short), func(t *testing.T) {
+				access := triSatTestAccess(t)
+				multiple := needle == "Select a device" || needle == "1-3" || needle == "Device number"
+				access.discoverTriSat = func(string) ([]trisat.DiscoveredCandidate, error) {
+					candidates := []trisat.DiscoveredCandidate{{Candidate: trisat.Candidate{PhysicalPath: "1-2"}}}
+					if multiple {
+						candidates = append(candidates, trisat.DiscoveredCandidate{Candidate: trisat.Candidate{PhysicalPath: "1-3"}})
+					}
+					return candidates, nil
+				}
+				probes := 0
+				access.probeTriSat = func(string, string, trisat.DiscoveredCandidate) (trisat.ProbeResult, error) {
+					probes++
+					return trisat.ProbeResult{Status: trisat.ProbeRawReport, Raw: []byte{3}, Count: 1}, nil
+				}
+				input := strings.NewReader("1\n")
+				out := &failingHumanOutput{needle: needle, short: short}
+				err := runPublic([]string{"key", "--device=1189:8890"}, &cliRuntime{input, out, io.Discard}, access)
+				want := io.ErrClosedPipe
+				if short {
+					want = io.ErrShortWrite
+				}
+				wantProbes := 0
+				if needle == "Status" || needle == "Input hex" || needle == "Raw input is not decoded settings" {
+					wantProbes = 1
+				}
+				if !errors.Is(err, want) || probes != wantProbes || input.Len() != len("1\n") {
+					t.Fatal(err, probes, input.Len())
+				}
+			})
+		}
 	}
 }
 
