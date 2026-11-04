@@ -3,32 +3,39 @@ package ch57
 import "fmt"
 
 // MediaUsage lists the consumer usages named in the pinned source.
-// Source: https://github.com/kriomant/ch57x-keyboard-tool/blob/88aaa564/src/keyboard/mod.rs
+// Source: https://github.com/kriomant/ch57x-keyboard-tool/blob/bdbffca3/src/keyboard/mod.rs
 type MediaUsage int
 
 const (
-	MediaNext       MediaUsage = 0xb5
-	MediaPrevious   MediaUsage = 0xb6
-	MediaStop       MediaUsage = 0xb7
-	MediaPlay       MediaUsage = 0xcd
-	MediaMute       MediaUsage = 0xe2
-	MediaVolumeUp   MediaUsage = 0xe9
-	MediaVolumeDown MediaUsage = 0xea
-	MediaFavorites  MediaUsage = 0x182
-	MediaCalculator MediaUsage = 0x192
-	MediaScreenLock MediaUsage = 0x19e
+	MediaScreenBrightnessUp   MediaUsage = 0x6f
+	MediaScreenBrightnessDown MediaUsage = 0x70
+	MediaNext                 MediaUsage = 0xb5
+	MediaPrevious             MediaUsage = 0xb6
+	MediaStop                 MediaUsage = 0xb7
+	MediaPlay                 MediaUsage = 0xcd
+	MediaMute                 MediaUsage = 0xe2
+	MediaVolumeUp             MediaUsage = 0xe9
+	MediaVolumeDown           MediaUsage = 0xea
+	MediaFavorites            MediaUsage = 0x182
+	MediaCalculator           MediaUsage = 0x192
+	MediaScreenLock           MediaUsage = 0x19e
+	MediaWebPageHome          MediaUsage = 0x223
+	MediaWebPageBack          MediaUsage = 0x224
+	MediaWebPageForward       MediaUsage = 0x225
 )
 
 // EncodeMedia returns a first-layer binding with a 16-bit little-endian usage.
-// Encoding source: https://github.com/kriomant/ch57x-keyboard-tool/blob/88aaa564/src/keyboard/k8890.rs
+// Encoding source: https://github.com/kriomant/ch57x-keyboard-tool/blob/bdbffca3/src/keyboard/k8890.rs
 func EncodeMedia(profile Profile, control Control, usage MediaUsage) ([]Report, error) {
 	slot, err := profile.slot(control)
 	if err != nil {
 		return nil, err
 	}
 	switch usage {
-	case MediaNext, MediaPrevious, MediaStop, MediaPlay, MediaMute,
-		MediaVolumeUp, MediaVolumeDown, MediaFavorites, MediaCalculator, MediaScreenLock:
+	case MediaScreenBrightnessUp, MediaScreenBrightnessDown,
+		MediaNext, MediaPrevious, MediaStop, MediaPlay, MediaMute,
+		MediaVolumeUp, MediaVolumeDown, MediaFavorites, MediaCalculator, MediaScreenLock,
+		MediaWebPageHome, MediaWebPageBack, MediaWebPageForward:
 	default:
 		return nil, fmt.Errorf("unsupported CH57 media usage %#x", usage)
 	}
@@ -38,7 +45,10 @@ func EncodeMedia(profile Profile, control Control, usage MediaUsage) ([]Report, 
 type MouseAction string
 
 const (
+	MouseMove      MouseAction = "move"
+	MouseDrag      MouseAction = "drag"
 	MouseClick     MouseAction = "click"
+	MouseWheel     MouseAction = "wheel"
 	MouseWheelUp   MouseAction = "wheel-up"
 	MouseWheelDown MouseAction = "wheel-down"
 )
@@ -64,12 +74,15 @@ const (
 type MouseEvent struct {
 	Action   MouseAction
 	Buttons  MouseButtons
+	DX       int
+	DY       int
+	Wheel    int
 	Modifier MouseModifier
 }
 
-// EncodeMouse returns a first-layer click or wheel binding.
-// Clicks accept non-empty combinations of left, right, and middle buttons.
-// Source: https://github.com/kriomant/ch57x-keyboard-tool/blob/88aaa564/src/keyboard/k8890.rs
+// EncodeMouse returns a first-layer move, drag, click, or wheel binding.
+// Clicks and drags accept non-empty combinations of left, right, and middle buttons.
+// Source: https://github.com/kriomant/ch57x-keyboard-tool/blob/bdbffca3/src/keyboard/k8890.rs
 func EncodeMouse(profile Profile, control Control, event MouseEvent) ([]Report, error) {
 	slot, err := profile.slot(control)
 	if err != nil {
@@ -80,24 +93,78 @@ func EncodeMouse(profile Profile, control Control, event MouseEvent) ([]Report, 
 	default:
 		return nil, fmt.Errorf("unsupported CH57 mouse modifier %#x", event.Modifier)
 	}
-	var wheel byte
+	buttons, dx, dy, wheel, err := encodeMousePayload(event)
+	if err != nil {
+		return nil, err
+	}
+	return bindingReports(Report{0x03, slot, 0x13, buttons, dx, dy, wheel, byte(event.Modifier & 255)}), nil
+}
+
+func encodeMousePayload(event MouseEvent) (byte, byte, byte, byte, error) {
 	switch event.Action {
 	case MouseClick:
-		if event.Buttons < 1 || event.Buttons > MouseLeft|MouseRight|MouseMiddle {
-			return nil, fmt.Errorf("mouse click requires button bits 0x01..0x07")
+		if !validMouseClick(event) {
+			return 0, 0, 0, 0, fmt.Errorf("mouse click requires button bits 0x01..0x07 and zero deltas")
 		}
+		return byte(event.Buttons & 255), 0, 0, 0, nil
+	case MouseMove:
+		if !validMouseMove(event) {
+			return 0, 0, 0, 0, fmt.Errorf("mouse move requires non-zero DX/DY in -128..127 and no buttons or wheel")
+		}
+		return 0, byte(event.DX & 255), byte(event.DY & 255), 0, nil
+	case MouseDrag:
+		if !validMouseDrag(event) {
+			return 0, 0, 0, 0, fmt.Errorf("mouse drag requires button bits 0x01..0x07, non-zero DX/DY in -128..127, and no wheel")
+		}
+		return byte(event.Buttons & 255), byte(event.DX & 255), byte(event.DY & 255), 0, nil
+	case MouseWheel:
+		if !validMouseWheel(event) {
+			return 0, 0, 0, 0, fmt.Errorf("mouse wheel requires non-zero wheel delta in -128..127 and no buttons or movement")
+		}
+		return 0, 0, 0, byte(event.Wheel & 255), nil
 	case MouseWheelUp, MouseWheelDown:
-		if event.Buttons != 0 {
-			return nil, fmt.Errorf("mouse wheel binding cannot include buttons")
+		if !validMouseWheelDirection(event) {
+			return 0, 0, 0, 0, fmt.Errorf("mouse wheel direction binding cannot include buttons, movement, or wheel delta")
 		}
-		wheel = 0x01
 		if event.Action == MouseWheelDown {
-			wheel = 0xff
+			return 0, 0, 0, 0xff, nil
 		}
+		return 0, 0, 0, 0x01, nil
 	default:
-		return nil, fmt.Errorf("unsupported CH57 mouse action %q", event.Action)
+		return 0, 0, 0, 0, fmt.Errorf("unsupported CH57 mouse action %q", event.Action)
 	}
-	return bindingReports(Report{0x03, slot, 0x13, byte(event.Buttons & 255), 0, 0, wheel, byte(event.Modifier & 255)}), nil
+}
+
+func validMouseClick(event MouseEvent) bool {
+	return validMouseButtons(event.Buttons) && event.DX == 0 && event.DY == 0 && event.Wheel == 0
+}
+
+func validMouseMove(event MouseEvent) bool {
+	return event.Buttons == 0 && event.Wheel == 0 && validMouseDeltaPair(event.DX, event.DY)
+}
+
+func validMouseDrag(event MouseEvent) bool {
+	return validMouseButtons(event.Buttons) && event.Wheel == 0 && validMouseDeltaPair(event.DX, event.DY)
+}
+
+func validMouseWheel(event MouseEvent) bool {
+	return event.Buttons == 0 && event.DX == 0 && event.DY == 0 && validSignedByte(event.Wheel) && event.Wheel != 0
+}
+
+func validMouseWheelDirection(event MouseEvent) bool {
+	return event.Buttons == 0 && event.DX == 0 && event.DY == 0 && event.Wheel == 0
+}
+
+func validMouseButtons(buttons MouseButtons) bool {
+	return buttons >= 1 && buttons <= MouseLeft|MouseRight|MouseMiddle
+}
+
+func validMouseDeltaPair(dx, dy int) bool {
+	return validSignedByte(dx) && validSignedByte(dy) && (dx != 0 || dy != 0)
+}
+
+func validSignedByte(value int) bool {
+	return value >= -128 && value <= 127
 }
 
 // EncodeLED returns the separate LED sequence, not an A1 key-binding variant.
