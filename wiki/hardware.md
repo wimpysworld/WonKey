@@ -3,7 +3,7 @@
 [Wiki home](Home) · [Usage and configuration](usage)
 
 `key COMBINATION`, `mouse BUTTONS`, `media ACTION`, `multi KEY,...`, and `rgb MODE [RGB]` change settings on an XFKEY One Key Max (`0112`) after confirmation.
-Bare `key`, `mouse`, `media`, `multi`, and `rgb` read the selected XFKEY One Key Max (`0112`) or probe a selected CH57 (`1189:8890`) device without modifying it.
+Bare `key`, `mouse`, `media`, `multi`, and `rgb` read all compatible XFKEY One Key Max (`0112`) and CH57 (`1189:8890`) devices without modifying them.
 
 [Device access](#device-selection-and-access) · [Hardware checks](#check-hardware-effects-and-persistence) · [Apply safety](#apply-safety)
 
@@ -19,7 +19,7 @@ WonKey enumerates both supported device families automatically:
 - **XFKEY One Key Max (`0112`)**: Requires VID/PID `af88:6688`, revision `0100`, and exact USB/configuration bytes. All four report descriptors must match (62, 114, 25, and 34 bytes). The device must have interfaces 0 to 3 and one vendor hidraw mapping on interface 3 (usage page `FF00`, usage `01`, endpoints `84`/`04`, 64-byte payloads, and no report IDs). The shared serial `XFKEY` is not unique.
 - **CH57 (`1189:8890`)**: Requires VID/PID `1189:8890` and the exact published single-configuration USB descriptor structure across interfaces 0 to 3. Bare read commands (`key`, `mouse`, `media`, `multi`, and `rgb`) verify the 36-byte report ID 3 descriptor on interface 1 and issue one `GET_REPORT` control IN transfer (`key --report output` requests Output report ID 3 instead of Input report ID 3). WonKey accepts a 65-byte report ID 3 reply or the 1-byte `0xaa` status response returned by stock write-only firmware. Live writes are refused for `1189:8890`.
 
-When one compatible device is attached, WonKey selects it automatically. When multiple devices are attached, WonKey prompts for terminal selection tied to the USB physical path. Moving or reconnecting a device can change its path and node.
+Bare read commands enumerate and inspect all compatible devices automatically. For changes, when one compatible device is attached, WonKey selects it automatically; when multiple devices are attached, WonKey prompts for terminal selection tied to the device name and USB physical path. Moving or reconnecting a device can change its path and node.
 
 ## Check hardware effects and persistence
 

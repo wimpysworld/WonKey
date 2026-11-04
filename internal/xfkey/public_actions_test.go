@@ -311,7 +311,7 @@ func TestPublicActionOutput(t *testing.T) {
 		if got := actionDescription(tc.action); got != tc.want {
 			t.Fatalf("got %q, want %q", got, tc.want)
 		}
-		for _, needle := range []string{"Current", "  Action", " -> ", "Save settings?"} {
+		for _, needle := range []string{"XFKEY One Key Max (0112)", "  Action", " -> ", "Save settings?"} {
 			t.Run(tc.want+"/"+needle, func(t *testing.T) {
 				first := newSettingsTransport()
 				first.current = actionConfiguration(t, tc.action)

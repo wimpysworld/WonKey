@@ -12,7 +12,7 @@ Set a keyboard, relative mouse, consumer media, or multi-key action, and choose 
 
 WonKey previews changes, asks for confirmation, and verifies all 128 configuration bytes after each write.
 
-WonKey discovers compatible XFKEY One Key Max (`0112`) and CH57 (`1189:8890`) devices automatically. Live writes apply only to XFKEY One Key Max (`0112`). Bare read commands also inspect CH57 (`1189:8890`) devices through a read-only USB probe.
+WonKey discovers compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices automatically. Live writes apply only to XFKEY One Key Max (`0112`). Bare read commands also inspect CH57x Macropad (`1189:8890`) devices through a read-only USB check.
 Keyboard actions use one base key with optional <kbd>Ctrl</kbd>, <kbd>Shift</kbd>, <kbd>Alt</kbd>, and <kbd>Super</kbd> modifiers.
 Current source supports letters, digits, function keys, navigation, punctuation names, keypad keys, and other defined keyboard usages through `0x91`.
 See [supported key names and aliases](wiki/usage.md#supported-key-names).
@@ -76,8 +76,8 @@ wonkey multi
 wonkey rgb
 ```
 
-When one compatible device is attached, WonKey selects it automatically. When multiple devices are attached, WonKey prompts you to select the USB physical path in the terminal.
-On a selected CH57 (`1189:8890`) device, bare read commands run the read-only USB probe. Use `wonkey key --report output` to request Output report ID 3 instead of Input report ID 3. Stock write-only `1189:8890` firmware returns a 1-byte `0xaa` status reply, which WonKey accepts alongside 65-byte report ID 3 replies.
+Bare read commands enumerate and inspect all compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices automatically.
+On each CH57x Macropad (`1189:8890`), bare read commands show its USB path, layout, connection status, and that settings are not readable over USB. Use `wonkey key --report output` to request Output report ID 3 instead of Input report ID 3 on all connected CH57x Macropad (`1189:8890`) devices. Stock write-only `1189:8890` firmware returns a 1-byte `0xaa` status reply, which WonKey accepts alongside 65-byte report ID 3 replies.
 
 Set the key combination:
 
@@ -121,7 +121,7 @@ RGB commands preserve key settings.
 
 ## Before you save
 
-Changes require a terminal and an XFKEY One Key Max (`0112`). WonKey shows the selected device and current-to-proposed settings before it asks `Save settings? [Y/n]:`.
+Changes require a terminal and an XFKEY One Key Max (`0112`). When one compatible device is attached, WonKey selects it automatically; when multiple compatible devices are attached, WonKey prompts you to select the device and USB physical path in the terminal. WonKey shows the selected device and current-to-proposed settings before it asks `Save settings? [Y/n]:`.
 Press <kbd>Enter</kbd> to save, or enter `n` to cancel. Cancellation and unchanged settings send no settings writes.
 
 If the device state changes after the preview, WonKey stops before it writes settings.
@@ -129,7 +129,7 @@ After an `AF02` upload and `AF04` commit, it reads back and compares all 128 con
 
 ## Compatibility
 
-WonKey checks exact device descriptors for XFKEY One Key Max (`af88:6688`, model `0112`) and CH57 (`1189:8890`). For `0112`, it rejects unsupported special, macro, touch, and unknown layouts. CH57 (`1189:8890`) supports read-only USB inspection only; live writes are refused.
+WonKey checks exact device descriptors for XFKEY One Key Max (`af88:6688`, model `0112`) and CH57x Macropad (`1189:8890`). For `0112`, it rejects unsupported special, macro, touch, and unknown layouts. CH57x Macropad (`1189:8890`) supports read-only USB inspection only; live writes are refused.
 The `key` names `mute`, `volumeup`, and `volumedown` use keyboard-page usages. The `media` command uses consumer-page usages. Right-hand modifiers are unsupported.
 
 Hardware checks on one `0112` unit confirmed <kbd>F13</kbd> press/release events, steady-blue lighting, and persistence of both settings after reconnect.

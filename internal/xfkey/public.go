@@ -489,7 +489,11 @@ func choosePublic(candidates []Candidate, input *bufio.Reader, h human, interact
 	}
 	h.line("36", "Select a device for this command:")
 	for i, c := range matches {
-		h.field(strconv.Itoa(i+1), c.PhysicalPath+" ("+c.VendorNode.Path+")")
+		product := c.Product
+		if product == "" {
+			product = "XFKEY One Key Max (0112)"
+		}
+		h.field(strconv.Itoa(i+1), product+" "+c.PhysicalPath+" ("+c.VendorNode.Path+")")
 	}
 	fmt.Fprint(h.out, "Device number [cancel]: ")
 	if h.out.err != nil {
@@ -509,9 +513,13 @@ func choosePublic(candidates []Candidate, input *bufio.Reader, h human, interact
 	return &matches[n-1], nil
 }
 
+func (c publicCommand) isReadOnly() bool {
+	return len(c.changes) == 0 && c.action == nil
+}
+
 func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 	interactive := access.interactive(rt.in)
-	if (len(c.changes) > 0 || c.action != nil) && !interactive {
+	if !c.isReadOnly() && !interactive {
 		return fmt.Errorf("changes require an interactive terminal; no device access")
 	}
 	input := bufio.NewReader(rt.in)
@@ -536,10 +544,13 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 	byCH57Path := make(map[string]ch57.DiscoveredCandidate, len(chCandidates))
 	for _, candidate := range chCandidates {
 		candidates = append(candidates, Candidate{
-			PhysicalPath: candidate.PhysicalPath, Compatible: true,
+			PhysicalPath: candidate.PhysicalPath, Product: "CH57x Macropad (1189:8890)", Compatible: true,
 			VendorNode: NodeMetadata{Path: fmt.Sprintf("%s/%03d/%03d", devRoot, candidate.BusNumber, candidate.DeviceNumber)},
 		})
 		byCH57Path[candidate.PhysicalPath] = candidate
+	}
+	if c.isReadOnly() {
+		return c.runReadAll(candidates, chCandidates, byCH57Path, h, access)
 	}
 	selected, err := choosePublic(candidates, input, h, interactive)
 	if err != nil {
@@ -553,16 +564,55 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 		}
 		return h.out.err
 	}
-	if chCandidate, ok := byCH57Path[selected.PhysicalPath]; ok {
-		if len(c.changes) > 0 || c.action != nil {
-			return fmt.Errorf("live writes are not supported for 1189:8890; no settings write sent")
+	if _, ok := byCH57Path[selected.PhysicalPath]; ok {
+		return fmt.Errorf("live writes are not supported for 1189:8890; no settings write sent")
+	}
+	return c.runXFKEYSelected(*selected, input, h, access)
+}
+
+func (c publicCommand) runReadAll(candidates []Candidate, chCandidates []ch57.DiscoveredCandidate, byCH57Path map[string]ch57.DiscoveredCandidate, h human, access publicAccess) error {
+	var matches []Candidate
+	for _, candidate := range candidates {
+		if candidate.Compatible {
+			matches = append(matches, candidate)
 		}
-		return c.runCH57Selected(chCandidate, h, access)
+	}
+	if len(matches) == 0 {
+		return fmt.Errorf("no compatible device found")
 	}
 	if c.report != "" {
-		return fmt.Errorf("--report output applies to 1189:8890 only; no HID device opened")
+		if len(chCandidates) == 0 {
+			return fmt.Errorf("--report output applies to 1189:8890 only; no HID device opened")
+		}
+		for i, chCandidate := range chCandidates {
+			if i > 0 {
+				fmt.Fprintln(h.out)
+			}
+			if err := c.runCH57Selected(chCandidate, h, access); err != nil {
+				return err
+			}
+		}
+		return h.out.err
 	}
-	observed, err := access.query(*selected)
+	for i, selected := range matches {
+		if i > 0 {
+			fmt.Fprintln(h.out)
+		}
+		if chCandidate, ok := byCH57Path[selected.PhysicalPath]; ok {
+			if err := c.runCH57Selected(chCandidate, h, access); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := c.runXFKEYSelected(selected, nil, h, access); err != nil {
+			return err
+		}
+	}
+	return h.out.err
+}
+
+func (c publicCommand) runXFKEYSelected(selected Candidate, input *bufio.Reader, h human, access publicAccess) error {
+	observed, err := access.query(selected)
 	if err != nil {
 		return err
 	}
@@ -576,41 +626,52 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 	if observed.Readback == nil {
 		return fmt.Errorf("device settings are missing")
 	}
-	return c.runObserved(observed, *selected, target, input, h, access)
+	return c.runObserved(observed, selected, target, input, h, access)
 }
 
 func (c publicCommand) runCH57Selected(selected ch57.DiscoveredCandidate, h human, access publicAccess) error {
 	const sysRoot, devRoot = "/sys/bus/usb/devices", "/dev/bus/usb"
-	report, label, probe := "input", "Input", access.probeCH57
+	label, probe := "Input", access.probeCH57
 	if c.report == "output" {
-		report, label, probe = "output", "Output", access.probeCH57Output
+		label, probe = "Output", access.probeCH57Output
 	}
-	h.heading("Raw " + report + " probe")
-	if c.report == "output" {
-		h.field("Request", "GET_REPORT(Output, report ID 3), control IN, 0xa1/0x01/0x0203, interface 1, max 65 bytes, timeout 1000 ms")
-	}
-	h.field("Device", "1189:8890 (provisional descriptor match)")
+	h.heading("CH57x Macropad (1189:8890)")
 	h.field("USB path", selected.PhysicalPath)
+	h.field("Layout", "3-key / 1-knob up to 12-key / 3-knob")
 	if h.out.err != nil {
 		return h.out.err
 	}
 	result, err := probe(sysRoot, devRoot, selected)
-	h.field("Status", string(result.Status))
-	if result.ReportDescriptor != nil || result.ReportDescriptorCount != 0 {
-		h.field("Descriptor bytes", strconv.Itoa(result.ReportDescriptorCount))
-		h.field("Descriptor hex", hex.EncodeToString(result.ReportDescriptor))
+	shortAA := err == nil && result.Count == 1 && len(result.Raw) == 1 && result.Raw[0] == 0xaa
+	if c.report == "" && err == nil {
+		if shortAA {
+			h.field("Status", "Connected (write-only firmware)")
+			h.field("Settings", "Not readable over USB")
+		} else if result.Status == ch57.ProbeRawReport {
+			h.field("Status", "Connected")
+			h.field("Settings", "Not readable over USB")
+			h.field("Input hex", hex.EncodeToString(result.Raw))
+		}
+		return h.out.err
+	}
+	if c.report == "output" {
+		h.field("Request", "GET_REPORT(Output, report ID 3)")
+	}
+	if shortAA {
+		h.field("Status", "Connected (write-only firmware)")
+		h.field("Settings", "Not readable over USB")
+	} else {
+		h.field("Status", string(result.Status))
 	}
 	if result.Raw != nil || result.Count != 0 || result.Status == ch57.ProbeTransferFailed {
 		h.field(label+" bytes", strconv.Itoa(result.Count))
 		h.field(label+" hex", hex.EncodeToString(result.Raw))
 	}
-	h.line("33", "Raw "+report+" is not decoded settings. Firmware identity and settings readback remain unverified.")
 	return errors.Join(err, h.out.err)
 }
 
 func (c publicCommand) showCurrentSettings(current configuration, selected Candidate, target ApplyTarget, h human) {
-	h.heading("Current " + c.name)
-	h.field("Device", "One Key Max 0112")
+	h.heading("XFKEY One Key Max (0112)")
 	h.field("USB path", selected.PhysicalPath)
 	h.field("Identifier", target.Identifier)
 	h.field("Version", target.Version)
