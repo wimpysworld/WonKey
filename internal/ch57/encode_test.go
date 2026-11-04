@@ -144,6 +144,24 @@ func TestRejectInvalidStrokes(t *testing.T) {
 			}
 		})
 	}
+
+	knob1Profile := ThreeKeyOneKnob()
+	knob1Profile.Layer = 2
+	knob1Profile.ControlSlots = map[Control]byte{
+		Key1:       1,
+		Key2:       2,
+		Key3:       3,
+		Knob1Left:  13,
+		Knob1Press: 14,
+		Knob1Right: 15,
+	}
+	got, err := EncodeKeyboard(knob1Profile, KnobLeft, []Stroke{
+		{Usage: 0x04},
+		{Modifiers: 0x02, Usage: 0x05},
+	})
+	if err == nil || got != nil {
+		t.Fatalf("got %x, %v, want nil reports and an error", got, err)
+	}
 }
 
 func TestModifierAndUsageBoundaries(t *testing.T) {
@@ -251,6 +269,35 @@ func TestSingleStrokeFullK8890Controls(t *testing.T) {
 				assertReports(t, got, want)
 			})
 		}
+	}
+}
+
+func TestMultiStrokeModifiersFullK8890Profile(t *testing.T) {
+	strokes := []Stroke{
+		{Modifiers: 0x00, Usage: 0x04},
+		{Modifiers: 0x02, Usage: 0x05},
+		{Modifiers: 0x05, Usage: 0x00},
+		{Modifiers: 0x10, Usage: 0x28},
+		{Modifiers: 0x80, Usage: 0x73},
+	}
+	for _, useKnob1Names := range []bool{false, true} {
+		profile := twelveKeyThreeKnobProfile(useKnob1Names)
+		profile.Layer = 3
+		got, err := EncodeKeyboard(profile, Key12, strokes)
+		if err != nil {
+			t.Fatal(useKnob1Names, err)
+		}
+		want := []Report{
+			{0x03, 0xfe, 0x03, 0x01, 0x01},
+			{0x03, 0x0c, 0x31, 0x05, 0x00, 0x00, 0x00},
+			{0x03, 0x0c, 0x31, 0x05, 0x01, 0x00, 0x04},
+			{0x03, 0x0c, 0x31, 0x05, 0x02, 0x02, 0x05},
+			{0x03, 0x0c, 0x31, 0x05, 0x03, 0x05, 0x00},
+			{0x03, 0x0c, 0x31, 0x05, 0x04, 0x10, 0x28},
+			{0x03, 0x0c, 0x31, 0x05, 0x05, 0x80, 0x73},
+			{0x03, 0xaa, 0xaa},
+		}
+		assertReports(t, got, want)
 	}
 }
 
