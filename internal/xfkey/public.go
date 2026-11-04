@@ -8,7 +8,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
-	"wonkey/internal/xfkey/trisat"
+	"wonkey/internal/ch57"
 )
 
 const publicHelp = `Configure an XFKEY One Key Max (0112).
@@ -439,22 +439,22 @@ func (c publicCommand) parseValues(positional []string, on string) (publicComman
 }
 
 type publicAccess struct {
-	discoverTriSat    func(string) ([]trisat.DiscoveredCandidate, error)
-	probeTriSat       func(string, string, trisat.DiscoveredCandidate) (trisat.ProbeResult, error)
-	probeTriSatOutput func(string, string, trisat.DiscoveredCandidate) (trisat.ProbeResult, error)
-	discover          func() ([]Candidate, error)
-	query             func(Candidate) (CaptureResult, error)
-	apply             func(Candidate, string, ApplyTarget, configurationChanges, func(configuration, configuration, string) (bool, error)) (ApplyResult, error)
-	interactive       func(io.Reader) bool
+	discoverCH57    func(string) ([]ch57.DiscoveredCandidate, error)
+	probeCH57       func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error)
+	probeCH57Output func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error)
+	discover        func() ([]Candidate, error)
+	query           func(Candidate) (CaptureResult, error)
+	apply           func(Candidate, string, ApplyTarget, configurationChanges, func(configuration, configuration, string) (bool, error)) (ApplyResult, error)
+	interactive     func(io.Reader) bool
 }
 
 func publicDeviceAccess() publicAccess {
 	return publicAccess{
-		discoverTriSat:    trisat.DiscoverCandidates,
-		probeTriSat:       trisat.ProbeCandidate,
-		probeTriSatOutput: trisat.ProbeOutputCandidate,
-		discover:          func() ([]Candidate, error) { return liveDiscover("/sys/bus/usb/devices", "/dev") },
-		query:             func(selected Candidate) (CaptureResult, error) { return querySelected(selected, true) },
+		discoverCH57:    ch57.DiscoverCandidates,
+		probeCH57:       ch57.ProbeCandidate,
+		probeCH57Output: ch57.ProbeOutputCandidate,
+		discover:        func() ([]Candidate, error) { return liveDiscover("/sys/bus/usb/devices", "/dev") },
+		query:           func(selected Candidate) (CaptureResult, error) { return querySelected(selected, true) },
 		apply: func(selected Candidate, root string, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
 			return liveApplyBound(selected.PhysicalPath, root, target, changes, true, guard, &selected, true)
 		},
@@ -561,7 +561,7 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 	input := bufio.NewReader(rt.in)
 	h := newHuman(rt.out)
 	if c.device != "" {
-		return c.runTriSatQuery(input, h, interactive, access)
+		return c.runCH57Query(input, h, interactive, access)
 	}
 	candidates, err := access.discover()
 	if err != nil {
@@ -592,9 +592,9 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 	return c.runObserved(observed, *selected, target, input, h, access)
 }
 
-func (c publicCommand) runTriSatQuery(input *bufio.Reader, h human, interactive bool, access publicAccess) error {
+func (c publicCommand) runCH57Query(input *bufio.Reader, h human, interactive bool, access publicAccess) error {
 	const sysRoot, devRoot = "/sys/bus/usb/devices", "/dev/bus/usb"
-	candidates, err := access.discoverTriSat(sysRoot)
+	candidates, err := access.discoverCH57(sysRoot)
 	if err != nil {
 		return err
 	}
@@ -602,7 +602,7 @@ func (c publicCommand) runTriSatQuery(input *bufio.Reader, h human, interactive 
 		return fmt.Errorf("no exact 1189:8890 descriptor candidate found; no USB device opened")
 	}
 	choices := make([]Candidate, 0, len(candidates))
-	byPath := make(map[string]trisat.DiscoveredCandidate, len(candidates))
+	byPath := make(map[string]ch57.DiscoveredCandidate, len(candidates))
 	for _, candidate := range candidates {
 		choices = append(choices, Candidate{
 			PhysicalPath: candidate.PhysicalPath, Compatible: true,
@@ -618,9 +618,9 @@ func (c publicCommand) runTriSatQuery(input *bufio.Reader, h human, interactive 
 		h.line("", "Cancelled. No USB device opened.")
 		return h.out.err
 	}
-	report, label, probe := "input", "Input", access.probeTriSat
+	report, label, probe := "input", "Input", access.probeCH57
 	if c.report == "output" {
-		report, label, probe = "output", "Output", access.probeTriSatOutput
+		report, label, probe = "output", "Output", access.probeCH57Output
 	}
 	h.heading("Raw " + report + " probe")
 	if c.report == "output" {
@@ -637,7 +637,7 @@ func (c publicCommand) runTriSatQuery(input *bufio.Reader, h human, interactive 
 		h.field("Descriptor bytes", strconv.Itoa(result.ReportDescriptorCount))
 		h.field("Descriptor hex", hex.EncodeToString(result.ReportDescriptor))
 	}
-	if result.Raw != nil || result.Count != 0 || result.Status == trisat.ProbeTransferFailed {
+	if result.Raw != nil || result.Count != 0 || result.Status == ch57.ProbeTransferFailed {
 		h.field(label+" bytes", strconv.Itoa(result.Count))
 		h.field(label+" hex", hex.EncodeToString(result.Raw))
 	}

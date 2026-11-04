@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"wonkey/internal/xfkey/trisat"
+	"wonkey/internal/ch57"
 )
 
 func checkPublicHeader(t *testing.T, text string) {
@@ -596,56 +596,56 @@ func TestPublicWorkflow(t *testing.T) {
 	}
 }
 
-func triSatTestAccess(t *testing.T) publicAccess {
+func ch57TestAccess(t *testing.T) publicAccess {
 	t.Helper()
 	return publicAccess{
 		interactive: func(io.Reader) bool { return true },
 		discover: func() ([]Candidate, error) {
-			t.Fatal("TriSat probe reached XFKEY discovery")
+			t.Fatal("CH57 probe reached XFKEY discovery")
 			return nil, nil
 		},
 		query: func(Candidate) (CaptureResult, error) {
-			t.Fatal("TriSat probe reached XFKEY query")
+			t.Fatal("CH57 probe reached XFKEY query")
 			return CaptureResult{}, nil
 		},
 		apply: func(Candidate, string, ApplyTarget, configurationChanges, func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
-			t.Fatal("TriSat probe reached apply")
+			t.Fatal("CH57 probe reached apply")
 			return ApplyResult{}, nil
 		},
 	}
 }
 
-func TestPublicTriSatOutputReport(t *testing.T) {
+func TestPublicCH57OutputReport(t *testing.T) {
 	for _, option := range [][]string{{"--device", "1189:8890", "--report", "output"}, {"--report=output", "--device=1189:8890"}} {
-		for _, status := range []trisat.ProbeStatus{trisat.ProbeRawReport, trisat.ProbeInvalidReport, trisat.ProbeTransferFailed} {
+		for _, status := range []ch57.ProbeStatus{ch57.ProbeRawReport, ch57.ProbeInvalidReport, ch57.ProbeTransferFailed} {
 			t.Run(strings.Join(option, " ")+"/"+string(status), func(t *testing.T) {
 				root := filepath.Join(t.TempDir(), "absent")
 				t.Setenv("XDG_STATE_HOME", root)
-				access := triSatTestAccess(t)
+				access := ch57TestAccess(t)
 				access.interactive = func(io.Reader) bool { return false }
-				target := trisat.DiscoveredCandidate{Candidate: trisat.Candidate{PhysicalPath: "1-2"}, BusNumber: 1, DeviceNumber: 19}
-				access.discoverTriSat = func(string) ([]trisat.DiscoveredCandidate, error) {
-					return []trisat.DiscoveredCandidate{target}, nil
+				target := ch57.DiscoveredCandidate{Candidate: ch57.Candidate{PhysicalPath: "1-2"}, BusNumber: 1, DeviceNumber: 19}
+				access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
+					return []ch57.DiscoveredCandidate{target}, nil
 				}
-				access.probeTriSat = func(string, string, trisat.DiscoveredCandidate) (trisat.ProbeResult, error) {
+				access.probeCH57 = func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
 					t.Fatal("Output option sent Input GET_REPORT")
-					return trisat.ProbeResult{}, nil
+					return ch57.ProbeResult{}, nil
 				}
 				probes := 0
-				access.probeTriSatOutput = func(sysRoot, devRoot string, selected trisat.DiscoveredCandidate) (trisat.ProbeResult, error) {
+				access.probeCH57Output = func(sysRoot, devRoot string, selected ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
 					probes++
 					if selected != target || sysRoot != "/sys/bus/usb/devices" || devRoot != "/dev/bus/usb" {
 						t.Fatal("wrong Output probe target", selected, sysRoot, devRoot)
 					}
 					var err error
-					if status != trisat.ProbeRawReport {
+					if status != ch57.ProbeRawReport {
 						err = errors.New("synthetic Output reply failure")
 					}
-					return trisat.ProbeResult{Status: status, Raw: []byte{0xaa}, Count: 1}, err
+					return ch57.ProbeResult{Status: status, Raw: []byte{0xaa}, Count: 1}, err
 				}
 				var out, diagnostic bytes.Buffer
 				err := runPublic(append([]string{"key"}, option...), &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
-				if (err != nil) != (status != trisat.ProbeRawReport) || probes != 1 {
+				if (err != nil) != (status != ch57.ProbeRawReport) || probes != 1 {
 					t.Fatal(err, probes, diagnostic.String())
 				}
 				for _, text := range []string{"Raw output probe", "GET_REPORT(Output, report ID 3)", "control IN", "0xa1/0x01/0x0203", "interface 1", "max 65 bytes", "timeout 1000 ms", "Output bytes 1", "Output hex aa", string(status), "Raw output is not decoded settings", "remain unverified"} {
@@ -702,7 +702,7 @@ func TestPublicRejectsReportSyntaxBeforeDiscovery(t *testing.T) {
 	}
 }
 
-func TestPublicTriSatSelection(t *testing.T) {
+func TestPublicCH57Selection(t *testing.T) {
 	for _, tc := range []struct {
 		name, input, wantPath string
 		count                 int
@@ -724,14 +724,14 @@ func TestPublicTriSatSelection(t *testing.T) {
 			t.Run(tc.name+"/"+option[0], func(t *testing.T) {
 				root := filepath.Join(t.TempDir(), "absent")
 				t.Setenv("XDG_STATE_HOME", root)
-				access := triSatTestAccess(t)
+				access := ch57TestAccess(t)
 				access.interactive = func(io.Reader) bool { return tc.interactive }
-				candidates := []trisat.DiscoveredCandidate{
-					{Candidate: trisat.Candidate{PhysicalPath: "1-2"}, BusNumber: 1, DeviceNumber: 19},
-					{Candidate: trisat.Candidate{PhysicalPath: "1-3"}, BusNumber: 1, DeviceNumber: 20},
+				candidates := []ch57.DiscoveredCandidate{
+					{Candidate: ch57.Candidate{PhysicalPath: "1-2"}, BusNumber: 1, DeviceNumber: 19},
+					{Candidate: ch57.Candidate{PhysicalPath: "1-3"}, BusNumber: 1, DeviceNumber: 20},
 				}
 				discovered, probed := 0, 0
-				access.discoverTriSat = func(sysRoot string) ([]trisat.DiscoveredCandidate, error) {
+				access.discoverCH57 = func(sysRoot string) ([]ch57.DiscoveredCandidate, error) {
 					discovered++
 					if sysRoot != "/sys/bus/usb/devices" {
 						t.Fatal(sysRoot)
@@ -741,7 +741,7 @@ func TestPublicTriSatSelection(t *testing.T) {
 					}
 					return candidates[:tc.count], nil
 				}
-				access.probeTriSat = func(sysRoot, devRoot string, selected trisat.DiscoveredCandidate) (trisat.ProbeResult, error) {
+				access.probeCH57 = func(sysRoot, devRoot string, selected ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
 					probed++
 					if tc.wantPath == "" || selected.PhysicalPath != tc.wantPath || sysRoot != "/sys/bus/usb/devices" || devRoot != "/dev/bus/usb" {
 						t.Fatal("wrong probe selection", selected, sysRoot, devRoot)
@@ -752,7 +752,7 @@ func TestPublicTriSatSelection(t *testing.T) {
 						}
 					}
 					raw := append([]byte{3}, bytes.Repeat([]byte{0xab}, 64)...)
-					return trisat.ProbeResult{Status: trisat.ProbeRawReport, Raw: raw, Count: len(raw), ReportDescriptorVerified: true}, nil
+					return ch57.ProbeResult{Status: ch57.ProbeRawReport, Raw: raw, Count: len(raw), ReportDescriptorVerified: true}, nil
 				}
 				args := append([]string{"key"}, option...)
 				command, err := parsePublic(args)
@@ -795,22 +795,22 @@ func TestPublicTriSatSelection(t *testing.T) {
 	}
 }
 
-func TestPublicTriSatProbeFailures(t *testing.T) {
-	for _, result := range []trisat.ProbeResult{
-		{Status: trisat.ProbeRefused},
-		{Status: trisat.ProbeDescriptorFailed, ReportDescriptor: []byte{6, 0, 0xfe}, ReportDescriptorCount: 3},
-		{Status: trisat.ProbeTransferFailed, Count: 0, ReportDescriptorVerified: true},
-		{Status: trisat.ProbeInvalidReport, Raw: []byte{3, 0xaa}, Count: 2, ReportDescriptorVerified: true},
-		{Status: trisat.ProbeCloseFailed, Raw: []byte{3, 0xbb}, Count: 2, ReportDescriptorVerified: true},
+func TestPublicCH57ProbeFailures(t *testing.T) {
+	for _, result := range []ch57.ProbeResult{
+		{Status: ch57.ProbeRefused},
+		{Status: ch57.ProbeDescriptorFailed, ReportDescriptor: []byte{6, 0, 0xfe}, ReportDescriptorCount: 3},
+		{Status: ch57.ProbeTransferFailed, Count: 0, ReportDescriptorVerified: true},
+		{Status: ch57.ProbeInvalidReport, Raw: []byte{3, 0xaa}, Count: 2, ReportDescriptorVerified: true},
+		{Status: ch57.ProbeCloseFailed, Raw: []byte{3, 0xbb}, Count: 2, ReportDescriptorVerified: true},
 	} {
 		t.Run(string(result.Status), func(t *testing.T) {
-			access := triSatTestAccess(t)
-			access.discoverTriSat = func(string) ([]trisat.DiscoveredCandidate, error) {
-				return []trisat.DiscoveredCandidate{{Candidate: trisat.Candidate{PhysicalPath: "1-2"}}}, nil
+			access := ch57TestAccess(t)
+			access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
+				return []ch57.DiscoveredCandidate{{Candidate: ch57.Candidate{PhysicalPath: "1-2"}}}, nil
 			}
 			failure := errors.New("synthetic probe failure")
 			probes := 0
-			access.probeTriSat = func(string, string, trisat.DiscoveredCandidate) (trisat.ProbeResult, error) {
+			access.probeCH57 = func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
 				probes++
 				return result, failure
 			}
@@ -834,23 +834,23 @@ func TestPublicTriSatProbeFailures(t *testing.T) {
 	}
 }
 
-func TestPublicTriSatOutputFailure(t *testing.T) {
+func TestPublicCH57OutputFailure(t *testing.T) {
 	for _, needle := range []string{"Select a device", "1-3", "Device number", "Raw input probe", "USB path", "Status", "Input hex", "Raw input is not decoded settings"} {
 		for _, short := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/short=%v", needle, short), func(t *testing.T) {
-				access := triSatTestAccess(t)
+				access := ch57TestAccess(t)
 				multiple := needle == "Select a device" || needle == "1-3" || needle == "Device number"
-				access.discoverTriSat = func(string) ([]trisat.DiscoveredCandidate, error) {
-					candidates := []trisat.DiscoveredCandidate{{Candidate: trisat.Candidate{PhysicalPath: "1-2"}}}
+				access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
+					candidates := []ch57.DiscoveredCandidate{{Candidate: ch57.Candidate{PhysicalPath: "1-2"}}}
 					if multiple {
-						candidates = append(candidates, trisat.DiscoveredCandidate{Candidate: trisat.Candidate{PhysicalPath: "1-3"}})
+						candidates = append(candidates, ch57.DiscoveredCandidate{Candidate: ch57.Candidate{PhysicalPath: "1-3"}})
 					}
 					return candidates, nil
 				}
 				probes := 0
-				access.probeTriSat = func(string, string, trisat.DiscoveredCandidate) (trisat.ProbeResult, error) {
+				access.probeCH57 = func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
 					probes++
-					return trisat.ProbeResult{Status: trisat.ProbeRawReport, Raw: []byte{3}, Count: 1}, nil
+					return ch57.ProbeResult{Status: ch57.ProbeRawReport, Raw: []byte{3}, Count: 1}, nil
 				}
 				input := strings.NewReader("1\n")
 				out := &failingHumanOutput{needle: needle, short: short}

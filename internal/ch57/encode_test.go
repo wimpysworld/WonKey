@@ -1,4 +1,4 @@
-package trisat
+package ch57
 
 import (
 	"maps"
@@ -37,10 +37,10 @@ func TestSingleStrokeAllControls(t *testing.T) {
 func TestFiveStrokes(t *testing.T) {
 	strokes := []Stroke{
 		{Modifiers: 0x01, Usage: 0x04},
-		{Modifiers: 0x02, Usage: 0x05},
-		{Modifiers: 0x04, Usage: 0x28},
-		{Modifiers: 0x80, Usage: 0x68},
-		{Modifiers: 0xff, Usage: 0x73},
+		{Modifiers: 0x00, Usage: 0x05},
+		{Modifiers: 0x00, Usage: 0x28},
+		{Modifiers: 0x00, Usage: 0x68},
+		{Modifiers: 0x00, Usage: 0x73},
 	}
 	got, err := EncodeKeyboard(ThreeKeyOneKnob(), Key2, strokes)
 	if err != nil {
@@ -50,10 +50,47 @@ func TestFiveStrokes(t *testing.T) {
 		{0x03, 0xfe, 0x01, 0x01, 0x01},
 		{0x03, 0x02, 0x11, 0x05, 0x00, 0x00, 0x00},
 		{0x03, 0x02, 0x11, 0x05, 0x01, 0x01, 0x04},
-		{0x03, 0x02, 0x11, 0x05, 0x02, 0x02, 0x05},
-		{0x03, 0x02, 0x11, 0x05, 0x03, 0x04, 0x28},
-		{0x03, 0x02, 0x11, 0x05, 0x04, 0x80, 0x68},
-		{0x03, 0x02, 0x11, 0x05, 0x05, 0xff, 0x73},
+		{0x03, 0x02, 0x11, 0x05, 0x02, 0x00, 0x05},
+		{0x03, 0x02, 0x11, 0x05, 0x03, 0x00, 0x28},
+		{0x03, 0x02, 0x11, 0x05, 0x04, 0x00, 0x68},
+		{0x03, 0x02, 0x11, 0x05, 0x05, 0x00, 0x73},
+		{0x03, 0xaa, 0xaa},
+	}
+	assertReports(t, got, want)
+}
+
+func TestModifierOnlySingleStroke(t *testing.T) {
+	for modifiers := 1; modifiers <= 255; modifiers++ {
+		got, err := EncodeKeyboard(ThreeKeyOneKnob(), Key1, []Stroke{{Modifiers: modifiers, Usage: 0x00}})
+		if err != nil {
+			t.Fatal(modifiers, err)
+		}
+		want := []Report{
+			{0x03, 0xfe, 0x01, 0x01, 0x01},
+			{0x03, 0x01, 0x11, 0x01, 0x00, 0x00, 0x00},
+			{0x03, 0x01, 0x11, 0x01, 0x01, byte(modifiers), 0x00},
+			{0x03, 0xaa, 0xaa},
+		}
+		assertReports(t, got, want)
+	}
+}
+
+func TestModifierOnlyFirstStrokeInSequence(t *testing.T) {
+	strokes := []Stroke{
+		{Modifiers: 0x05, Usage: 0x00},
+		{Modifiers: 0x00, Usage: 0x04},
+		{Modifiers: 0x00, Usage: 0x28},
+	}
+	got, err := EncodeKeyboard(ThreeKeyOneKnob(), Key3, strokes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Report{
+		{0x03, 0xfe, 0x01, 0x01, 0x01},
+		{0x03, 0x03, 0x11, 0x03, 0x00, 0x00, 0x00},
+		{0x03, 0x03, 0x11, 0x03, 0x01, 0x05, 0x00},
+		{0x03, 0x03, 0x11, 0x03, 0x02, 0x00, 0x04},
+		{0x03, 0x03, 0x11, 0x03, 0x03, 0x00, 0x28},
 		{0x03, 0xaa, 0xaa},
 	}
 	assertReports(t, got, want)
@@ -86,12 +123,19 @@ func TestRejectInvalidStrokes(t *testing.T) {
 		{"negative modifiers", []Stroke{{Modifiers: -1, Usage: 0x04}}},
 		{"large modifiers", []Stroke{{Modifiers: 256, Usage: 0x04}}},
 		{"negative usage", []Stroke{{Usage: -1}}},
-		{"empty usage", []Stroke{{Usage: 0}}},
+		{"empty stroke", []Stroke{{Modifiers: 0, Usage: 0}}},
+		{"empty second stroke", []Stroke{{Usage: 0x04}, {Modifiers: 0, Usage: 0}}},
 		{"error usage", []Stroke{{Usage: 0x03}}},
 		{"unsupported usage", []Stroke{{Usage: 0x74}}},
 		{"modifier usage", []Stroke{{Usage: 0xe0}}},
 		{"large usage", []Stroke{{Usage: 256}}},
 		{"invalid final stroke", []Stroke{{Usage: 0x04}, {Usage: 0x03}}},
+		{"modifiers on second stroke", []Stroke{{Usage: 0x04}, {Modifiers: 0x01, Usage: 0x05}}},
+		{"modifiers on third stroke", []Stroke{{Usage: 0x04}, {Usage: 0x05}, {Modifiers: 0x02, Usage: 0x06}}},
+		{"modifiers on fourth stroke", []Stroke{{Usage: 0x04}, {Usage: 0x05}, {Usage: 0x06}, {Modifiers: 0x04, Usage: 0x07}}},
+		{"modifiers on fifth stroke", []Stroke{{Usage: 0x04}, {Usage: 0x05}, {Usage: 0x06}, {Usage: 0x07}, {Modifiers: 0x08, Usage: 0x08}}},
+		{"modifier-only on second stroke", []Stroke{{Usage: 0x04}, {Modifiers: 0x01, Usage: 0x00}}},
+		{"modifier-only on fifth stroke", []Stroke{{Usage: 0x04}, {Usage: 0x05}, {Usage: 0x06}, {Usage: 0x07}, {Modifiers: 0x80, Usage: 0x00}}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := EncodeKeyboard(ThreeKeyOneKnob(), Key1, tt.strokes)
@@ -116,6 +160,127 @@ func TestModifierAndUsageBoundaries(t *testing.T) {
 	}
 }
 
+func twelveKeyThreeKnobProfile(useKnob1Names bool) Profile {
+	slots := map[Control]byte{
+		Key1:       1,
+		Key2:       2,
+		Key3:       3,
+		Key4:       4,
+		Key5:       5,
+		Key6:       6,
+		Key7:       7,
+		Key8:       8,
+		Key9:       9,
+		Key10:      10,
+		Key11:      11,
+		Key12:      12,
+		Knob2Left:  16,
+		Knob2Press: 17,
+		Knob2Right: 18,
+		Knob3Left:  19,
+		Knob3Press: 20,
+		Knob3Right: 21,
+	}
+	if useKnob1Names {
+		slots[Knob1Left] = 13
+		slots[Knob1Press] = 14
+		slots[Knob1Right] = 15
+	} else {
+		slots[KnobLeft] = 13
+		slots[KnobPress] = 14
+		slots[KnobRight] = 15
+	}
+	return Profile{
+		VID:          0x1189,
+		PID:          0x8890,
+		Variant:      KriomantFE,
+		ControlSlots: slots,
+	}
+}
+
+func allK8890ControlSlots() []struct {
+	control Control
+	slot    byte
+} {
+	return []struct {
+		control Control
+		slot    byte
+	}{
+		{Key1, 1},
+		{Key2, 2},
+		{Key3, 3},
+		{Key4, 4},
+		{Key5, 5},
+		{Key6, 6},
+		{Key7, 7},
+		{Key8, 8},
+		{Key9, 9},
+		{Key10, 10},
+		{Key11, 11},
+		{Key12, 12},
+		{KnobLeft, 13},
+		{KnobPress, 14},
+		{KnobRight, 15},
+		{Knob1Left, 13},
+		{Knob1Press, 14},
+		{Knob1Right, 15},
+		{Knob2Left, 16},
+		{Knob2Press, 17},
+		{Knob2Right, 18},
+		{Knob3Left, 19},
+		{Knob3Press, 20},
+		{Knob3Right, 21},
+	}
+}
+
+func TestSingleStrokeFullK8890Controls(t *testing.T) {
+	for _, useKnob1Names := range []bool{false, true} {
+		profile := twelveKeyThreeKnobProfile(useKnob1Names)
+		for _, tt := range allK8890ControlSlots() {
+			t.Run(string(tt.control), func(t *testing.T) {
+				got, err := EncodeKeyboard(profile, tt.control, []Stroke{{Modifiers: 0x02, Usage: 0x04}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := []Report{
+					{0x03, 0xfe, 0x01, 0x01, 0x01},
+					{0x03, tt.slot, 0x11, 0x01, 0x00, 0x00, 0x00},
+					{0x03, tt.slot, 0x11, 0x01, 0x01, 0x02, 0x04},
+					{0x03, 0xaa, 0xaa},
+				}
+				assertReports(t, got, want)
+			})
+		}
+	}
+}
+
+func TestKeyboardLayers(t *testing.T) {
+	for layer := 0; layer <= 15; layer++ {
+		profile := ThreeKeyOneKnob()
+		profile.Layer = layer
+		wantLayer := byte(layer)
+		if wantLayer == 0 {
+			wantLayer = 1
+		}
+		kind := (wantLayer << 4) | 0x01
+		got, err := EncodeKeyboard(profile, Key2, []Stroke{
+			{Modifiers: 0x01, Usage: 0x04},
+			{Modifiers: 0x00, Usage: 0x05},
+		})
+		if err != nil {
+			t.Fatal(layer, err)
+		}
+		want := []Report{
+			{0x03, 0xfe, wantLayer, 0x01, 0x01},
+			{0x03, 0x02, kind, 0x02, 0x00, 0x00, 0x00},
+			{0x03, 0x02, kind, 0x02, 0x01, 0x01, 0x04},
+			{0x03, 0x02, kind, 0x02, 0x02, 0x00, 0x05},
+			{0x03, 0xaa, 0xaa},
+		}
+		assertReports(t, got, want)
+	}
+}
+
 func TestRejectInvalidProfilesAndControls(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
@@ -127,9 +292,21 @@ func TestRejectInvalidProfilesAndControls(t *testing.T) {
 		{"empty variant", func(p *Profile) { p.Variant = "" }},
 		{"A1 variant", func(p *Profile) { p.Variant = "a1" }},
 		{"unknown variant", func(p *Profile) { p.Variant = "other" }},
+		{"negative layer", func(p *Profile) { p.Layer = -1 }},
+		{"large layer", func(p *Profile) { p.Layer = 16 }},
 		{"nil controls", func(p *Profile) { p.ControlSlots = nil }},
+		{"empty controls", func(p *Profile) { p.ControlSlots = map[Control]byte{} }},
 		{"missing control", func(p *Profile) { delete(p.ControlSlots, Key2) }},
-		{"extra control", func(p *Profile) { p.ControlSlots["key4"] = 4 }},
+		{"non-contiguous key5", func(p *Profile) { p.ControlSlots[Key5] = 5 }},
+		{"extra control key13", func(p *Profile) { p.ControlSlots["key13"] = 13 }},
+		{"incomplete knob1", func(p *Profile) { delete(p.ControlSlots, KnobPress) }},
+		{"incomplete knob2", func(p *Profile) { p.ControlSlots[Knob2Left] = 16 }},
+		{"non-contiguous knob3", func(p *Profile) {
+			p.ControlSlots[Knob3Left] = 19
+			p.ControlSlots[Knob3Press] = 20
+			p.ControlSlots[Knob3Right] = 21
+		}},
+		{"duplicate knob1 alias", func(p *Profile) { p.ControlSlots[Knob1Left] = 13 }},
 		{"remapped control", func(p *Profile) { p.ControlSlots[KnobLeft] = 4 }},
 		{"duplicate slot", func(p *Profile) { p.ControlSlots[Key2] = 1 }},
 		{"zero slot", func(p *Profile) { p.ControlSlots[Key1] = 0 }},
@@ -147,7 +324,7 @@ func TestRejectInvalidProfilesAndControls(t *testing.T) {
 			}
 		})
 	}
-	for _, control := range []Control{"", "key4", "13", "knob2-left"} {
+	for _, control := range []Control{"", "key4", "key13", "13", "knob2-left", "knob3-right"} {
 		for name, encode := range bindingEncoders() {
 			got, err := encode(ThreeKeyOneKnob(), control)
 			if err == nil || got != nil {
