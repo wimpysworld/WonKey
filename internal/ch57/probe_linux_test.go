@@ -295,7 +295,8 @@ func TestProbeOutputCandidateReplies(t *testing.T) {
 		status ProbeStatus
 	}{
 		{"raw", 65, nil, 3, ProbeRawReport},
-		{"observed-short", 1, nil, 0xaa, ProbeInvalidReport},
+		{"observed-short", 1, nil, 0xaa, ProbeRawReport},
+		{"short-one-other", 1, nil, 0xab, ProbeInvalidReport},
 		{"short", 64, nil, 3, ProbeInvalidReport},
 		{"empty", 0, nil, 0, ProbeInvalidReport},
 		{"wrong-id", 65, nil, 0xaa, ProbeInvalidReport},
@@ -363,8 +364,23 @@ func TestProbeInputObservedShortReply(t *testing.T) {
 		return n, err
 	}
 	result, err := fake.run()
-	if err == nil || err.Error() != "input GET_REPORT returned 1 bytes, want 65 including report ID" || result.Status != ProbeInvalidReport || result.Count != 1 || !bytes.Equal(result.Raw, []byte{0xaa}) || len(fake.calls) != 2 {
-		t.Fatalf("Input behaviour changed: %+v, %v", result, err)
+	if err != nil || result.Status != ProbeRawReport || result.Count != 1 || !bytes.Equal(result.Raw, []byte{0xaa}) || len(fake.calls) != 2 {
+		t.Fatalf("Input 0xaa reply rejected: %+v, %v", result, err)
+	}
+
+	fake = newFakeProbe(t)
+	ioctl = fake.ops.ioctl
+	fake.ops.ioctl = func(fd int, request uintptr, transfer *usbControlTransfer) (int, error) {
+		n, err := ioctl(fd, request, transfer)
+		if len(fake.calls) == 2 {
+			*(*byte)(transfer.Data) = 0xab
+			return 1, nil
+		}
+		return n, err
+	}
+	result, err = fake.run()
+	if err == nil || err.Error() != "input GET_REPORT returned 1 bytes, want 65 including report ID" || result.Status != ProbeInvalidReport || result.Count != 1 || !bytes.Equal(result.Raw, []byte{0xab}) || len(fake.calls) != 2 {
+		t.Fatalf("Input invalid short reply accepted: %+v, %v", result, err)
 	}
 }
 

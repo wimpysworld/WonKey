@@ -7,17 +7,17 @@ This reference records reply layouts and the evidence behind the implementation.
 
 [Hardware verification](#hardware-verification) · [Reply layout](#reply-layout) · [Action layouts](#action-layouts) · [Source evidence](#evidence)
 
-See [device selection](hardware#device-selection-and-access) for descriptor requirements and [apply safety](hardware#apply-safety-and-records) for upload framing.
+See [device selection](hardware#device-selection-and-access) for descriptor requirements and [apply safety](hardware#apply-safety) for upload framing.
 
 ## Hardware verification
 
-The authentic user capture in `internal/xfkey/testdata/hardware-20260911` confirms identify/readback framing on this unit:
+The authentic user fixture in `internal/xfkey/testdata/hardware-20260911` confirms identify/readback framing on this unit:
 model `0112`, version `1014`, identifier `be077ba2`, <kbd>Enter</kbd> on press without modifiers, and RGB API mode 0 with channels `255,255,255`.
 The four report descriptors also match. Separate user-run tests confirmed upload/commit echoes and full 128-byte readback after <kbd>F13</kbd> and steady-blue changes.
 The user confirmed <kbd>F13</kbd> press/release events, steady-blue RGB, and persistence of both settings after reconnect.
 Other settings and devices remain unverified.
 All other selectable keys, including the added keyboard usages through `0x91`, and all mouse, consumer media, and multi-key actions remain hardware-unverified.
-Existing parser output and capture metadata retain the status `host-derived, hardware-unverified`.
+Existing parser output and fixture metadata retain the status `host-derived, hardware-unverified`.
 The included query fixture does not record the later upload tests.
 
 ## Reply layout
@@ -28,7 +28,7 @@ The internal parser and authentic fixtures retain the raw protocol evidence.
 
 Identify has model at offsets 2 to 3, version at 4 to 5, both big-endian, and identifier at 6 to 9.
 Readback copies `RX6[2:64]` to `C[0:62]`, `RX7[2:64]` to `C[62:124]`, and `RX8[2:6]` to `C[124:128]`.
-Saved captures retain all raw replies, including unused RX8 bytes.
+The authentic fixture retains all raw replies, including unused RX8 bytes.
 Internal parsing retains unknown RGB values, labelled `unknown`.
 
 See [lighting](usage#lighting) for public modes and [configuration fields](usage#supported-configuration-fields) for writable offsets.
@@ -47,7 +47,7 @@ The 128-byte configuration uses byte 0 as an action type. These layouts apply on
 The multi-key count stops at 115 because keys occupy bytes 5 to 119. WonKey preserves bytes 120 to 123 and RGB bytes 124 to 127.
 Only active fields change. On a type change, WonKey clears the previous active span. On a shorter same-type action, it clears retired active bytes.
 It preserves unknown bytes outside those spans. Keyboard trigger `both` can involve separate release fields, so conversion to or from another type is rejected.
-Unsupported special (`04`), macro (`06`), touch (`07`), unknown types, and malformed known actions fail closed, including RGB-only changes and restore.
+Unsupported special (`04`), macro (`06`), touch (`07`), unknown types, and malformed known actions fail closed, including RGB-only changes.
 The public command is not a raw packet writer. See [action syntax](usage#mouse-media-and-multi-key-actions).
 
 ## Evidence
@@ -65,7 +65,7 @@ Vendor executable evidence: big-endian model at VA `0046A989–0046A9A1`, versio
 RGB strings are at file offsets `000A6D46–000A6DA9`, indexed insertion at VA `00435234–00435618`, and assignment at `00436110–00436121`.
 The authentic fixture confirms queries only.
 
-Public names differ from the historical vendor interpretations retained by the internal parser and capture metadata:
+Public names differ from the historical vendor interpretations retained by the internal parser and fixture metadata:
 
 | Public mode | Stored byte | Historical vendor interpretation | Former public name |
 | --- | --- | --- | --- |
@@ -79,7 +79,7 @@ Public names differ from the historical vendor interpretations retained by the i
 | `off` | `06` | Lights off | unchanged |
 
 The public descriptions reflect user observations. The rename does not add automated hardware verification or change protocol values.
-Former names are not aliases. Existing captures retain their names and remain valid restore sources.
+Former names are not aliases.
 
 The [USB HID Usage Tables](https://www.usb.org/sites/default/files/hut1_7.pdf), section 10, define keyboard/keypad usages on page `0x07`.
 WonKey accepts the defined key usages from `0x04` through `0x91`, excluding the preceding no-event and error values.

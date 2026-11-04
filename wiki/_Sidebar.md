@@ -2,8 +2,6 @@
 
 - [Home](Home)
 - [Usage and configuration](usage)
-- [Restore saved settings](usage#restore-saved-settings)
-- [Backup storage](usage#backup-storage)
 
 ## Reference
 

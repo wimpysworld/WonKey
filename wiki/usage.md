@@ -5,27 +5,35 @@
 Build WonKey as described in the [project overview](https://github.com/wimpysworld/WonKey/blob/main/README.md#get-started).
 Run command examples from the project root. Device examples are instructions, not permission to access hardware.
 
-[Read settings](#read-settings) · [Set the key](#set-the-key) · [Mouse, media, and multi-key actions](#mouse-media-and-multi-key-actions) · [Lighting](#lighting) · [Restore](#restore-saved-settings) · [Confirmation](#selection-and-confirmation) · [Backups](#backup-storage)
+[Read settings](#read-settings) · [Set the key](#set-the-key) · [Mouse, media, and multi-key actions](#mouse-media-and-multi-key-actions) · [Lighting](#lighting) · [Confirmation](#selection-and-confirmation)
 
-Changes require a terminal, a preview, and [confirmation](#selection-and-confirmation).
-WonKey validates a new durable backup before each settings upload.
+Changes require an XFKEY One Key Max (`0112`), a terminal, a preview, and [confirmation](#selection-and-confirmation).
+WonKey verifies all 128 configuration bytes in memory after each settings upload.
 
 ## Read settings
 
 ```sh
 ./wonkey key
+./wonkey key --report output
 ./wonkey mouse
 ./wonkey media
 ./wonkey multi
 ./wonkey rgb
 ```
 
-`key` shows a keyboard combination and trigger, or the current typed action. `mouse`, `media`, and `multi` show the current action. `rgb` shows the mode and configured colour.
-Each command shows the physical USB path, identifier, and version. They read hardware but create no files.
-For an unsupported configuration, bare `key`, `mouse`, `media`, `multi`, and `rgb` instead show an explicit unknown layout.
+WonKey discovers compatible XFKEY One Key Max (`0112`) and CH57 (`1189:8890`) devices automatically.
+On an XFKEY One Key Max (`0112`), `key` shows a keyboard combination and trigger, or the current typed action. `mouse`, `media`, and `multi` show the current action. `rgb` shows the mode and configured colour.
+Each command shows the physical USB path, identifier, and version.
+For an unsupported `0112` configuration, bare `key`, `mouse`, `media`, `multi`, and `rgb` instead show an explicit unknown layout.
 They show the raw type at byte 0 and configuration bytes 0 to 15 as hexadecimal.
 They do not decode key, trigger, lighting, mouse, media, or multi-key fields from an unknown layout.
-This read-only display does not enable changes or restore. Both remain blocked before backup or upload for unsupported configurations.
+This read-only display does not enable changes. Live writes remain blocked for unsupported configurations.
+
+On a selected CH57 (`1189:8890`) device, bare `key`, `mouse`, `media`, `multi`, and `rgb` run the read-only USB probe.
+By default, the probe requests Input report ID 3. On `wonkey key`, pass `--report output` to request Output report ID 3 instead.
+Stock `1189:8890` write-only firmware returns a 1-byte `0xaa` status response to `GET_REPORT`. WonKey accepts that 1-byte `0xaa` status (exit 0) alongside 65-byte report ID 3 replies.
+Live writes are not supported on `1189:8890`.
+
 Bare `wonkey`, `wonkey --help`, and help for each command show help without device access.
 
 ## Set the key
@@ -69,7 +77,7 @@ Desktop keymaps can show different symbols for function keys. Check the key name
 
 ## Mouse, media, and multi-key actions
 
-Each command changes the complete action after confirmation. Omit its action and options to read the current action without a backup.
+Each command changes the complete action on an XFKEY One Key Max (`0112`) after confirmation. Omit its action and options to read the current action.
 
 | Command | Example | Input and limits |
 |---|---|---|
@@ -114,72 +122,29 @@ RGB commands preserve the current typed action and unrelated bytes.
 | `off` | Lights off | `06` |
 
 Descriptions reflect user observations, not automated hardware verification. See [protocol evidence](protocol#evidence) for the original vendor labels.
-Old public names are not accepted. Existing captures remain compatible. WonKey has no brightness or speed option.
-
-## Restore saved settings
-
-These commands restore supported settings after selection and confirmation:
-
-```sh
-./wonkey restore
-./wonkey restore /path/to/capture-directory
-```
-
-Bare `restore` lists compatible captures from automatic storage, newest first. Captures whose supported settings already match are excluded.
-Select a capture even when the list contains only one entry. Each entry shows its settings and one short local date and time.
-Blank input, EOF, or an invalid capture selection cancels without a backup or settings write.
-If no eligible capture exists, WonKey stops without an upload.
-
-An explicit directory selects one existing capture. It can be outside automatic storage, including an old or moved capture.
-The source directory does not change where WonKey saves the new backup.
-An explicit source whose supported settings already match is a no-op.
-
-Restore copies the saved keyboard, mouse, media, or multi-key action and RGB mode and colour into the current configuration.
-It preserves unrelated current bytes, including unknown bytes that differ from the capture. It clears the old action's retired active bytes on a type change or shorter sequence.
-The preview warns when other saved bytes differ and will remain unchanged. Restore cannot recover firmware, unsupported layouts, or unknown settings changed by another application.
-Conversions to or from a keyboard action with `both` are rejected because separate release fields remain uncertain.
-
-The source requires a complete `result.json`, consistent raw replies, and the exact reconstructed configuration.
-Both source and current settings must use supported layouts. Model, version, and protocol identifier must match.
-A complete backup from a failed transaction remains eligible. Restore does not require a successful apply outcome or retention ownership.
-The authentic query fixture lacks a completion record and is not a restore source.
+Old public names are not accepted. WonKey has no brightness or speed option.
 
 ## Selection and confirmation
 
-One compatible device is selected automatically. Multiple matches require a terminal prompt with each physical path and vendor node.
+WonKey enumerates compatible XFKEY One Key Max (`0112`) and CH57 (`1189:8890`) devices together.
+One compatible device is selected automatically. Multiple matches require a terminal prompt showing each USB physical path and device node.
 A number selects only the path displayed for this command. It is not a persistent device identifier.
-Blank, invalid, out-of-range, or incomplete selection cancels without opening a HID device.
-Without a terminal, multiple-device queries and all changes are refused before HID access.
+Blank, invalid, out-of-range, or incomplete selection cancels without opening a device node.
+Without a terminal, multiple-device queries and all changes are refused before device access.
 
-Before a change, WonKey reads current settings and shows current-to-proposed values.
+Live writes are restricted to XFKEY One Key Max (`0112`). Before a change, WonKey reads current settings in memory and shows current-to-proposed values.
 <!-- markdownlint-disable-next-line MD038 -->
 At `Save settings? [Y/n]: `, press <kbd>Enter</kbd> to accept the default Yes.
 You can also enter `y` or `yes`, ignoring letter case.
-`n`, `no`, any other answer, or EOF cancels without a backup or settings write.
-There is no bypass flag. A no-op sends no settings upload or commit and creates no backup.
+`n`, `no`, any other answer, or EOF cancels without writing settings.
+There is no bypass flag. A no-op sends no settings upload or commit.
 
 After confirmation, WonKey revalidates the selected descriptors, node, physical path, identifier, and version.
-It saves, reopens, and validates a new durable backup before upload. Any settings drift after preview stops the transaction.
-This check includes unrelated bytes and drift that makes the request a no-op.
+It performs a fresh readback to check for settings drift before upload. Any settings drift after preview stops the transaction, including drift in unrelated bytes or drift that makes the request a no-op.
 
-All 128 readback bytes must match. A failure stops without retry or rollback.
+After `AF02` upload and `AF04` commit, WonKey reads back and compares all 128 configuration bytes in memory. A failure stops without retry or rollback.
 A submitted write can still complete after timeout. Stop when the tool reports uncertain state.
 Persistence after reconnect and observed key/lighting effects require separate hardware checks.
-
-## Backup storage
-
-| Environment | New backup destination |
-|---|---|
-| Absolute, non-empty `XDG_STATE_HOME` | `$XDG_STATE_HOME/wonkey/captures` |
-| Unset, empty, or relative `XDG_STATE_HOME` | `$HOME/.local/state/wonkey/captures` |
-| Fallback with unset, empty, or relative `HOME` | Storage error before upload |
-
-WonKey does not expand a literal `~` or fall back to temporary storage.
-It has no custom configuration file or storage flags. `WONKEY_CAPTURE_ROOT` and `XFKEY_CAPTURE_ROOT` have no effect.
-Existing captures stay in place. Use an explicit restore source to read one outside automatic storage.
-After a successful transaction, retention keeps the newest 10 owned backups for the model and identifier.
-Do not retry a successful write because backup cleanup reports a warning.
-See [hardware safety and records](hardware#apply-safety-and-records) for durable storage details.
 
 ## Supported configuration fields
 
@@ -193,13 +158,13 @@ See [hardware safety and records](hardware#apply-safety-and-records) for durable
 
 Byte 0 selects the action type: `00` keyboard, `01` mouse, `02` media, or `03` multi-key. Keyboard byte 3 must be `01`.
 Changes accept only validated actions and RGB modes. WonKey changes active action bytes and explicit RGB fields, and preserves other bytes.
-Unknown action types, invalid fields, and unsupported special, macro, or touch layouts fail closed for changes and restore, even for RGB-only changes.
+Unknown action types, invalid fields, and unsupported special, macro, or touch layouts fail closed for changes, even for RGB-only changes.
 For exact offsets, see [action layouts](protocol#action-layouts).
 
 ### Supported key names
 
 Each row lists names in usage order. Ranges include both ends.
-Help and previews use these canonical names. Keyboard backup names use them too.
+Help and previews use these canonical names.
 
 | Base key names | HID usage at byte 4 |
 |---|---|
@@ -234,7 +199,7 @@ The `nonus*`, `international*`, and `lang*` names identify usages without assumi
 The [USB HID Usage Tables](https://www.usb.org/sites/default/files/hut1_7.pdf), keyboard/keypad page `0x07`, define these values.
 The captured keyboard descriptor has a usage maximum of `0x91` and a logical maximum of `0xff`.
 WonKey rejects no-event, error, reserved, and out-of-range usages. Descriptor coverage does not prove hardware effects or persistence.
-See [protocol evidence](protocol#evidence) for upstream encoding and capture sources.
+See [protocol evidence](protocol#evidence) for upstream encoding and fixture sources.
 
 ## Output and options
 
@@ -242,7 +207,7 @@ Human output is not a machine-readable contract. Redirected output, `TERM=dumb`,
 True-colour terminals also show a configured RGB swatch. The swatch does not prove the observed LED colour.
 Output escapes control characters in external text.
 
-Public flags are `-h`/`--help`, `key --on`, `mouse --x`/`--y`/`--wheel`, and `multi --interval`/`--repeat`.
-Removed commands and flags, including `show`, `set`, `advanced`, `apply`, `plan`, `--json`, `--yes`, and `--dry-run`, fail before hardware access.
+Public flags are `-h`/`--help`, `key --on`, `key --report`, `mouse --x`/`--y`/`--wheel`, and `multi --interval`/`--repeat`.
+Unknown or retired commands and flags, including `show`, `set`, `advanced`, `apply`, `plan`, `--device`, `--json`, `--yes`, and `--dry-run`, fail before hardware access.
 There is one executable, `wonkey`. The developer executable, protocol commands, and helper scripts are removed.
 WonKey has no arbitrary packet sender, firmware writer, reset, or bootloader command.

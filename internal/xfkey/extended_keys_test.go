@@ -1,14 +1,11 @@
 package xfkey
 
 import (
-	"bufio"
-	"bytes"
 	"fmt"
 	"io"
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 )
 
 func supportedKeyNames() map[byte]string {
@@ -139,53 +136,6 @@ func TestKeyAliases(t *testing.T) {
 				if got := settingName(keyValues, changes["key"]); got != canonical {
 					t.Fatalf("alias display %q, want %q", got, canonical)
 				}
-			}
-		})
-	}
-}
-
-func TestSupportedKeyRestore(t *testing.T) {
-	for usage, name := range supportedKeyNames() {
-		t.Run(name, func(t *testing.T) {
-			root := publicTestCaptureRoot(t)
-			saved := newSettingsTransport()
-			saved.current = restoreTestSettings()
-			saved.current[2], saved.current[4] = 15, usage
-			directory := restoreTestSource(t, root, "20260912-123456-0000", saved)
-			current := newSettingsTransport()
-			current.current[63] ^= 1
-			original := current.current
-			identity, err := parseIdentity(current.identity)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var out bytes.Buffer
-			source, err := chooseRestore("", identity, original, bufio.NewReader(strings.NewReader("1\n")), newHuman(&out))
-			if err != nil || source == nil || source.directory != directory || source.config != saved.current {
-				t.Fatalf("restore selection=%v error=%v", source, err)
-			}
-			if !strings.Contains(out.String(), "ctrl+shift+alt+super+"+name+" (both)") {
-				t.Fatalf("missing restore key name: %s", out.String())
-			}
-			backup := settingsDir(t)
-			changes, err := restoreChanges(source.config)
-			if err != nil {
-				t.Fatal(err)
-			}
-			result, err := applySettings(current, backup, settingsTarget(), changes, true, time.Second)
-			if err != nil || !result.ReadbackVerified || len(current.packets) != 11 {
-				t.Fatalf("restore transaction=%v error=%v", result, err)
-			}
-			want := original
-			for _, offset := range []int{1, 2, 4, 124, 125, 126, 127} {
-				want[offset] = saved.current[offset]
-			}
-			if current.current != want {
-				t.Fatal("restore lost saved settings or changed current unknown bytes")
-			}
-			_, captured, err := loadCapture(backup)
-			if err != nil || captured != original {
-				t.Fatalf("backup lost pre-restore state: %v", err)
 			}
 		})
 	}

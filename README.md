@@ -8,11 +8,12 @@
 
 <p align="center">Made with 💝 for 🐧</p>
 
-Set a keyboard, relative mouse, consumer media, or multi-key action, choose RGB lighting, and restore saved settings.
+Set a keyboard, relative mouse, consumer media, or multi-key action, and choose RGB lighting.
 
-WonKey previews changes, asks for confirmation, and validates an automatic backup before it writes settings.
+WonKey previews changes, asks for confirmation, and verifies all 128 configuration bytes after each write.
 
-Supports only the verified descriptor profile for model `0112`. Keyboard actions use one base key with optional <kbd>Ctrl</kbd>, <kbd>Shift</kbd>, <kbd>Alt</kbd>, and <kbd>Super</kbd> modifiers.
+WonKey discovers compatible XFKEY One Key Max (`0112`) and CH57 (`1189:8890`) devices automatically. Live writes apply only to XFKEY One Key Max (`0112`). Bare read commands also inspect CH57 (`1189:8890`) devices through a read-only USB probe.
+Keyboard actions use one base key with optional <kbd>Ctrl</kbd>, <kbd>Shift</kbd>, <kbd>Alt</kbd>, and <kbd>Super</kbd> modifiers.
 Current source supports letters, digits, function keys, navigation, punctuation names, keypad keys, and other defined keyboard usages through `0x91`.
 See [supported key names and aliases](wiki/usage.md#supported-key-names).
 
@@ -61,11 +62,11 @@ wonkey --help
 ```
 
 Help commands do not access the device.
-Your user needs permission to access the device's vendor hidraw node. WonKey does not install permission rules.
+Your user needs permission to access the XFKEY vendor hidraw node or the CH57 USB device node. WonKey does not install permission rules.
 
 ## Make it yours
 
-Read the current settings without changing them or creating files:
+Read the current settings without changing them:
 
 ```sh
 wonkey key
@@ -74,6 +75,9 @@ wonkey media
 wonkey multi
 wonkey rgb
 ```
+
+When one compatible device is attached, WonKey selects it automatically. When multiple devices are attached, WonKey prompts you to select the USB physical path in the terminal.
+On a selected CH57 (`1189:8890`) device, bare read commands run the read-only USB probe. Use `wonkey key --report output` to request Output report ID 3 instead of Input report ID 3. Stock write-only `1189:8890` firmware returns a 1-byte `0xaa` status reply, which WonKey accepts alongside 65-byte report ID 3 replies.
 
 Set the key combination:
 
@@ -115,33 +119,24 @@ wonkey rgb off
 Omit the colour to preserve it. `cycle-slow`, `cycle-fast`, and `off` do not use a colour and reject supplied colours.
 RGB commands preserve key settings.
 
-Choose a compatible backup and restore its settings:
-
-```sh
-wonkey restore
-```
-
-Restore copies the saved keyboard, mouse, media, or multi-key action and RGB mode and colour. It preserves unrelated current configuration bytes.
-Restore does not recover firmware.
-
 ## Before you save
 
-Changes require a terminal. WonKey shows the selected device and current-to-proposed settings before it asks `Save settings? [Y/n]:`.
-Press <kbd>Enter</kbd> to save, or enter `n` to cancel. Cancellation and unchanged settings create no backup and send no settings writes.
+Changes require a terminal and an XFKEY One Key Max (`0112`). WonKey shows the selected device and current-to-proposed settings before it asks `Save settings? [Y/n]:`.
+Press <kbd>Enter</kbd> to save, or enter `n` to cancel. Cancellation and unchanged settings send no settings writes.
 
-If backup validation fails or the device state changes after the preview, WonKey stops before it writes settings.
-After a write, it compares all 128 configuration bytes. Errors stop the transaction without automatic retries or rollback.
+If the device state changes after the preview, WonKey stops before it writes settings.
+After an `AF02` upload and `AF04` commit, it reads back and compares all 128 configuration bytes in memory. Errors stop the transaction without automatic retries or rollback.
 
 ## Compatibility
 
-WonKey checks exact device descriptors as well as the model. It rejects unsupported special, macro, touch, and unknown layouts.
+WonKey checks exact device descriptors for XFKEY One Key Max (`af88:6688`, model `0112`) and CH57 (`1189:8890`). For `0112`, it rejects unsupported special, macro, touch, and unknown layouts. CH57 (`1189:8890`) supports read-only USB inspection only; live writes are refused.
 The `key` names `mute`, `volumeup`, and `volumedown` use keyboard-page usages. The `media` command uses consumer-page usages. Right-hand modifiers are unsupported.
 
-Hardware checks on one unit confirmed <kbd>F13</kbd> press/release events, steady-blue lighting, and persistence of both settings after reconnect.
+Hardware checks on one `0112` unit confirmed <kbd>F13</kbd> press/release events, steady-blue lighting, and persistence of both settings after reconnect.
 All other selectable keys and the new mouse, media, and multi-key actions remain hardware-unverified. Descriptor coverage does not prove firmware execution.
 Other devices and descriptor profiles remain unsupported.
 Configuration readback alone does not prove physical effects or persistence.
 
 ## Documentation
 
-See the [Wiki](wiki/README.md) for all options, backup storage, hardware guidance, and development documentation.
+See the [Wiki](wiki/README.md) for all options, hardware guidance, and development documentation.

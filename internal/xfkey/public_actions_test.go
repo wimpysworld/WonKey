@@ -174,10 +174,10 @@ func TestPublicActionQueries(t *testing.T) {
 	}
 }
 
-func publicActionTestAccess(t *testing.T, first *settingsTransport, apply func(Candidate, string, ApplyTarget, configurationChanges, func(configuration, configuration, string) (bool, error)) (ApplyResult, error)) publicAccess {
+func publicActionTestAccess(t *testing.T, first *settingsTransport, apply func(Candidate, ApplyTarget, configurationChanges, func(configuration, configuration) (bool, error)) (ApplyResult, error)) publicAccess {
 	t.Helper()
 	if apply == nil {
-		apply = func(Candidate, string, ApplyTarget, configurationChanges, func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
+		apply = func(Candidate, ApplyTarget, configurationChanges, func(configuration, configuration) (bool, error)) (ApplyResult, error) {
 			t.Fatal("unexpected apply")
 			return ApplyResult{}, nil
 		}
@@ -196,9 +196,8 @@ func publicActionTestAccess(t *testing.T, first *settingsTransport, apply func(C
 
 func TestPublicActionWorkflow(t *testing.T) {
 	for _, args := range [][]string{{"mouse", "none"}, {"mouse", "left+right", "--x=-127", "--y=127", "--wheel=-1"}, {"media", "bookmarks"}, {"multi", "lang2,f13,a", "--interval=65535", "--repeat=255"}} {
-		for _, state := range []string{"save", "cancel", "eof", "nonterminal", "no-op", "drift", "became-no-op", "backup-failed", "upload-echo", "commit-echo", "deadline", "readback"} {
+		for _, state := range []string{"save", "cancel", "eof", "nonterminal", "no-op", "drift", "became-no-op", "upload-echo", "commit-echo", "deadline", "readback"} {
 			t.Run(strings.Join(args, " ")+"/"+state, func(t *testing.T) {
-				root := publicTestCaptureRoot(t)
 				first := newSettingsTransport()
 				c, err := parsePublic(args)
 				if err != nil {
@@ -212,9 +211,9 @@ func TestPublicActionWorkflow(t *testing.T) {
 				fresh.current = original
 				applied := false
 				var out bytes.Buffer
-				access := publicActionTestAccess(t, first, func(candidate Candidate, destination string, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
+				access := publicActionTestAccess(t, first, func(candidate Candidate, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration) (bool, error)) (ApplyResult, error) {
 					applied = true
-					if destination != root || target != settingsTarget() || !strings.Contains(out.String(), " -> ") || !strings.Contains(out.String(), "Save settings? [Y/n]: ") {
+					if candidate.PhysicalPath != "synthetic" || target != settingsTarget() || !strings.Contains(out.String(), " -> ") || !strings.Contains(out.String(), "Save settings? [Y/n]: ") {
 						t.Fatal("missing preview or wrong transaction target", out.String())
 					}
 					switch state {
@@ -231,17 +230,7 @@ func TestPublicActionWorkflow(t *testing.T) {
 					case "readback":
 						fresh.mismatch = true
 					}
-					dir, err := newCapture(destination, candidate)
-					if err != nil {
-						return ApplyResult{}, err
-					}
-					fresh.dir = dir
-					if state == "backup-failed" {
-						if err := saveExclusive(dir, "reply-01.bin", []byte("occupied")); err != nil {
-							t.Fatal(err)
-						}
-					}
-					return applySettingsConfirmed(fresh, dir, target, changes, true, time.Second, guard, true)
+					return applySettingsConfirmed(fresh, target, changes, true, time.Second, guard, true)
 				})
 				input := "\n"
 				if state == "cancel" {
@@ -261,23 +250,13 @@ func TestPublicActionWorkflow(t *testing.T) {
 					t.Fatalf("error=%v applied=%t output=%s", err, applied, out.String())
 				}
 				checkNoUpload(t, first)
-				if noApply || state == "drift" || state == "became-no-op" || state == "backup-failed" {
+				if noApply || state == "drift" || state == "became-no-op" {
 					checkNoUpload(t, fresh.settingsTransport)
-				}
-				if noApply {
-					entries, err := os.ReadDir(root)
-					if err != nil || len(entries) != 0 {
-						t.Fatal("created backup without approval", entries, err)
-					}
 				}
 				if state == "save" {
 					want, err := (ActionChanges{Action: c.action}).configuration(original)
 					if err != nil || fresh.current != want || !fresh.checked || len(fresh.packets) != 11 || !strings.Contains(out.String(), "Settings saved. All 128 readback bytes match.") {
-						t.Fatal("wrong saved configuration or missing durable backup", err, out.String())
-					}
-					_, backup, err := loadCapture(fresh.dir)
-					if err != nil || backup != original {
-						t.Fatal("backup does not match original", err)
+						t.Fatal("wrong saved configuration or missing fresh query", err, out.String())
 					}
 				}
 			})
@@ -289,19 +268,13 @@ func TestPublicTypedLayoutReplacement(t *testing.T) {
 	for _, action := range actionExamples()[1:] {
 		for _, args := range [][]string{{"key", "ctrl+f13"}, {"key", "f13", "--on=release"}, {"rgb", "off"}, {"rgb", "static", "123456"}} {
 			t.Run(fmt.Sprintf("%T/%s", action, strings.Join(args, " ")), func(t *testing.T) {
-				publicTestCaptureRoot(t)
 				first := newSettingsTransport()
 				first.current = actionConfiguration(t, action)
 				original := first.current
 				fresh := &backupCheckingTransport{settingsTransport: newSettingsTransport()}
 				fresh.current = original
-				access := publicActionTestAccess(t, first, func(candidate Candidate, root string, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
-					dir, err := newCapture(root, candidate)
-					if err != nil {
-						return ApplyResult{}, err
-					}
-					fresh.dir = dir
-					return applySettingsConfirmed(fresh, dir, target, changes, true, time.Second, guard, true)
+				access := publicActionTestAccess(t, first, func(_ Candidate, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration) (bool, error)) (ApplyResult, error) {
+					return applySettingsConfirmed(fresh, target, changes, true, time.Second, guard, true)
 				})
 				var out bytes.Buffer
 				if err := runPublic(args, &cliRuntime{strings.NewReader("yes\n"), &out, io.Discard}, access); err != nil || !fresh.checked {
@@ -340,7 +313,6 @@ func TestPublicActionOutput(t *testing.T) {
 		}
 		for _, needle := range []string{"Current", "  Action", " -> ", "Save settings?"} {
 			t.Run(tc.want+"/"+needle, func(t *testing.T) {
-				root := publicTestCaptureRoot(t)
 				first := newSettingsTransport()
 				first.current = actionConfiguration(t, tc.action)
 				access := publicActionTestAccess(t, first, nil)
@@ -350,35 +322,24 @@ func TestPublicActionOutput(t *testing.T) {
 					t.Fatal("output failure was not returned", err)
 				}
 				checkNoUpload(t, first)
-				entries, err := os.ReadDir(root)
-				if err != nil || len(entries) != 0 {
-					t.Fatal("output failure created a backup", err)
-				}
 			})
 		}
 	}
 }
 
-func TestPublicTypedRestoreWithoutSourcesAndAmbiguousTrigger(t *testing.T) {
+func TestPublicTypedAmbiguousTrigger(t *testing.T) {
 	for _, action := range actionExamples()[1:] {
-		for _, args := range [][]string{{"restore"}, {"restore", "absent-source"}, {"key", "f13", "--on=both"}} {
-			t.Run(fmt.Sprintf("%T/%v", action, args), func(t *testing.T) {
-				root := publicTestCaptureRoot(t)
-				first := newSettingsTransport()
-				first.current = actionConfiguration(t, action)
-				access := publicActionTestAccess(t, first, nil)
-				input := strings.NewReader("yes\n")
-				err := runPublic(args, &cliRuntime{input, io.Discard, io.Discard}, access)
-				if (err != nil) != (len(args) > 1) || input.Len() != len("yes\n") {
-					t.Fatal("missing source or ambiguous conversion reached confirmation", err)
-				}
-				checkNoUpload(t, first)
-				entries, err := os.ReadDir(root)
-				if err != nil || len(entries) != 0 {
-					t.Fatal("blocked action created a backup", err)
-				}
-			})
-		}
+		t.Run(fmt.Sprintf("%T", action), func(t *testing.T) {
+			first := newSettingsTransport()
+			first.current = actionConfiguration(t, action)
+			access := publicActionTestAccess(t, first, nil)
+			input := strings.NewReader("yes\n")
+			err := runPublic([]string{"key", "f13", "--on=both"}, &cliRuntime{input, io.Discard, io.Discard}, access)
+			if err == nil || input.Len() != len("yes\n") {
+				t.Fatal("ambiguous conversion reached confirmation", err)
+			}
+			checkNoUpload(t, first)
+		})
 	}
 }
 

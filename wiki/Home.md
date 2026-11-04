@@ -1,7 +1,7 @@
 # WonKey documentation
 
-WonKey configures the key combination and RGB lighting of the One Key Max on Linux.
-It saves a backup before each change and restores saved settings through the same checks.
+WonKey configures the XFKEY One Key Max (`0112`) and inspects CH57 (`1189:8890`) devices on Linux.
+For XFKEY One Key Max writes, it previews changes, asks for confirmation, and verifies all 128 configuration bytes in memory after each write.
 
 [Build WonKey](https://github.com/wimpysworld/WonKey/blob/main/README.md#get-started), then [read the current settings](usage#read-settings).
 Read [device access requirements](hardware#device-selection-and-access) before a hardware command.
@@ -10,20 +10,19 @@ Read [device access requirements](hardware#device-selection-and-access) before a
 
 | Task | Guide |
 |---|---|
-| Assign `enter`, `a` to `z`, `0` to `9`, or `f1` to `f24` with modifiers and a trigger | [Set the key](usage#set-the-key) |
+| Inspect settings or probe a device | [Read settings](usage#read-settings) |
+| Assign a key with modifiers and a trigger | [Set the key](usage#set-the-key) |
+| Set a mouse, consumer media, or multi-key action | [Mouse, media, and multi-key actions](usage#mouse-media-and-multi-key-actions) |
 | Choose an RGB mode and colour | [Lighting](usage#lighting) |
-| Restore settings from an automatic backup or a moved capture | [Restore saved settings](usage#restore-saved-settings) |
-| Review and confirm a change | [Selection and confirmation](usage#selection-and-confirmation) |
-| Find automatic backups | [Backup storage](usage#backup-storage) |
+| Select a device and confirm a change | [Selection and confirmation](usage#selection-and-confirmation) |
 
-The [usage guide](usage) covers command syntax and supported settings.
-Bare `key` and `rgb` read settings without saved captures. Changes require terminal confirmation.
-Restore preserves unrelated current bytes. A settings capture is not a firmware backup.
+The [usage guide](usage) covers command syntax, unified device discovery, and supported settings.
+Bare `key`, `mouse`, `media`, `multi`, and `rgb` read settings without modifying the device. Live changes apply only to XFKEY One Key Max (`0112`) and require terminal confirmation.
 
 ## Hardware and development
 
 | Page | Use it to |
 |---|---|
-| [Hardware operations and safety](hardware) | Check compatibility, restore sources, hardware effects, and transaction records. |
+| [Hardware operations and safety](hardware) | Check device discovery, compatibility, hardware effects, and guarded write verification. |
 | [Protocol and evidence](protocol) | Read packet layouts, hardware test results, and pinned source evidence. |
 | [Development](development) | Find offline checks, architecture notes, and fixture requirements. |

@@ -3,8 +3,6 @@ package xfkey
 import (
 	"encoding/hex"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -127,17 +125,6 @@ func parseSettings(key, trigger, modifiers, lighting, colour string) (Changes, e
 		return nil, err
 	}
 	return changes, nil
-}
-
-func resolveCaptureRoot() (string, error) {
-	if state := os.Getenv("XDG_STATE_HOME"); filepath.IsAbs(state) {
-		return filepath.Join(state, "wonkey", "captures"), nil
-	}
-	home := os.Getenv("HOME")
-	if !filepath.IsAbs(home) {
-		return "", fmt.Errorf("backup storage requires an absolute HOME when XDG_STATE_HOME is not absolute")
-	}
-	return filepath.Join(home, ".local", "state", "wonkey", "captures"), nil
 }
 
 func settingName(values map[string]int, value int) string {

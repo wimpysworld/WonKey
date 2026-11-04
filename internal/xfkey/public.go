@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strconv"
 	"strings"
 	"wonkey/internal/ch57"
@@ -21,7 +22,6 @@ Commands:
   media [ACTION]      Read or change the media action.
   multi [KEY,...]     Read or change the key sequence.
   rgb [MODE [RGB]]    Read or change the RGB.
-  restore [DIRECTORY] Restore saved action and RGB settings.
 
 Options:
   -h, --help          Show help without device access.
@@ -37,7 +37,7 @@ Run "wonkey <command> --help" for values and options.
 `
 
 const keyHelp = `Usage: wonkey key [COMBINATION] [--on WHEN]
-       wonkey key --device 1189:8890 [--report output]
+       wonkey key [--report output]
 
 Without a combination, read the current key. Create no files.
 A combination contains exactly one base key from the names below.
@@ -69,9 +69,7 @@ Added keys fit the captured descriptor but remain hardware-unverified.
 
 Options:
   --on WHEN     press, release or both. Requires a key combination.
-  --device 1189:8890  Read-only raw input probe. No combination or --on.
-                     Raw input is not decoded settings. Create no files.
-  --report output    Read Output report ID 3 instead of Input. Requires --device.
+  --report output    Read Output report ID 3 instead of Input on 1189:8890. Bare key only.
                      GET_REPORT is control IN. Raw bytes are not decoded settings.
   -h, --help    Show help without device access.
 
@@ -82,7 +80,6 @@ Examples:
   wonkey key f13 --on release
 
 At [Y/n], Enter accepts. No or EOF cancels.
-WonKey saves and validates a fresh backup before writing.
 `
 
 const rgbHelp = `Usage: wonkey rgb [MODE [RGB]]
@@ -111,7 +108,6 @@ Examples:
   wonkey rgb off
 
 At [Y/n], Enter accepts. No or EOF cancels.
-WonKey saves and validates a fresh backup before writing.
 `
 
 const mouseHelp = `Usage: wonkey mouse [BUTTONS] [--x N] [--y N] [--wheel N]
@@ -123,7 +119,6 @@ Use wheelup or wheeldown alone for one wheel tick. Do not combine with --wheel.
 X, Y and wheel accept -127..127. Omitted values are zero.
 
 At [Y/n], Enter accepts. No or EOF cancels.
-WonKey saves and validates a fresh backup before writing.
 `
 
 const mediaHelp = `Usage: wonkey media [ACTION|0xHHHH]
@@ -136,7 +131,6 @@ Names ignore case:
 Raw usages need exactly four hexadecimal digits and must be 0x0001..0x023c.
 
 At [Y/n], Enter accepts. No or EOF cancels.
-WonKey saves and validates a fresh backup before writing.
 `
 
 const multiHelp = `Usage: wonkey multi [KEY[,KEY...]] [--interval MS] [--repeat COUNT]
@@ -148,13 +142,10 @@ Modifiers and raw usage numbers are unsupported.
 --repeat accepts 1..255 repetitions (default: 1).
 
 At [Y/n], Enter accepts. No or EOF cancels.
-WonKey saves and validates a fresh backup before writing.
 `
 
 type publicCommand struct {
 	name    string
-	source  string
-	device  string
 	report  string
 	changes Changes
 	action  Action
@@ -176,9 +167,9 @@ func parsePublic(args []string) (publicCommand, error) {
 	}
 	c.name = args[0]
 	switch c.name {
-	case "key", "mouse", "media", "multi", "rgb", "restore":
+	case "key", "mouse", "media", "multi", "rgb":
 	default:
-		return c, fmt.Errorf("unknown command %q; use key, mouse, media, multi, rgb or restore", c.name)
+		return c, fmt.Errorf("unknown command %q; use key, mouse, media, multi or rgb", c.name)
 	}
 	var positional []string
 	options := map[string]int{}
@@ -190,12 +181,6 @@ func parsePublic(args []string) (publicCommand, error) {
 		switch {
 		case arg == "--help" || arg == "-h":
 			c.help = true
-		case arg == "--device" || strings.HasPrefix(arg, "--device="):
-			var err error
-			args, err = c.parseDeviceOption(arg, args)
-			if err != nil {
-				return c, err
-			}
 		case arg == "--report" || strings.HasPrefix(arg, "--report="):
 			var err error
 			args, err = c.parseReportOption(arg, args)
@@ -233,11 +218,8 @@ func parsePublic(args []string) (publicCommand, error) {
 }
 
 func (c publicCommand) parsePositionals(positional []string, options map[string]int, on string, seenOn bool) (publicCommand, error) {
-	if c.report != "" && c.device == "" {
-		return c, fmt.Errorf("--report requires --device 1189:8890")
-	}
-	if c.device != "" && (len(positional) != 0 || seenOn) {
-		return c, fmt.Errorf("--device requires a bare key query without a combination or action options")
+	if c.report != "" && (len(positional) != 0 || seenOn) {
+		return c, fmt.Errorf("--report requires a bare key query without a combination or action options")
 	}
 	if len(positional) == 0 {
 		if seenOn {
@@ -252,24 +234,6 @@ func (c publicCommand) parsePositionals(positional []string, options map[string]
 		return c.parseAction(positional, options)
 	}
 	return c.parseValues(positional, on)
-}
-
-func (c *publicCommand) parseDeviceOption(arg string, args []string) ([]string, error) {
-	if c.name != "key" || c.device != "" {
-		return args, fmt.Errorf("--device is accepted once, for bare key queries only")
-	}
-	value := strings.TrimPrefix(arg, "--device=")
-	if arg == "--device" {
-		if len(args) == 0 {
-			return args, fmt.Errorf("--device needs 1189:8890")
-		}
-		value, args = args[0], args[1:]
-	}
-	if value != "1189:8890" {
-		return args, fmt.Errorf("--device accepts only 1189:8890")
-	}
-	c.device = value
-	return args, nil
 }
 
 func (c *publicCommand) parseReportOption(arg string, args []string) ([]string, error) {
@@ -382,16 +346,6 @@ func (c publicCommand) parseAction(positional []string, options map[string]int) 
 }
 
 func (c publicCommand) parseValues(positional []string, on string) (publicCommand, error) {
-	if c.name == "restore" {
-		if len(positional) != 1 {
-			return c, fmt.Errorf("restore accepts one optional capture directory")
-		}
-		if positional[0] == "" {
-			return c, fmt.Errorf("restore source directory must not be empty")
-		}
-		c.source = positional[0]
-		return c, nil
-	}
 	var err error
 	if c.name == "key" {
 		if len(positional) != 1 {
@@ -444,19 +398,24 @@ type publicAccess struct {
 	probeCH57Output func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error)
 	discover        func() ([]Candidate, error)
 	query           func(Candidate) (CaptureResult, error)
-	apply           func(Candidate, string, ApplyTarget, configurationChanges, func(configuration, configuration, string) (bool, error)) (ApplyResult, error)
+	apply           func(Candidate, ApplyTarget, configurationChanges, func(configuration, configuration) (bool, error)) (ApplyResult, error)
 	interactive     func(io.Reader) bool
 }
 
 func publicDeviceAccess() publicAccess {
 	return publicAccess{
-		discoverCH57:    ch57.DiscoverCandidates,
+		discoverCH57: func(sysRoot string) ([]ch57.DiscoveredCandidate, error) {
+			if reflect.ValueOf(liveDiscover).Pointer() != reflect.ValueOf(discover).Pointer() {
+				return nil, nil
+			}
+			return ch57.DiscoverCandidates(sysRoot)
+		},
 		probeCH57:       ch57.ProbeCandidate,
 		probeCH57Output: ch57.ProbeOutputCandidate,
 		discover:        func() ([]Candidate, error) { return liveDiscover("/sys/bus/usb/devices", "/dev") },
 		query:           func(selected Candidate) (CaptureResult, error) { return querySelected(selected, true) },
-		apply: func(selected Candidate, root string, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
-			return liveApplyBound(selected.PhysicalPath, root, target, changes, true, guard, &selected, true)
+		apply: func(selected Candidate, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration) (bool, error)) (ApplyResult, error) {
+			return liveApplyBound(selected.PhysicalPath, target, changes, true, guard, &selected, true)
 		},
 		interactive: readerInteractive,
 	}
@@ -491,9 +450,6 @@ func runPublic(args []string, rt *cliRuntime, access publicAccess) error {
 			}
 			if c.name == "rgb" {
 				text = rgbHelp
-			}
-			if c.name == "restore" {
-				text = restoreHelp
 			}
 			switch c.name {
 			case "mouse":
@@ -555,25 +511,56 @@ func choosePublic(candidates []Candidate, input *bufio.Reader, h human, interact
 
 func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 	interactive := access.interactive(rt.in)
-	if (len(c.changes) > 0 || c.action != nil || c.name == "restore") && !interactive {
+	if (len(c.changes) > 0 || c.action != nil) && !interactive {
 		return fmt.Errorf("changes require an interactive terminal; no device access")
 	}
 	input := bufio.NewReader(rt.in)
 	h := newHuman(rt.out)
-	if c.device != "" {
-		return c.runCH57Query(input, h, interactive, access)
+	const sysRoot, devRoot = "/sys/bus/usb/devices", "/dev/bus/usb"
+	var candidates []Candidate
+	if access.discover != nil {
+		var err error
+		candidates, err = access.discover()
+		if err != nil {
+			return err
+		}
 	}
-	candidates, err := access.discover()
-	if err != nil {
-		return err
+	var chCandidates []ch57.DiscoveredCandidate
+	if access.discoverCH57 != nil {
+		var err error
+		chCandidates, err = access.discoverCH57(sysRoot)
+		if err != nil {
+			return err
+		}
+	}
+	byCH57Path := make(map[string]ch57.DiscoveredCandidate, len(chCandidates))
+	for _, candidate := range chCandidates {
+		candidates = append(candidates, Candidate{
+			PhysicalPath: candidate.PhysicalPath, Compatible: true,
+			VendorNode: NodeMetadata{Path: fmt.Sprintf("%s/%03d/%03d", devRoot, candidate.BusNumber, candidate.DeviceNumber)},
+		})
+		byCH57Path[candidate.PhysicalPath] = candidate
 	}
 	selected, err := choosePublic(candidates, input, h, interactive)
 	if err != nil {
 		return err
 	}
 	if selected == nil {
-		h.line("", "Cancelled. No HID device opened.")
+		if len(chCandidates) > 0 && len(candidates) == len(chCandidates) {
+			h.line("", "Cancelled. No USB device opened.")
+		} else {
+			h.line("", "Cancelled. No HID device opened.")
+		}
 		return h.out.err
+	}
+	if chCandidate, ok := byCH57Path[selected.PhysicalPath]; ok {
+		if len(c.changes) > 0 || c.action != nil {
+			return fmt.Errorf("live writes are not supported for 1189:8890; no settings write sent")
+		}
+		return c.runCH57Selected(chCandidate, h, access)
+	}
+	if c.report != "" {
+		return fmt.Errorf("--report output applies to 1189:8890 only; no HID device opened")
 	}
 	observed, err := access.query(*selected)
 	if err != nil {
@@ -592,32 +579,8 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 	return c.runObserved(observed, *selected, target, input, h, access)
 }
 
-func (c publicCommand) runCH57Query(input *bufio.Reader, h human, interactive bool, access publicAccess) error {
+func (c publicCommand) runCH57Selected(selected ch57.DiscoveredCandidate, h human, access publicAccess) error {
 	const sysRoot, devRoot = "/sys/bus/usb/devices", "/dev/bus/usb"
-	candidates, err := access.discoverCH57(sysRoot)
-	if err != nil {
-		return err
-	}
-	if len(candidates) == 0 {
-		return fmt.Errorf("no exact 1189:8890 descriptor candidate found; no USB device opened")
-	}
-	choices := make([]Candidate, 0, len(candidates))
-	byPath := make(map[string]ch57.DiscoveredCandidate, len(candidates))
-	for _, candidate := range candidates {
-		choices = append(choices, Candidate{
-			PhysicalPath: candidate.PhysicalPath, Compatible: true,
-			VendorNode: NodeMetadata{Path: fmt.Sprintf("%s/%03d/%03d", devRoot, candidate.BusNumber, candidate.DeviceNumber)},
-		})
-		byPath[candidate.PhysicalPath] = candidate
-	}
-	selected, err := choosePublic(choices, input, h, interactive)
-	if err != nil {
-		return err
-	}
-	if selected == nil {
-		h.line("", "Cancelled. No USB device opened.")
-		return h.out.err
-	}
 	report, label, probe := "input", "Input", access.probeCH57
 	if c.report == "output" {
 		report, label, probe = "output", "Output", access.probeCH57Output
@@ -631,7 +594,7 @@ func (c publicCommand) runCH57Query(input *bufio.Reader, h human, interactive bo
 	if h.out.err != nil {
 		return h.out.err
 	}
-	result, err := probe(sysRoot, devRoot, byPath[selected.PhysicalPath])
+	result, err := probe(sysRoot, devRoot, selected)
 	h.field("Status", string(result.Status))
 	if result.ReportDescriptor != nil || result.ReportDescriptorCount != 0 {
 		h.field("Descriptor bytes", strconv.Itoa(result.ReportDescriptorCount))
@@ -646,11 +609,7 @@ func (c publicCommand) runCH57Query(input *bufio.Reader, h human, interactive bo
 }
 
 func (c publicCommand) showCurrentSettings(current configuration, selected Candidate, target ApplyTarget, h human) {
-	heading := "Current " + c.name
-	if c.name == "restore" {
-		heading = "Current settings"
-	}
-	h.heading(heading)
+	h.heading("Current " + c.name)
 	h.field("Device", "One Key Max 0112")
 	h.field("USB path", selected.PhysicalPath)
 	h.field("Identifier", target.Identifier)
@@ -659,7 +618,7 @@ func (c publicCommand) showCurrentSettings(current configuration, selected Candi
 		h.field("Layout", "Unknown (unsupported configuration)")
 		h.field("Raw type", fmt.Sprintf("0x%02x (byte 0)", current[0]))
 		h.field("Raw 0-15", hex.EncodeToString(current[:16]))
-		h.line("33", "Fields are not decoded. Changes and restore are blocked.")
+		h.line("33", "Fields are not decoded. Changes are blocked.")
 		return
 	}
 	if c.name != "rgb" {
@@ -675,7 +634,7 @@ func (c publicCommand) showCurrentSettings(current configuration, selected Candi
 			h.field("Action", actionDescription(action))
 		}
 	}
-	if c.name == "rgb" || c.name == "restore" {
+	if c.name == "rgb" {
 		h.field("Mode", settingName(lightingValues, int(current[124])-1))
 		fmt.Fprintf(h.out, "  %-10s %s\n", "Colour", h.rgb(fmt.Sprintf("#%02X%02X%02X", current[125], current[126], current[127])))
 	}
@@ -718,7 +677,7 @@ func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, t
 		return fmt.Errorf("device settings need exactly 128 bytes")
 	}
 	copy(current[:], raw)
-	if c.name != "restore" && len(c.changes) == 0 && c.action == nil {
+	if len(c.changes) == 0 && c.action == nil {
 		c.showCurrentSettings(current, selected, target, h)
 		return h.out.err
 	}
@@ -730,30 +689,6 @@ func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, t
 		return h.out.err
 	}
 	changes := c.configurationChanges(current)
-	if c.name == "restore" {
-		source, err := chooseRestore(c.source, observed.Identity, current, input, h)
-		if err != nil {
-			return err
-		}
-		if source == nil {
-			return nil
-		}
-		if c.source != "" {
-			h.field("Source", source.directory)
-		}
-		h.line("", "Restore saved action and RGB settings. Keep all other current bytes.")
-		changes, err = restoreChanges(source.config)
-		if err != nil {
-			return err
-		}
-		restored, err := changes.configuration(current)
-		if err != nil {
-			return err
-		}
-		if source.hasDifferentPreservedBytes(current, restored) {
-			h.line("33", "Other saved bytes differ. Those current bytes will remain unchanged.")
-		}
-	}
 	intended, err := changes.configuration(current)
 	if err != nil {
 		return err
@@ -776,21 +711,14 @@ func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, t
 		h.line("", "Cancelled. No settings write sent.")
 		return h.out.err
 	}
-	root, err := resolveCaptureRoot()
-	if err != nil {
-		return err
-	}
-	guard := func(fresh, proposed configuration, _ string) (bool, error) {
+	guard := func(fresh, proposed configuration) (bool, error) {
 		if fresh != current || proposed != intended {
 			return false, fmt.Errorf("settings changed after preview; no settings write sent")
 		}
 		return true, nil
 	}
-	result, err := access.apply(selected, root, target, changes, guard)
+	result, err := access.apply(selected, target, changes, guard)
 	if err != nil {
-		if result.Directory != "" {
-			h.field("Records", result.Directory)
-		}
 		if result.WriteAttempted {
 			h.line("31", "Device state uncertain. A submitted write can still complete.")
 		} else {
@@ -803,9 +731,6 @@ func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, t
 		h.line("32", "Settings saved. All 128 readback bytes match.")
 	} else {
 		h.line("", "No settings write sent.")
-	}
-	if result.CleanupWarning != "" {
-		h.line("33", "Warning: "+result.CleanupWarning+". Do not retry a successful write.")
 	}
 	return h.out.err
 }

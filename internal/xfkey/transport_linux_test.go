@@ -77,14 +77,9 @@ func validReplies() [][]byte {
 	return [][]byte{identify, syntheticReply(6), syntheticReply(7), syntheticReply(8)}
 }
 
-func TestCaptureSequenceAndExclusiveFiles(t *testing.T) {
-	root := t.TempDir()
-	dir, err := newCapture(root, Candidate{PhysicalPath: "synthetic"})
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestQueryCaptureSequence(t *testing.T) {
 	f := &fakeTransport{replies: validReplies()}
-	result, err := captureQueries(f, dir, true)
+	q, err := queryCapture(f, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,32 +91,13 @@ func TestCaptureSequenceAndExclusiveFiles(t *testing.T) {
 			t.Fatal("transaction must share one deadline")
 		}
 	}
-	if result.Readback == nil {
+	if q.result.Readback == nil || len(q.config) != 128 {
 		t.Fatal("missing readback")
 	}
-	for _, name := range []string{"reply-01.bin", "reply-06.bin", "reply-07.bin", "reply-08.bin", "configuration.bin"} {
-		data, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil {
-			t.Fatal(err)
+	for _, cmd := range []byte{1, 6, 7, 8} {
+		if len(q.replies[cmd]) != 64 {
+			t.Fatal(cmd, len(q.replies[cmd]))
 		}
-		want := 64
-		if name == "configuration.bin" {
-			want = 128
-		}
-		if len(data) != want {
-			t.Fatal(name, len(data))
-		}
-		if err := saveExclusive(dir, name, []byte("overwrite")); !errors.Is(err, os.ErrExist) {
-			t.Fatal(err)
-		}
-		after, _ := os.ReadFile(filepath.Join(dir, name))
-		if !bytes.Equal(data, after) {
-			t.Fatal("capture changed")
-		}
-	}
-	second, err := newCapture(root, Candidate{})
-	if err != nil || second == dir {
-		t.Fatal(second, err)
 	}
 }
 
@@ -143,22 +119,18 @@ func TestCaptureStopsOnBadReplies(t *testing.T) {
 				case "timeout":
 					f.failWait = index*2 + 2
 				}
-				dir := t.TempDir()
-				if _, err := captureQueries(f, dir, true); err == nil {
+				if _, err := queryCapture(f, true); err == nil {
 					t.Fatal("accepted invalid reply")
 				}
 				if len(f.commands) != index+1 {
 					t.Fatal("continued after failure", f.commands)
-				}
-				if _, err := os.Stat(filepath.Join(dir, "result.json")); !errors.Is(err, os.ErrNotExist) {
-					t.Fatal("failed capture marked complete")
 				}
 			})
 		}
 	}
 	f := &fakeTransport{replies: validReplies()}
 	f.replies[0][2], f.replies[0][3] = 0x12, 1
-	if _, err := captureQueries(f, t.TempDir(), true); err == nil || len(f.commands) != 1 {
+	if _, err := queryCapture(f, true); err == nil || len(f.commands) != 1 {
 		t.Fatal("model gate failed")
 	}
 }
@@ -183,7 +155,7 @@ func TestQueryFailurePaths(t *testing.T) {
 		}
 	}
 	f := &fakeTransport{replies: validReplies()}
-	if _, err := captureQueries(f, t.TempDir(), false); err != nil || !reflect.DeepEqual(f.commands, []byte{1}) {
+	if _, err := queryCapture(f, false); err != nil || !reflect.DeepEqual(f.commands, []byte{1}) {
 		t.Fatal(f.commands, err)
 	}
 }

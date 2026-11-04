@@ -320,6 +320,10 @@ func (ops probeOps) probeReport(sysRoot, devRoot string, candidate DiscoveredCan
 		return result, fmt.Errorf("%s GET_REPORT: %w", report, err)
 	}
 	result.Status = ProbeInvalidReport
+	if count == 1 && data[0] == 0xaa {
+		result.Status = ProbeRawReport
+		return result, nil
+	}
 	if count != 65 {
 		return result, fmt.Errorf("%s GET_REPORT returned %d bytes, want 65 including report ID", report, count)
 	}
