@@ -131,6 +131,18 @@ func knob1Alias(control Control) (Control, bool) {
 	}
 }
 
+func (p Profile) hasLimitedMultiStrokeModifiers() bool {
+	if len(p.ControlSlots) != 6 {
+		return false
+	}
+	for _, slot := range p.ControlSlots {
+		if (slot < 1 || slot > 3) && (slot < 13 || slot > 15) {
+			return false
+		}
+	}
+	return true
+}
+
 func (p Profile) validate() error {
 	if p.Variant != KriomantFE {
 		return fmt.Errorf("unsupported CH57 variant %q", p.Variant)
