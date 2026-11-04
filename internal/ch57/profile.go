@@ -1,7 +1,7 @@
-// Package trisat encodes offline reports for an explicitly selected device profile.
-// TriSat is a working family label, not a verified USB manufacturer identity.
+// Package ch57 encodes offline reports for an explicitly selected device profile.
+// CH57 is a working family label, not a verified USB manufacturer identity.
 // The reports have no hardware validation and do not authorise live writes.
-package trisat
+package ch57
 
 import (
 	"fmt"
@@ -55,18 +55,18 @@ func (p Profile) slot(control Control) (byte, error) {
 	}
 	slot, ok := p.ControlSlots[control]
 	if !ok {
-		return 0, fmt.Errorf("unsupported TriSat control %q", control)
+		return 0, fmt.Errorf("unsupported CH57 control %q", control)
 	}
 	return slot, nil
 }
 
 func (p Profile) validate() error {
 	if p.Variant != KriomantFE {
-		return fmt.Errorf("unsupported TriSat variant %q", p.Variant)
+		return fmt.Errorf("unsupported CH57 variant %q", p.Variant)
 	}
 	known := ThreeKeyOneKnob()
 	if p.VID != known.VID || p.PID != known.PID || !maps.Equal(p.ControlSlots, known.ControlSlots) {
-		return fmt.Errorf("unsupported TriSat profile %04x:%04x or control slots", p.VID, p.PID)
+		return fmt.Errorf("unsupported CH57 profile %04x:%04x or control slots", p.VID, p.PID)
 	}
 	return nil
 }

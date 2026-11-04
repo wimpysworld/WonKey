@@ -1,4 +1,4 @@
-package trisat
+package ch57
 
 import (
 	"maps"

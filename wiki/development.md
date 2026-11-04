@@ -3,7 +3,7 @@
 [Wiki home](Home) · [Protocol and evidence](protocol)
 
 WonKey has one executable with three commands: `key`, `rgb`, and `restore`.
-`cmd/wonkey` handles process entry and exit. CLI, protocol, Linux device access, and capture storage stay in `internal/xfkey`.
+`cmd/wonkey` handles process entry and exit. CLI, protocol, Linux device access, and capture storage stay in `internal/xfkey` and `internal/ch57`.
 
 ## Offline checks
 

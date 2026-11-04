@@ -1,4 +1,4 @@
-package trisat
+package ch57
 
 import "fmt"
 
@@ -30,7 +30,7 @@ func EncodeMedia(profile Profile, control Control, usage MediaUsage) ([]Report, 
 	case MediaNext, MediaPrevious, MediaStop, MediaPlay, MediaMute,
 		MediaVolumeUp, MediaVolumeDown, MediaFavorites, MediaCalculator, MediaScreenLock:
 	default:
-		return nil, fmt.Errorf("unsupported TriSat media usage %#x", usage)
+		return nil, fmt.Errorf("unsupported CH57 media usage %#x", usage)
 	}
 	return bindingReports(Report{0x03, slot, 0x12, byte(usage & 255), byte((usage >> 8) & 255)}), nil
 }
@@ -78,7 +78,7 @@ func EncodeMouse(profile Profile, control Control, event MouseEvent) ([]Report, 
 	switch event.Modifier {
 	case MouseNoModifier, MouseCtrl, MouseShift, MouseAlt:
 	default:
-		return nil, fmt.Errorf("unsupported TriSat mouse modifier %#x", event.Modifier)
+		return nil, fmt.Errorf("unsupported CH57 mouse modifier %#x", event.Modifier)
 	}
 	var wheel byte
 	switch event.Action {
@@ -95,7 +95,7 @@ func EncodeMouse(profile Profile, control Control, event MouseEvent) ([]Report, 
 			wheel = 0xff
 		}
 	default:
-		return nil, fmt.Errorf("unsupported TriSat mouse action %q", event.Action)
+		return nil, fmt.Errorf("unsupported CH57 mouse action %q", event.Action)
 	}
 	return bindingReports(Report{0x03, slot, 0x13, byte(event.Buttons & 255), 0, 0, wheel, byte(event.Modifier & 255)}), nil
 }
