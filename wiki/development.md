@@ -2,7 +2,7 @@
 
 [Wiki home](Home) · [Protocol and evidence](protocol)
 
-WonKey has one executable with five commands: `key`, `mouse`, `media`, `multi`, and `rgb`.
+WonKey has one executable: bare `wonkey` inspects connected devices, and `key`, `mouse`, `media`, `multi`, and `rgb` configure an XFKEY One Key Max (`0112`).
 `cmd/wonkey` handles process entry and exit. CLI, protocol, and unified Linux device discovery across XFKEY One Key Max (`0112`) and CH57 (`1189:8890`) stay in `internal/xfkey` and `internal/ch57`.
 
 ## Offline checks

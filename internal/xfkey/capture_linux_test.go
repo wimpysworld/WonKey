@@ -54,7 +54,7 @@ func TestPublicQueryInMemoryAndCreatesNothing(t *testing.T) {
 		return transport, closer, nil
 	}
 	var stdout bytes.Buffer
-	if err := Run([]string{"key"}, &stdout, io.Discard); err != nil {
+	if err := Run(nil, &stdout, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual([]byte{1, 6, 7, 8}, packetCommands(transport.packets)) || !closer.closed {

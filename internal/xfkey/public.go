@@ -12,23 +12,25 @@ import (
 	"wonkey/internal/ch57"
 )
 
-const publicHelp = `Configure an XFKEY One Key Max (0112).
+const publicHelp = `Inspect and configure supported macropads.
 
-Usage: wonkey <command> [options]
+Usage: wonkey [command] [options]
+
+Without a command, inspect all connected supported devices.
 
 Commands:
-  key [COMBINATION]   Read or change the key.
-  mouse [BUTTONS]     Read or change the mouse action.
-  media [ACTION]      Read or change the media action.
-  multi [KEY,...]     Read or change the key sequence.
-  rgb [MODE [RGB]]    Read or change the RGB.
+  key <COMBINATION>   Change the key.
+  mouse <BUTTONS>     Change the mouse action.
+  media <ACTION>      Change the media action.
+  multi <KEY,...>     Change the key sequence.
+  rgb <MODE> [RGB]    Change the RGB lighting.
 
 Options:
   -h, --help          Show help without device access.
 
 Examples:
-  wonkey key
-  wonkey key f13
+  wonkey
+` + `  wonkey key f13
   wonkey key ctrl+shift+f13 --on release
   wonkey rgb static 0000ff
   wonkey rgb off
@@ -36,10 +38,9 @@ Examples:
 Run "wonkey <command> --help" for values and options.
 `
 
-const keyHelp = `Usage: wonkey key [COMBINATION] [--on WHEN]
-       wonkey key [--report output]
+const keyHelp = `Usage: wonkey key <COMBINATION> [--on WHEN]
 
-Without a combination, read the current key. Create no files.
+Run "wonkey" without arguments to inspect connected devices.
 A combination contains exactly one base key from the names below.
 Optional modifiers precede the key: ctrl+, shift+, alt+ or super+, each at most once.
 Key names ignore case. Uppercase letters do not add Shift.
@@ -69,12 +70,9 @@ Added keys fit the captured descriptor but remain hardware-unverified.
 
 Options:
   --on WHEN     press, release or both. Requires a key combination.
-  --report output    Read Output report ID 3 instead of Input on 1189:8890. Bare key only.
-                     GET_REPORT is control IN. Raw bytes are not decoded settings.
   -h, --help    Show help without device access.
 
 Examples:
-  wonkey key
   wonkey key f13
   wonkey key ctrl+shift+f13
   wonkey key f13 --on release
@@ -82,9 +80,9 @@ Examples:
 At [Y/n], Enter accepts. No or EOF cancels.
 `
 
-const rgbHelp = `Usage: wonkey rgb [MODE [RGB]]
+const rgbHelp = `Usage: wonkey rgb <MODE> [RGB]
 
-Without a mode, read current lighting. Create no files.
+Run "wonkey" without arguments to inspect connected devices.
 RGB is six hexadecimal digits without #, for example 0000ff for blue.
 Omit RGB to preserve the current colour. Key settings stay unchanged.
 
@@ -102,7 +100,6 @@ Options:
   -h, --help   Show help without device access.
 
 Examples:
-  wonkey rgb
   wonkey rgb static 0000ff
   wonkey rgb static
   wonkey rgb off
@@ -110,9 +107,9 @@ Examples:
 At [Y/n], Enter accepts. No or EOF cancels.
 `
 
-const mouseHelp = `Usage: wonkey mouse [BUTTONS] [--x N] [--y N] [--wheel N]
+const mouseHelp = `Usage: wonkey mouse <BUTTONS> [--x N] [--y N] [--wheel N]
 
-Without buttons or options, read the current action. Create no files.
+Run "wonkey" without arguments to inspect connected devices.
 Buttons: left, right, middle, none. Join buttons with +, for example left+right.
 Use none alone for movement without a button, or a zero action.
 Use wheelup or wheeldown alone for one wheel tick. Do not combine with --wheel.
@@ -121,9 +118,9 @@ X, Y and wheel accept -127..127. Omitted values are zero.
 At [Y/n], Enter accepts. No or EOF cancels.
 `
 
-const mediaHelp = `Usage: wonkey media [ACTION|0xHHHH]
+const mediaHelp = `Usage: wonkey media <ACTION|0xHHHH>
 
-Without an action, read the current action. Create no files.
+Run "wonkey" without arguments to inspect connected devices.
 Names ignore case:
   play, pause, record, fastforward, rewind, next, prev, previous, stop, eject
   playpause, mute, volumeup, volumedown, calculator, mycomputer, browser, email
@@ -133,9 +130,9 @@ Raw usages need exactly four hexadecimal digits and must be 0x0001..0x023c.
 At [Y/n], Enter accepts. No or EOF cancels.
 `
 
-const multiHelp = `Usage: wonkey multi [KEY[,KEY...]] [--interval MS] [--repeat COUNT]
+const multiHelp = `Usage: wonkey multi <KEY[,KEY...]> [--interval MS] [--repeat COUNT]
 
-Without keys or options, read the current action. Create no files.
+Run "wonkey" without arguments to inspect connected devices.
 Use 1..115 comma-separated base key names from "wonkey key --help".
 Modifiers and raw usage numbers are unsupported.
 --interval accepts 1..65535 milliseconds (default: 50).
@@ -146,7 +143,6 @@ At [Y/n], Enter accepts. No or EOF cancels.
 
 type publicCommand struct {
 	name    string
-	report  string
 	changes Changes
 	action  Action
 	help    bool
@@ -155,7 +151,6 @@ type publicCommand struct {
 func parsePublic(args []string) (publicCommand, error) {
 	c := publicCommand{}
 	if len(args) == 0 {
-		c.help = true
 		return c, nil
 	}
 	if args[0] == "--help" || args[0] == "-h" {
@@ -181,12 +176,6 @@ func parsePublic(args []string) (publicCommand, error) {
 		switch {
 		case arg == "--help" || arg == "-h":
 			c.help = true
-		case arg == "--report" || strings.HasPrefix(arg, "--report="):
-			var err error
-			args, err = c.parseReportOption(arg, args)
-			if err != nil {
-				return c, err
-			}
 		case arg == "--on" || strings.HasPrefix(arg, "--on="):
 			if c.name != "key" || seenOn {
 				return c, fmt.Errorf("--on is accepted once, for key only")
@@ -218,9 +207,6 @@ func parsePublic(args []string) (publicCommand, error) {
 }
 
 func (c publicCommand) parsePositionals(positional []string, options map[string]int, on string, seenOn bool) (publicCommand, error) {
-	if c.report != "" && (len(positional) != 0 || seenOn) {
-		return c, fmt.Errorf("--report requires a bare key query without a combination or action options")
-	}
 	if len(positional) == 0 {
 		if seenOn {
 			return c, fmt.Errorf("--on requires a key combination")
@@ -228,30 +214,26 @@ func (c publicCommand) parsePositionals(positional []string, options map[string]
 		if len(options) > 0 {
 			return c, fmt.Errorf("%s options require an action", c.name)
 		}
-		return c, nil
+		if c.help {
+			return c, nil
+		}
+		switch c.name {
+		case "key":
+			return c, fmt.Errorf("key requires a key combination, for example \"wonkey key f13\"; run \"wonkey key --help\" for supported keys")
+		case "mouse":
+			return c, fmt.Errorf("mouse requires buttons or wheel direction, for example \"wonkey mouse left\"; run \"wonkey mouse --help\" for options")
+		case "media":
+			return c, fmt.Errorf("media requires a media action, for example \"wonkey media volumeup\"; run \"wonkey media --help\" for actions")
+		case "multi":
+			return c, fmt.Errorf("multi requires a comma-separated key list, for example \"wonkey multi ctrl,c\"; run \"wonkey multi --help\" for options")
+		default:
+			return c, fmt.Errorf("rgb requires a lighting mode, for example \"wonkey rgb static 0000ff\" or \"wonkey rgb off\"; run \"wonkey rgb --help\" for modes")
+		}
 	}
 	if c.name == "mouse" || c.name == "media" || c.name == "multi" {
 		return c.parseAction(positional, options)
 	}
 	return c.parseValues(positional, on)
-}
-
-func (c *publicCommand) parseReportOption(arg string, args []string) ([]string, error) {
-	if c.name != "key" || c.report != "" {
-		return args, fmt.Errorf("--report is accepted once, for bare key queries only")
-	}
-	value := strings.TrimPrefix(arg, "--report=")
-	if arg == "--report" {
-		if len(args) == 0 {
-			return args, fmt.Errorf("--report needs output")
-		}
-		value, args = args[0], args[1:]
-	}
-	if value != "output" {
-		return args, fmt.Errorf("--report accepts only output")
-	}
-	c.report = value
-	return args, nil
 }
 
 func parseActionOption(command, arg string, args []string, options map[string]int) ([]string, error) {
@@ -393,13 +375,12 @@ func (c publicCommand) parseValues(positional []string, on string) (publicComman
 }
 
 type publicAccess struct {
-	discoverCH57    func(string) ([]ch57.DiscoveredCandidate, error)
-	probeCH57       func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error)
-	probeCH57Output func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error)
-	discover        func() ([]Candidate, error)
-	query           func(Candidate) (CaptureResult, error)
-	apply           func(Candidate, ApplyTarget, configurationChanges, func(configuration, configuration) (bool, error)) (ApplyResult, error)
-	interactive     func(io.Reader) bool
+	discoverCH57 func(string) ([]ch57.DiscoveredCandidate, error)
+	probeCH57    func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error)
+	discover     func() ([]Candidate, error)
+	query        func(Candidate) (CaptureResult, error)
+	apply        func(Candidate, ApplyTarget, configurationChanges, func(configuration, configuration) (bool, error)) (ApplyResult, error)
+	interactive  func(io.Reader) bool
 }
 
 func publicDeviceAccess() publicAccess {
@@ -410,10 +391,9 @@ func publicDeviceAccess() publicAccess {
 			}
 			return ch57.DiscoverCandidates(sysRoot)
 		},
-		probeCH57:       ch57.ProbeCandidate,
-		probeCH57Output: ch57.ProbeOutputCandidate,
-		discover:        func() ([]Candidate, error) { return liveDiscover("/sys/bus/usb/devices", "/dev") },
-		query:           func(selected Candidate) (CaptureResult, error) { return querySelected(selected, true) },
+		probeCH57: ch57.ProbeCandidate,
+		discover:  func() ([]Candidate, error) { return liveDiscover("/sys/bus/usb/devices", "/dev") },
+		query:     func(selected Candidate) (CaptureResult, error) { return querySelected(selected, true) },
 		apply: func(selected Candidate, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration) (bool, error)) (ApplyResult, error) {
 			return liveApplyBound(selected.PhysicalPath, target, changes, true, guard, &selected, true)
 		},
@@ -550,7 +530,7 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 		byCH57Path[candidate.PhysicalPath] = candidate
 	}
 	if c.isReadOnly() {
-		return c.runReadAll(candidates, chCandidates, byCH57Path, h, access)
+		return c.runReadAll(candidates, byCH57Path, h, access)
 	}
 	selected, err := choosePublic(candidates, input, h, interactive)
 	if err != nil {
@@ -570,7 +550,7 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 	return c.runXFKEYSelected(*selected, input, h, access)
 }
 
-func (c publicCommand) runReadAll(candidates []Candidate, chCandidates []ch57.DiscoveredCandidate, byCH57Path map[string]ch57.DiscoveredCandidate, h human, access publicAccess) error {
+func (c publicCommand) runReadAll(candidates []Candidate, byCH57Path map[string]ch57.DiscoveredCandidate, h human, access publicAccess) error {
 	var matches []Candidate
 	for _, candidate := range candidates {
 		if candidate.Compatible {
@@ -579,20 +559,6 @@ func (c publicCommand) runReadAll(candidates []Candidate, chCandidates []ch57.Di
 	}
 	if len(matches) == 0 {
 		return fmt.Errorf("no compatible device found")
-	}
-	if c.report != "" {
-		if len(chCandidates) == 0 {
-			return fmt.Errorf("--report output applies to 1189:8890 only; no HID device opened")
-		}
-		for i, chCandidate := range chCandidates {
-			if i > 0 {
-				fmt.Fprintln(h.out)
-			}
-			if err := c.runCH57Selected(chCandidate, h, access); err != nil {
-				return err
-			}
-		}
-		return h.out.err
 	}
 	for i, selected := range matches {
 		if i > 0 {
@@ -631,19 +597,15 @@ func (c publicCommand) runXFKEYSelected(selected Candidate, input *bufio.Reader,
 
 func (c publicCommand) runCH57Selected(selected ch57.DiscoveredCandidate, h human, access publicAccess) error {
 	const sysRoot, devRoot = "/sys/bus/usb/devices", "/dev/bus/usb"
-	label, probe := "Input", access.probeCH57
-	if c.report == "output" {
-		label, probe = "Output", access.probeCH57Output
-	}
 	h.heading("CH57x Macropad (1189:8890)")
 	h.field("USB path", selected.PhysicalPath)
 	h.field("Layout", "3-key / 1-knob up to 12-key / 3-knob")
 	if h.out.err != nil {
 		return h.out.err
 	}
-	result, err := probe(sysRoot, devRoot, selected)
+	result, err := access.probeCH57(sysRoot, devRoot, selected)
 	shortAA := err == nil && result.Count == 1 && len(result.Raw) == 1 && result.Raw[0] == 0xaa
-	if c.report == "" && err == nil {
+	if err == nil {
 		if shortAA {
 			h.field("Status", "Connected (write-only firmware)")
 			h.field("Settings", "Not readable over USB")
@@ -654,18 +616,10 @@ func (c publicCommand) runCH57Selected(selected ch57.DiscoveredCandidate, h huma
 		}
 		return h.out.err
 	}
-	if c.report == "output" {
-		h.field("Request", "GET_REPORT(Output, report ID 3)")
-	}
-	if shortAA {
-		h.field("Status", "Connected (write-only firmware)")
-		h.field("Settings", "Not readable over USB")
-	} else {
-		h.field("Status", string(result.Status))
-	}
+	h.field("Status", string(result.Status))
 	if result.Raw != nil || result.Count != 0 || result.Status == ch57.ProbeTransferFailed {
-		h.field(label+" bytes", strconv.Itoa(result.Count))
-		h.field(label+" hex", hex.EncodeToString(result.Raw))
+		h.field("Input bytes", strconv.Itoa(result.Count))
+		h.field("Input hex", hex.EncodeToString(result.Raw))
 	}
 	return errors.Join(err, h.out.err)
 }
@@ -695,7 +649,7 @@ func (c publicCommand) showCurrentSettings(current configuration, selected Candi
 			h.field("Action", actionDescription(action))
 		}
 	}
-	if c.name == "rgb" {
+	if c.name == "rgb" || c.name == "" {
 		h.field("Mode", settingName(lightingValues, int(current[124])-1))
 		fmt.Fprintf(h.out, "  %-10s %s\n", "Colour", h.rgb(fmt.Sprintf("#%02X%02X%02X", current[125], current[126], current[127])))
 	}

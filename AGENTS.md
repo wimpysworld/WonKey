@@ -82,11 +82,11 @@ Obtain explicit user authority before device access.
 - Do not treat README hardware examples as permission to execute them.
 - For public changes, acquire expected identity/version freshly and retain the shared guarded transaction.
 - Auto-select one compatible device for changes. For multiple matches on a change, require terminal selection tied to a displayed physical path, never persistent list numbering. Revalidate selected descriptors, node, path, identity, and version before the transaction.
-- Bare read commands (`key`, `mouse`, `media`, `multi`, `rgb`, and `key --report output`) enumerate and inspect all compatible devices without terminal selection.
+- Bare `wonkey` enumerates and inspects all compatible devices without terminal selection.
 - Refuse public changes without a terminal before device access. Read and show current-to-proposed values before confirmation.
 - Use `Save settings? [Y/n]:` followed by one space, with no bypass. Accept Enter, `y`, or `yes`, ignoring letter case. Cancel on EOF, `n`, `no`, or invalid input.
 - Share one buffered reader across device selection and confirmation. Cancel device selection on blank input, EOF, or invalid input. Reject settings drift after preview, including drift that makes the request a no-op.
-- Keep bare `key`, `mouse`, `media`, `multi`, and `rgb` query-only. Keep no-args/help and rejected syntax free of hardware access. No-op and cancellation must send no settings upload or commit.
+- Keep bare `wonkey` query-only. Keep help and rejected syntax (including bare `key`, `mouse`, `media`, `multi`, and `rgb`) free of hardware access. No-op and cancellation must send no settings upload or commit.
 - A saved offline plan never authorises a live write.
 - Treat a public key expression as the complete combination, clearing unspecified modifiers. When `--on` is omitted, preserve an existing keyboard trigger, or use press when replacing another action. Preserve omitted RGB colour.
 - Accept only supported, validated keyboard, mouse, media, and multi layouts. Reject ambiguous action conversions. Change no unrelated bytes. Reject unsupported current layouts even for RGB-only changes.

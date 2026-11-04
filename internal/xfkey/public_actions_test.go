@@ -17,9 +17,6 @@ func TestPublicActionParser(t *testing.T) {
 		args []string
 		want Action
 	}{
-		{[]string{"mouse"}, nil},
-		{[]string{"media"}, nil},
-		{[]string{"multi"}, nil},
 		{[]string{"mouse", "none"}, MouseAction{}},
 		{[]string{"mouse", "LEFT+right+middle", "--x", "-127", "--y=127", "--wheel", "-1"}, MouseAction{Buttons: 7, X: -127, Y: 127, Wheel: -1}},
 		{[]string{"mouse", "wheelup"}, MouseAction{Wheel: 1}},
@@ -68,6 +65,7 @@ func TestPublicMediaNames(t *testing.T) {
 
 func TestPublicActionInvalidBeforeAccess(t *testing.T) {
 	cases := [][]string{
+		{"mouse"},
 		{"mouse", ""},
 		{"mouse", "left", "right"},
 		{"mouse", "left+left"},
@@ -81,6 +79,7 @@ func TestPublicActionInvalidBeforeAccess(t *testing.T) {
 		{"mouse", "wheeldown", "--wheel=-1"},
 		{"mouse", "left", "--x=0", "--x=1"},
 		{"mouse", "--x=0"},
+		{"media"},
 		{"media", ""},
 		{"media", "0x0000"},
 		{"media", "0x023d"},
@@ -90,6 +89,7 @@ func TestPublicActionInvalidBeforeAccess(t *testing.T) {
 		{"media", "205"},
 		{"media", "0x+001"},
 		{"media", "0x00gg"},
+		{"multi"},
 		{"multi", ""},
 		{"multi", "a,"},
 		{"multi", ",a"},
@@ -139,38 +139,35 @@ func TestPublicActionInvalidBeforeAccess(t *testing.T) {
 
 func TestPublicActionQueries(t *testing.T) {
 	for _, action := range actionExamples() {
-		for _, command := range []string{"key", "mouse", "media", "multi", "rgb"} {
-			t.Run(fmt.Sprintf("%T/%s", action, command), func(t *testing.T) {
-				root := filepath.Join(t.TempDir(), "absent")
-				t.Setenv("XDG_STATE_HOME", root)
-				transport := newSettingsTransport()
-				transport.current = actionConfiguration(t, action)
-				access := publicActionTestAccess(t, transport, nil)
-				access.interactive = func(io.Reader) bool { return false }
-				var out bytes.Buffer
-				if err := runPublic([]string{command}, &cliRuntime{strings.NewReader(""), &out, io.Discard}, access); err != nil {
-					t.Fatal(err)
-				}
-				if command == "rgb" {
-					if !strings.Contains(out.String(), "Colour") || strings.Contains(out.String(), "  Action ") {
-						t.Fatal(out.String())
-					}
-				} else if _, keyboard := action.(KeyboardAction); keyboard {
-					if !strings.Contains(out.String(), "ctrl+shift+alt+super+lang2") || !strings.Contains(out.String(), "release") {
-						t.Fatal(out.String())
-					}
-				} else if !strings.Contains(out.String(), actionDescription(action)) || strings.Contains(out.String(), "  Key ") {
+		t.Run(fmt.Sprintf("%T", action), func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "absent")
+			t.Setenv("XDG_STATE_HOME", root)
+			transport := newSettingsTransport()
+			transport.current = actionConfiguration(t, action)
+			access := publicActionTestAccess(t, transport, nil)
+			access.interactive = func(io.Reader) bool { return false }
+			var out bytes.Buffer
+			if err := runPublic(nil, &cliRuntime{strings.NewReader(""), &out, io.Discard}, access); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out.String(), "Mode") || !strings.Contains(out.String(), "Colour") {
+				t.Fatal(out.String())
+			}
+			if _, keyboard := action.(KeyboardAction); keyboard {
+				if !strings.Contains(out.String(), "ctrl+shift+alt+super+lang2") || !strings.Contains(out.String(), "release") || strings.Contains(out.String(), "  Action ") {
 					t.Fatal(out.String())
 				}
-				checkNoUpload(t, transport)
-				if len(transport.packets) != 4 {
-					t.Fatal("unexpected query count", len(transport.packets))
-				}
-				if _, err := os.Stat(root); !os.IsNotExist(err) {
-					t.Fatal("query created backup storage", err)
-				}
-			})
-		}
+			} else if !strings.Contains(out.String(), actionDescription(action)) || strings.Contains(out.String(), "  Key ") {
+				t.Fatal(out.String())
+			}
+			checkNoUpload(t, transport)
+			if len(transport.packets) != 4 {
+				t.Fatal("unexpected query count", len(transport.packets))
+			}
+			if _, err := os.Stat(root); !os.IsNotExist(err) {
+				t.Fatal("query created backup storage", err)
+			}
+		})
 	}
 }
 
@@ -345,7 +342,7 @@ func TestPublicTypedAmbiguousTrigger(t *testing.T) {
 
 func TestPublicUnsupportedTypedLayouts(t *testing.T) {
 	for _, raw := range [][]byte{{1, 8, 0, 0, 0}, {1, 0, 128, 0, 0}, {2, 0, 0}, {2, 0x3d, 2}, {3, 0, 0, 1, 1, 4}, {3, 0, 1, 0, 1, 4}, {3, 0, 1, 1, 116}} {
-		for _, args := range [][]string{{"key"}, {"mouse"}, {"media"}, {"multi"}, {"rgb"}, {"mouse", "left"}, {"media", "play"}, {"multi", "a"}, {"rgb", "off"}, {"key", "a"}} {
+		for _, args := range [][]string{nil, {"mouse", "left"}, {"media", "play"}, {"multi", "a"}, {"rgb", "off"}, {"key", "a"}} {
 			t.Run(fmt.Sprintf("%x/%v", raw, args), func(t *testing.T) {
 				root := filepath.Join(t.TempDir(), "absent")
 				t.Setenv("XDG_STATE_HOME", root)
@@ -354,7 +351,7 @@ func TestPublicUnsupportedTypedLayouts(t *testing.T) {
 				access := publicActionTestAccess(t, first, nil)
 				var out bytes.Buffer
 				err := runPublic(args, &cliRuntime{strings.NewReader("yes\n"), &out, io.Discard}, access)
-				if len(args) == 1 {
+				if len(args) == 0 {
 					if err != nil || !strings.Contains(out.String(), fmt.Sprintf("0x%02x (byte 0)", raw[0])) || !strings.Contains(out.String(), fmt.Sprintf("%x", first.current[:16])) || !strings.Contains(out.String(), "Fields are not decoded.") {
 						t.Fatal(err, out.String())
 					}

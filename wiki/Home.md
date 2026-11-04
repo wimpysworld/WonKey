@@ -17,7 +17,7 @@ Read [device access requirements](hardware#device-selection-and-access) before a
 | Select a device and confirm a change | [Selection and confirmation](usage#selection-and-confirmation) |
 
 The [usage guide](usage) covers command syntax, unified device discovery, and supported settings.
-Bare `key`, `mouse`, `media`, `multi`, and `rgb` read settings without modifying the device. Live changes apply only to XFKEY One Key Max (`0112`) and require terminal confirmation.
+Bare `wonkey` reads settings and inspects connected devices without modifying them. `key`, `mouse`, `media`, `multi`, and `rgb` configure XFKEY One Key Max (`0112`) devices and require terminal confirmation.
 
 ## Hardware and development
 

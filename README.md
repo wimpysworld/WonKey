@@ -12,7 +12,7 @@ Set a keyboard, relative mouse, consumer media, or multi-key action, and choose 
 
 WonKey previews changes, asks for confirmation, and verifies all 128 configuration bytes after each write.
 
-WonKey discovers compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices automatically. Live writes apply only to XFKEY One Key Max (`0112`). Bare read commands also inspect CH57x Macropad (`1189:8890`) devices through a read-only USB check.
+WonKey discovers compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices automatically. Live writes apply only to XFKEY One Key Max (`0112`). Bare `wonkey` inspects all connected XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices.
 Keyboard actions use one base key with optional <kbd>Ctrl</kbd>, <kbd>Shift</kbd>, <kbd>Alt</kbd>, and <kbd>Super</kbd> modifiers.
 Current source supports letters, digits, function keys, navigation, punctuation names, keypad keys, and other defined keyboard usages through `0x91`.
 See [supported key names and aliases](wiki/usage.md#supported-key-names).
@@ -69,15 +69,12 @@ Your user needs permission to access the XFKEY vendor hidraw node or the CH57 US
 Read the current settings without changing them:
 
 ```sh
-wonkey key
-wonkey mouse
-wonkey media
-wonkey multi
-wonkey rgb
+wonkey
 ```
 
-Bare read commands enumerate and inspect all compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices automatically.
-On each CH57x Macropad (`1189:8890`), bare read commands show its USB path, layout, connection status, and that settings are not readable over USB. Use `wonkey key --report output` to request Output report ID 3 instead of Input report ID 3 on all connected CH57x Macropad (`1189:8890`) devices. Stock write-only `1189:8890` firmware returns a 1-byte `0xaa` status reply, which WonKey accepts alongside 65-byte report ID 3 replies.
+Bare `wonkey` enumerates and inspects all compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices automatically.
+On each XFKEY One Key Max (`0112`), `wonkey` shows its USB path, identifier, version, configured action, and RGB lighting.
+On each CH57x Macropad (`1189:8890`), `wonkey` shows its USB path, layout, connection status, and that settings are not readable over USB. Stock write-only `1189:8890` firmware returns a 1-byte `0xaa` status reply, which WonKey accepts alongside 65-byte report ID 3 replies.
 
 Set the key combination:
 

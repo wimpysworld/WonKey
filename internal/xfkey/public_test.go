@@ -22,14 +22,14 @@ func checkPublicHeader(t *testing.T, text string) {
 }
 
 func TestPublicHeaderOutputFailure(t *testing.T) {
-	for _, args := range [][]string{nil, {"key", "--help"}, {"key"}, {"key", "--report=output"}, {"key", "f13"}, {"invalid"}} {
+	for _, args := range [][]string{nil, {"--help"}, {"key", "--help"}, {"key"}, {"key", "f13"}, {"invalid"}} {
 		for _, short := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%v/short=%v", args, short), func(t *testing.T) {
 				failed := &failingHumanOutput{short: short}
 				var other bytes.Buffer
 				var out, diagnostic io.Writer = failed, &other
 				code := 1
-				if len(args) > 0 && args[0] == "invalid" {
+				if len(args) == 1 && (args[0] == "invalid" || args[0] == "key") {
 					out, diagnostic, code = &other, failed, 2
 				}
 				access := publicAccess{
@@ -124,8 +124,8 @@ func TestPublicParser(t *testing.T) {
 		args []string
 		want Changes
 	}{
-		{[]string{"key"}, nil},
-		{[]string{"rgb"}, nil},
+		{nil, nil},
+		{[]string{}, nil},
 		{[]string{"key", "f13"}, Changes{"key": 0x68, "modifiers": 0}},
 		{[]string{"key", "ctrl+shift+f13"}, Changes{"key": 0x68, "modifiers": 3}},
 		{[]string{"key", "alt+super+enter", "--on", "release"}, Changes{"key": 0x28, "modifiers": 12, "trigger": 2}},
@@ -228,6 +228,11 @@ func TestPublicRGBHelpArguments(t *testing.T) {
 
 func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 	cases := [][]string{
+		{"key"},
+		{"mouse"},
+		{"media"},
+		{"multi"},
+		{"rgb"},
 		{"rgb", "steady"},
 		{"rgb", "flowing"},
 		{"rgb", "gradient"},
@@ -286,6 +291,15 @@ func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 		{"rgb", "static", "gggggg"},
 		{"rgb", "off", "000000", "extra"},
 		{"--help", "--yes"},
+		{"key", "--report"},
+		{"key", "--report="},
+		{"key", "--report=output"},
+		{"key", "--report", "output"},
+		{"key", "--report=output", "--help"},
+		{"mouse", "--report=output"},
+		{"media", "--report=output"},
+		{"multi", "--report=output"},
+		{"rgb", "--report=output"},
 		{"key", "--device"},
 		{"key", "--device="},
 		{"key", "--device", "1189:8891"},
@@ -305,7 +319,7 @@ func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 		{"rgb", "--device=1189:8890"},
 		{"restore", "--device=1189:8890"},
 	}
-	for _, flag := range []string{"--device", "--capture-root", "--json", "--yes", "--dry-run", "--write", "--target", "--path", "--key", "--modifiers", "--trigger", "--lighting", "--colour", "--rgb-mode", "--red", "--expect-identifier", "--expect-version", "--json=false", "--yes=false"} {
+	for _, flag := range []string{"--device", "--report", "--capture-root", "--json", "--yes", "--dry-run", "--write", "--target", "--path", "--key", "--modifiers", "--trigger", "--lighting", "--colour", "--rgb-mode", "--red", "--expect-identifier", "--expect-version", "--json=false", "--yes=false"} {
 		cases = append(cases, []string{"key", "f13", flag}, []string{"rgb", "off", flag}, []string{"key", "--help", flag})
 	}
 	access := publicAccess{discover: func() ([]Candidate, error) { t.Fatal("discovery on invalid input"); return nil, nil }, interactive: func(io.Reader) bool { t.Fatal("runtime on invalid input"); return false }}
@@ -319,11 +333,24 @@ func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 			}
 		})
 	}
+	for command, want := range map[string]string{
+		"key":   `key requires a key combination, for example "wonkey key f13"; run "wonkey key --help" for supported keys`,
+		"mouse": `mouse requires buttons or wheel direction, for example "wonkey mouse left"; run "wonkey mouse --help" for options`,
+		"media": `media requires a media action, for example "wonkey media volumeup"; run "wonkey media --help" for actions`,
+		"multi": `multi requires a comma-separated key list, for example "wonkey multi ctrl,c"; run "wonkey multi --help" for options`,
+		"rgb":   `rgb requires a lighting mode, for example "wonkey rgb static 0000ff" or "wonkey rgb off"; run "wonkey rgb --help" for modes`,
+	} {
+		var out, diagnostic bytes.Buffer
+		err := runPublic([]string{command}, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
+		if err == nil || ExitCode(err) != 2 || out.Len() != 0 || err.Error() != want || !strings.Contains(strings.ReplaceAll(diagnostic.String(), "\n", " "), want) {
+			t.Fatalf("%s: err=%v diagnostic=%q", command, err, diagnostic.String())
+		}
+	}
 }
 
 func TestPublicHelpNoAccess(t *testing.T) {
 	access := publicAccess{interactive: func(io.Reader) bool { t.Fatal("help accessed runtime"); return false }}
-	for _, args := range [][]string{nil, {"--help"}, {"-h"}, {"key", "--help"}, {"key", "--report=output", "--help"}, {"key", "-h", "--report", "output"}, {"rgb", "--help"}, {"key", "f13", "--help"}, {"rgb", "off", "-h"}} {
+	for _, args := range [][]string{{"--help"}, {"-h"}, {"key", "--help"}, {"mouse", "--help"}, {"media", "--help"}, {"multi", "--help"}, {"rgb", "--help"}, {"key", "f13", "--help"}, {"rgb", "off", "-h"}} {
 		var out bytes.Buffer
 		if err := runPublic(args, &cliRuntime{strings.NewReader(""), &out, io.Discard}, access); err != nil {
 			t.Fatal(err)
@@ -332,16 +359,13 @@ func TestPublicHelpNoAccess(t *testing.T) {
 		if strings.Contains(out.String(), "One key, to rule them all.") {
 			t.Fatal(out.String())
 		}
-		if len(args) == 0 && !strings.HasPrefix(out.String(), "1️⃣ WonKey\n\nConfigure an XFKEY One Key Max (0112).\n") {
+		if (args[0] == "--help" || args[0] == "-h") && !strings.HasPrefix(out.String(), "1️⃣ WonKey\n\nInspect and configure supported macropads.\n") {
 			t.Fatal(out.String())
 		}
-		for _, removed := range []string{"--device", "--json", "--yes", "--dry-run", "advanced", "wonkey set", "Apply result", "restore"} {
+		for _, removed := range []string{"--device", "--report", "--json", "--yes", "--dry-run", "advanced", "wonkey set", "Apply result", "restore"} {
 			if strings.Contains(out.String(), removed) {
 				t.Fatal(removed, out.String())
 			}
-		}
-		if strings.Contains(out.String(), "--report output") != (len(args) > 0 && args[0] == "key") {
-			t.Fatal("report option belongs only in key help", out.String())
 		}
 		if !strings.Contains(out.String(), "Usage:") || strings.Contains(out.String(), "\x1b") {
 			t.Fatal(out.String())
@@ -350,7 +374,7 @@ func TestPublicHelpNoAccess(t *testing.T) {
 }
 
 func TestPublicWorkflow(t *testing.T) {
-	for _, name := range []string{"confirm", "confirm-blank", "confirm-upper", "confirm-yes", "confirm-yes-upper", "cancel-upper", "cancel-no", "cancel-no-upper", "old-confirm", "space-only", "rgb-write", "rgb-mode-cycle-slow", "rgb-mode-cycle-fast", "rgb-mode-off", "clear-modifiers", "pasted-crlf", "pasted-selection", "second-device", "query-key", "query-rgb", "query-multiple", "zero", "incompatible", "cancel", "eof", "partial-write", "invalid-confirm", "space-confirm", "blank-selection", "eof-selection", "partial-selection", "invalid-selection", "out-of-range", "no-op", "noninteractive", "noninteractive-selection", "identity-changed", "version-changed", "settings-changed", "became-no-op", "mismatch", "echo", "deadline", "unsupported", "query-failed", "discover-failed", "wrong-path", "wrong-model", "missing-settings", "short-settings", "bad-settings"} {
+	for _, name := range []string{"confirm", "confirm-blank", "confirm-upper", "confirm-yes", "confirm-yes-upper", "cancel-upper", "cancel-no", "cancel-no-upper", "old-confirm", "space-only", "rgb-write", "rgb-mode-cycle-slow", "rgb-mode-cycle-fast", "rgb-mode-off", "clear-modifiers", "pasted-crlf", "pasted-selection", "second-device", "query", "query-multiple", "zero", "incompatible", "cancel", "eof", "partial-write", "invalid-confirm", "space-confirm", "blank-selection", "eof-selection", "partial-selection", "invalid-selection", "out-of-range", "no-op", "noninteractive", "noninteractive-selection", "identity-changed", "version-changed", "settings-changed", "became-no-op", "mismatch", "echo", "deadline", "unsupported", "query-failed", "discover-failed", "wrong-path", "wrong-model", "missing-settings", "short-settings", "bad-settings"} {
 		t.Run(name, func(t *testing.T) {
 			args := []string{"key", "f13"}
 			if name == "rgb-write" {
@@ -359,11 +383,8 @@ func TestPublicWorkflow(t *testing.T) {
 			if mode, ok := strings.CutPrefix(name, "rgb-mode-"); ok {
 				args = []string{"rgb", strings.ToUpper(mode)}
 			}
-			if strings.HasPrefix(name, "query-") && name != "query-failed" {
-				args = []string{"key"}
-			}
-			if name == "query-rgb" {
-				args = []string{"rgb"}
+			if (name == "query" || name == "query-multiple") && name != "query-failed" {
+				args = nil
 			}
 			if name == "no-op" {
 				args = []string{"key", "enter"}
@@ -438,7 +459,7 @@ func TestPublicWorkflow(t *testing.T) {
 			}
 			access := publicAccess{
 				interactive: func(io.Reader) bool {
-					return name != "noninteractive" && name != "noninteractive-selection" && name != "query-key" && name != "query-rgb" && name != "query-multiple"
+					return name != "noninteractive" && name != "noninteractive-selection" && name != "query" && name != "query-multiple"
 				},
 				discover: func() ([]Candidate, error) {
 					discovered = true
@@ -561,11 +582,12 @@ func TestPublicWorkflow(t *testing.T) {
 					t.Fatal("mode-only command changed colour or unrelated bytes")
 				}
 			}
-			if name == "query-key" && (strings.Contains(out.String(), "Colour") || strings.Contains(out.String(), "Mode")) {
-				t.Fatal(out.String())
-			}
-			if name == "query-rgb" && (strings.Contains(out.String(), "\n  Key ") || strings.Contains(out.String(), "\n  On ")) {
-				t.Fatal(out.String())
+			if name == "query" || name == "query-multiple" {
+				for _, field := range []string{"\n  Key ", "\n  On ", "\n  Mode ", "\n  Colour "} {
+					if !strings.Contains(out.String(), field) {
+						t.Fatal("missing field", field, out.String())
+					}
+				}
 			}
 			for _, token := range []string{"wonkey-target-v1:", "Apply result", "Target", "Warning: this changes stored settings.", "Persistence after reconnect"} {
 				if strings.Contains(out.String(), token) {
@@ -592,97 +614,6 @@ func ch57TestAccess(t *testing.T) publicAccess {
 	}
 }
 
-func TestPublicCH57OutputReport(t *testing.T) {
-	for _, option := range [][]string{{"--report", "output"}, {"--report=output"}} {
-		for _, status := range []ch57.ProbeStatus{ch57.ProbeRawReport, ch57.ProbeInvalidReport, ch57.ProbeTransferFailed} {
-			t.Run(strings.Join(option, " ")+"/"+string(status), func(t *testing.T) {
-				root := filepath.Join(t.TempDir(), "absent")
-				t.Setenv("XDG_STATE_HOME", root)
-				access := ch57TestAccess(t)
-				access.interactive = func(io.Reader) bool { return false }
-				target := ch57.DiscoveredCandidate{Candidate: ch57.Candidate{PhysicalPath: "1-2"}, BusNumber: 1, DeviceNumber: 19}
-				access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
-					return []ch57.DiscoveredCandidate{target}, nil
-				}
-				access.probeCH57 = func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
-					t.Fatal("Output option sent Input GET_REPORT")
-					return ch57.ProbeResult{}, nil
-				}
-				probes := 0
-				access.probeCH57Output = func(sysRoot, devRoot string, selected ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
-					probes++
-					if selected != target || sysRoot != "/sys/bus/usb/devices" || devRoot != "/dev/bus/usb" {
-						t.Fatal("wrong Output probe target", selected, sysRoot, devRoot)
-					}
-					var err error
-					if status != ch57.ProbeRawReport {
-						err = errors.New("synthetic Output reply failure")
-					}
-					return ch57.ProbeResult{Status: status, Raw: []byte{0xaa}, Count: 1}, err
-				}
-				var out, diagnostic bytes.Buffer
-				err := runPublic(append([]string{"key"}, option...), &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
-				if (err != nil) != (status != ch57.ProbeRawReport) || probes != 1 {
-					t.Fatal(err, probes, diagnostic.String())
-				}
-				wantStatus := string(status)
-				if status == ch57.ProbeRawReport {
-					wantStatus = "Connected (write-only firmware)"
-				}
-				for _, text := range []string{"CH57x Macropad (1189:8890)", "3-key / 1-knob up to 12-key / 3-knob", "GET_REPORT(Output, report ID 3)", wantStatus, "Output bytes 1", "Output hex aa"} {
-					if !strings.Contains(out.String(), text) {
-						t.Fatal("missing Output diagnostic", text, out.String())
-					}
-				}
-				if status == ch57.ProbeRawReport && !strings.Contains(out.String(), "Not readable over USB") {
-					t.Fatal("missing Settings field", out.String())
-				}
-				for _, text := range []string{"Input bytes", "Input hex", "Settings saved", "Save settings?"} {
-					if strings.Contains(out.String(), text) {
-						t.Fatal("incorrect Output diagnostic", out.String())
-					}
-				}
-				if _, err := os.Stat(root); !os.IsNotExist(err) {
-					t.Fatal("Output probe created backup storage", err)
-				}
-			})
-		}
-	}
-}
-
-func TestPublicRejectsReportSyntaxBeforeDiscovery(t *testing.T) {
-	for _, args := range [][]string{
-		{"key", "--report"},
-		{"key", "--report="},
-		{"key", "--report=input"},
-		{"key", "--report=feature"},
-		{"key", "--report=OUTPUT"},
-		{"key", "--report=output", "--report", "output"},
-		{"key", "--report=output", "--report=input"},
-		{"key", "--report=output", "f13"},
-		{"key", "f13", "--report=output"},
-		{"key", "--report=output", "--on=press"},
-		{"key", "--report=output", "--write"},
-		{"mouse", "--report=output"},
-		{"media", "--report=output"},
-		{"multi", "--report=output"},
-		{"rgb", "--report=output"},
-		{"restore", "--report=output"},
-	} {
-		t.Run(strings.Join(args, " "), func(t *testing.T) {
-			err := runPublic(args, &cliRuntime{strings.NewReader(""), io.Discard, io.Discard}, publicAccess{})
-			if err == nil || ExitCode(err) != 2 {
-				t.Fatal("accepted invalid report syntax", err)
-			}
-		})
-	}
-	var out bytes.Buffer
-	err := runPublic([]string{"key", "--report=output", "--help"}, &cliRuntime{strings.NewReader(""), &out, io.Discard}, publicAccess{})
-	if err != nil || !strings.Contains(out.String(), "--report output") || !strings.Contains(out.String(), "Raw bytes are not decoded settings") {
-		t.Fatal("missing Output help", err, out.String())
-	}
-}
-
 func TestPublicCH57Selection(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -697,138 +628,131 @@ func TestPublicCH57Selection(t *testing.T) {
 		{"none", 0, false, true},
 		{"discovery-error", 0, false, true},
 	} {
-		for _, commandName := range []string{"key", "mouse", "media", "multi", "rgb"} {
-			t.Run(tc.name+"/"+commandName, func(t *testing.T) {
-				root := filepath.Join(t.TempDir(), "absent")
-				t.Setenv("XDG_STATE_HOME", root)
-				access := ch57TestAccess(t)
-				access.interactive = func(io.Reader) bool { return false }
-				candidates := []ch57.DiscoveredCandidate{
-					{Candidate: ch57.Candidate{PhysicalPath: "1-2"}, BusNumber: 1, DeviceNumber: 19},
-					{Candidate: ch57.Candidate{PhysicalPath: "1-3"}, BusNumber: 1, DeviceNumber: 20},
+		t.Run(tc.name, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "absent")
+			t.Setenv("XDG_STATE_HOME", root)
+			access := ch57TestAccess(t)
+			access.interactive = func(io.Reader) bool { return false }
+			candidates := []ch57.DiscoveredCandidate{
+				{Candidate: ch57.Candidate{PhysicalPath: "1-2"}, BusNumber: 1, DeviceNumber: 19},
+				{Candidate: ch57.Candidate{PhysicalPath: "1-3"}, BusNumber: 1, DeviceNumber: 20},
+			}
+			discovered := 0
+			var probedPaths []string
+			access.discoverCH57 = func(sysRoot string) ([]ch57.DiscoveredCandidate, error) {
+				discovered++
+				if sysRoot != "/sys/bus/usb/devices" {
+					t.Fatal(sysRoot)
 				}
-				discovered := 0
-				var probedPaths []string
-				access.discoverCH57 = func(sysRoot string) ([]ch57.DiscoveredCandidate, error) {
-					discovered++
-					if sysRoot != "/sys/bus/usb/devices" {
-						t.Fatal(sysRoot)
-					}
-					if tc.name == "discovery-error" {
-						return nil, errors.New("synthetic discovery failure")
-					}
-					return candidates[:tc.count], nil
+				if tc.name == "discovery-error" {
+					return nil, errors.New("synthetic discovery failure")
 				}
-				access.probeCH57 = func(sysRoot, devRoot string, selected ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
-					probedPaths = append(probedPaths, selected.PhysicalPath)
-					if sysRoot != "/sys/bus/usb/devices" || devRoot != "/dev/bus/usb" {
-						t.Fatal("wrong probe roots", selected, sysRoot, devRoot)
+				return candidates[:tc.count], nil
+			}
+			access.probeCH57 = func(sysRoot, devRoot string, selected ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
+				probedPaths = append(probedPaths, selected.PhysicalPath)
+				if sysRoot != "/sys/bus/usb/devices" || devRoot != "/dev/bus/usb" {
+					t.Fatal("wrong probe roots", selected, sysRoot, devRoot)
+				}
+				for _, candidate := range candidates {
+					if candidate.PhysicalPath == selected.PhysicalPath && candidate != selected {
+						t.Fatal("candidate binding changed")
 					}
-					for _, candidate := range candidates {
-						if candidate.PhysicalPath == selected.PhysicalPath && candidate != selected {
-							t.Fatal("candidate binding changed")
-						}
-					}
-					raw := append([]byte{3}, bytes.Repeat([]byte{0xab}, 64)...)
+				}
+				raw := append([]byte{3}, bytes.Repeat([]byte{0xab}, 64)...)
+				if tc.shortReply {
+					raw = []byte{0xaa}
+				}
+				return ch57.ProbeResult{Status: ch57.ProbeRawReport, Raw: raw, Count: len(raw), ReportDescriptorVerified: true}, nil
+			}
+			command, err := parsePublic(nil)
+			if err != nil || len(command.changes) != 0 || command.action != nil || command.help || command.name != "" {
+				t.Fatal(command, err)
+			}
+			var out, diagnostic bytes.Buffer
+			err = runPublic(nil, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
+			if (err != nil) != tc.failure || discovered != 1 || len(probedPaths) != tc.count {
+				t.Fatalf("error=%v discovered=%d probed=%v output=%q", err, discovered, probedPaths, out.String())
+			}
+			if tc.count > 0 {
+				for _, candidate := range candidates[:tc.count] {
+					wantTexts := []string{"CH57x Macropad (1189:8890)", candidate.PhysicalPath, "3-key / 1-knob up to 12-key / 3-knob", "Not readable over USB"}
 					if tc.shortReply {
-						raw = []byte{0xaa}
+						wantTexts = append(wantTexts, "Connected (write-only firmware)")
+					} else {
+						wantTexts = append(wantTexts, "Connected", "03"+strings.Repeat("ab", 64))
 					}
-					return ch57.ProbeResult{Status: ch57.ProbeRawReport, Raw: raw, Count: len(raw), ReportDescriptorVerified: true}, nil
-				}
-				args := []string{commandName}
-				command, err := parsePublic(args)
-				if err != nil || len(command.changes) != 0 || command.action != nil {
-					t.Fatal(command, err)
-				}
-				var out, diagnostic bytes.Buffer
-				err = runPublic(args, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
-				if (err != nil) != tc.failure || discovered != 1 || len(probedPaths) != tc.count {
-					t.Fatalf("error=%v discovered=%d probed=%v output=%q", err, discovered, probedPaths, out.String())
-				}
-				if tc.count > 0 {
-					for _, candidate := range candidates[:tc.count] {
-						wantTexts := []string{"CH57x Macropad (1189:8890)", candidate.PhysicalPath, "3-key / 1-knob up to 12-key / 3-knob", "Not readable over USB"}
-						if tc.shortReply {
-							wantTexts = append(wantTexts, "Connected (write-only firmware)")
-						} else {
-							wantTexts = append(wantTexts, "Connected", "03"+strings.Repeat("ab", 64))
-						}
-						for _, text := range wantTexts {
-							if !strings.Contains(out.String(), text) {
-								t.Fatal("missing output", text, out.String())
-							}
+					for _, text := range wantTexts {
+						if !strings.Contains(out.String(), text) {
+							t.Fatal("missing output", text, out.String())
 						}
 					}
-					if tc.shortReply {
-						for _, unwanted := range []string{"Descriptor bytes", "Descriptor hex", "Input bytes", "Input hex", "Raw input is not decoded settings"} {
-							if strings.Contains(out.String(), unwanted) {
-								t.Fatal("unexpected raw probe diagnostic on short 0xaa reply", unwanted, out.String())
-							}
+				}
+				if tc.shortReply {
+					for _, unwanted := range []string{"Descriptor bytes", "Descriptor hex", "Input bytes", "Input hex", "Raw input is not decoded settings"} {
+						if strings.Contains(out.String(), unwanted) {
+							t.Fatal("unexpected raw probe diagnostic on short 0xaa reply", unwanted, out.String())
 						}
 					}
-					if strings.Count(out.String(), "CH57x Macropad (1189:8890)\n") != tc.count {
-						t.Fatal("unexpected probe section count", out.String())
-					}
 				}
-				for _, text := range []string{"Select a device", "Device number [cancel]: ", "Settings saved", "Save settings?"} {
-					if strings.Contains(out.String(), text) {
-						t.Fatal("unexpected prompt or write claim", text, out.String())
-					}
+				if strings.Count(out.String(), "CH57x Macropad (1189:8890)\n") != tc.count {
+					t.Fatal("unexpected probe section count", out.String())
 				}
-				if _, err := os.Stat(root); !os.IsNotExist(err) {
-					t.Fatal("probe created backup storage", err)
+			}
+			for _, text := range []string{"Select a device", "Device number [cancel]: ", "Settings saved", "Save settings?"} {
+				if strings.Contains(out.String(), text) {
+					t.Fatal("unexpected prompt or write claim", text, out.String())
 				}
-			})
-		}
+			}
+			if _, err := os.Stat(root); !os.IsNotExist(err) {
+				t.Fatal("probe created backup storage", err)
+			}
+		})
 	}
 }
 
 func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 	t.Run("mixed-read-enumerates-all", func(t *testing.T) {
-		for _, commandName := range []string{"key", "mouse", "media", "multi", "rgb"} {
-			t.Run(commandName, func(t *testing.T) {
-				queried, probed := 0, 0
-				transport := newSettingsTransport()
-				access := publicAccess{
-					interactive: func(io.Reader) bool { return false },
-					discover: func() ([]Candidate, error) {
-						return []Candidate{{PhysicalPath: "1-1", Compatible: true, VendorNode: NodeMetadata{Path: "/dev/hidraw0"}}}, nil
-					},
-					discoverCH57: func(string) ([]ch57.DiscoveredCandidate, error) {
-						return []ch57.DiscoveredCandidate{{Candidate: ch57.Candidate{PhysicalPath: "1-2"}, BusNumber: 1, DeviceNumber: 19}}, nil
-					},
-					query: func(c Candidate) (CaptureResult, error) {
-						queried++
-						if c.PhysicalPath != "1-1" {
-							t.Fatal(c)
-						}
-						q, err := queryCapture(transport, true)
-						q.result.PhysicalPath = c.PhysicalPath
-						return q.result, err
-					},
-					probeCH57: func(_ string, _ string, selected ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
-						probed++
-						if selected.PhysicalPath != "1-2" {
-							t.Fatal(selected)
-						}
-						return ch57.ProbeResult{Status: ch57.ProbeRawReport, Raw: []byte{0xaa}, Count: 1}, nil
-					},
+		queried, probed := 0, 0
+		transport := newSettingsTransport()
+		access := publicAccess{
+			interactive: func(io.Reader) bool { return false },
+			discover: func() ([]Candidate, error) {
+				return []Candidate{{PhysicalPath: "1-1", Compatible: true, VendorNode: NodeMetadata{Path: "/dev/hidraw0"}}}, nil
+			},
+			discoverCH57: func(string) ([]ch57.DiscoveredCandidate, error) {
+				return []ch57.DiscoveredCandidate{{Candidate: ch57.Candidate{PhysicalPath: "1-2"}, BusNumber: 1, DeviceNumber: 19}}, nil
+			},
+			query: func(c Candidate) (CaptureResult, error) {
+				queried++
+				if c.PhysicalPath != "1-1" {
+					t.Fatal(c)
 				}
-				var out bytes.Buffer
-				err := runPublic([]string{commandName}, &cliRuntime{strings.NewReader(""), &out, io.Discard}, access)
-				if err != nil || queried != 1 || probed != 1 {
-					t.Fatalf("err=%v queried=%d probed=%d out=%q", err, queried, probed, out.String())
+				q, err := queryCapture(transport, true)
+				q.result.PhysicalPath = c.PhysicalPath
+				return q.result, err
+			},
+			probeCH57: func(_ string, _ string, selected ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
+				probed++
+				if selected.PhysicalPath != "1-2" {
+					t.Fatal(selected)
 				}
-				checkPublicHeader(t, out.String())
-				for _, text := range []string{"XFKEY One Key Max (0112)", "1-1", "CH57x Macropad (1189:8890)", "3-key / 1-knob up to 12-key / 3-knob", "Connected (write-only firmware)", "Not readable over USB", "1-2"} {
-					if !strings.Contains(out.String(), text) {
-						t.Fatal("missing mixed read entry", text, out.String())
-					}
-				}
-				if strings.Contains(out.String(), "Select a device") {
-					t.Fatal("unexpected selection prompt on bare read", out.String())
-				}
-			})
+				return ch57.ProbeResult{Status: ch57.ProbeRawReport, Raw: []byte{0xaa}, Count: 1}, nil
+			},
+		}
+		var out bytes.Buffer
+		err := runPublic(nil, &cliRuntime{strings.NewReader(""), &out, io.Discard}, access)
+		if err != nil || queried != 1 || probed != 1 {
+			t.Fatalf("err=%v queried=%d probed=%d out=%q", err, queried, probed, out.String())
+		}
+		checkPublicHeader(t, out.String())
+		for _, text := range []string{"XFKEY One Key Max (0112)", "1-1", "Key        enter", "On         press", "Mode       cycle-slow", "Colour     #FFFFFF", "CH57x Macropad (1189:8890)", "3-key / 1-knob up to 12-key / 3-knob", "Connected (write-only firmware)", "Not readable over USB", "1-2"} {
+			if !strings.Contains(out.String(), text) {
+				t.Fatal("missing mixed read entry", text, out.String())
+			}
+		}
+		if strings.Contains(out.String(), "Select a device") {
+			t.Fatal("unexpected selection prompt on bare read", out.String())
 		}
 	})
 	t.Run("mixed-write-selection", func(t *testing.T) {
@@ -886,49 +810,6 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 			}
 		}
 	})
-	t.Run("report-output-enumerates-ch57-only", func(t *testing.T) {
-		access := publicAccess{
-			interactive: func(io.Reader) bool { return false },
-			discover: func() ([]Candidate, error) {
-				return []Candidate{{PhysicalPath: "1-1", Compatible: true}}, nil
-			},
-			discoverCH57: func(string) ([]ch57.DiscoveredCandidate, error) {
-				return []ch57.DiscoveredCandidate{
-					{Candidate: ch57.Candidate{PhysicalPath: "1-2"}, BusNumber: 1, DeviceNumber: 19},
-					{Candidate: ch57.Candidate{PhysicalPath: "1-3"}, BusNumber: 1, DeviceNumber: 20},
-				}, nil
-			},
-			query: func(Candidate) (CaptureResult, error) {
-				t.Fatal("report output queried 0112")
-				return CaptureResult{}, nil
-			},
-			probeCH57Output: func(_ string, _ string, selected ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
-				return ch57.ProbeResult{Status: ch57.ProbeRawReport, Raw: []byte{0xaa}, Count: 1}, nil
-			},
-		}
-		var out, diagnostic bytes.Buffer
-		err := runPublic([]string{"key", "--report", "output"}, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
-		if err != nil || strings.Count(out.String(), "CH57x Macropad (1189:8890)\n") != 2 || strings.Contains(out.String(), "Select a device") {
-			t.Fatalf("err=%v out=%q diagnostic=%q", err, out.String(), diagnostic.String())
-		}
-	})
-	t.Run("rejects-report-output-on-0112", func(t *testing.T) {
-		access := publicAccess{
-			interactive: func(io.Reader) bool { return false },
-			discover: func() ([]Candidate, error) {
-				return []Candidate{{PhysicalPath: "1-1", Compatible: true}}, nil
-			},
-			query: func(Candidate) (CaptureResult, error) {
-				t.Fatal("report output queried 0112")
-				return CaptureResult{}, nil
-			},
-		}
-		var diagnostic bytes.Buffer
-		err := runPublic([]string{"key", "--report", "output"}, &cliRuntime{strings.NewReader(""), io.Discard, &diagnostic}, access)
-		if err == nil || ExitCode(err) != 1 || !strings.Contains(diagnostic.String(), "--report output applies to 1189:8890 only") {
-			t.Fatalf("err=%v diagnostic=%q", err, diagnostic.String())
-		}
-	})
 	t.Run("rejects-writes-on-ch57", func(t *testing.T) {
 		for _, args := range [][]string{{"key", "f13"}, {"mouse", "left"}, {"media", "play"}, {"multi", "a"}, {"rgb", "off"}} {
 			access := ch57TestAccess(t)
@@ -968,7 +849,7 @@ func TestPublicCH57ProbeFailures(t *testing.T) {
 				return result, failure
 			}
 			var out, diagnostic bytes.Buffer
-			err := runPublic([]string{"key"}, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
+			err := runPublic(nil, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
 			if !errors.Is(err, failure) || ExitCode(err) != 1 || probes != 1 || !strings.Contains(diagnostic.String(), failure.Error()) {
 				t.Fatal(err, probes, diagnostic.String())
 			}
@@ -1002,7 +883,7 @@ func TestPublicCH57OutputFailure(t *testing.T) {
 					probes++
 					return ch57.ProbeResult{Status: ch57.ProbeRawReport, Raw: []byte{3}, Count: 1}, nil
 				}
-				args := []string{"key"}
+				var args []string
 				if selection {
 					args = []string{"key", "f13"}
 				}
@@ -1049,7 +930,7 @@ func TestPublicRGBReadDoesNotCreateBackupRoot(t *testing.T) {
 		q.result.PhysicalPath = c.PhysicalPath
 		return q.result, err
 	}}
-	if err := runPublic([]string{"rgb"}, &cliRuntime{strings.NewReader(""), io.Discard, io.Discard}, access); err != nil {
+	if err := runPublic(nil, &cliRuntime{strings.NewReader(""), io.Discard, io.Discard}, access); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(root); !os.IsNotExist(err) {
@@ -1070,14 +951,14 @@ func TestPublicUnknownConfiguration(t *testing.T) {
 		{"modifiers", 2, 0xff},
 		{"rgb-mode", 124, 0xff},
 	} {
-		for _, args := range [][]string{{"key"}, {"rgb"}, {"key", "f13"}, {"key", "enter"}, {"rgb", "off"}, {"rgb", "cycle-slow"}} {
+		for _, args := range [][]string{nil, {"key", "f13"}, {"key", "enter"}, {"rgb", "off"}, {"rgb", "cycle-slow"}} {
 			t.Run(tc.name+"/"+strings.Join(args, " "), func(t *testing.T) {
 				root := filepath.Join(t.TempDir(), "absent-state")
 				t.Setenv("XDG_STATE_HOME", root)
 				transport := newSettingsTransport()
 				transport.current[tc.offset] = tc.value
 				original := transport.current
-				query := len(args) == 1
+				query := len(args) == 0
 				access := publicAccess{
 					interactive: func(io.Reader) bool { return !query },
 					discover: func() ([]Candidate, error) {
@@ -1132,42 +1013,37 @@ func TestPublicUnknownConfiguration(t *testing.T) {
 }
 
 func TestPublicSupportedQueryOutput(t *testing.T) {
-	for _, command := range []string{"key", "rgb"} {
-		t.Run(command, func(t *testing.T) {
-			root := filepath.Join(t.TempDir(), "absent-state")
-			t.Setenv("XDG_STATE_HOME", root)
-			transport := newSettingsTransport()
-			transport.current[2] = 3
-			access := publicAccess{
-				interactive: func(io.Reader) bool { return false },
-				discover: func() ([]Candidate, error) {
-					return []Candidate{{PhysicalPath: "synthetic", Compatible: true}}, nil
-				},
-				query: func(c Candidate) (CaptureResult, error) {
-					q, err := queryCapture(transport, true)
-					q.result.PhysicalPath = c.PhysicalPath
-					return q.result, err
-				},
-			}
-			var out, diagnostic bytes.Buffer
-			err := runPublic([]string{command}, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
-			want := "1️⃣ WonKey\n\nXFKEY One Key Max (0112)\n" +
-				"  USB path   synthetic\n" +
-				"  Identifier be077ba2\n" +
-				"  Version    1014\n"
-			if command == "key" {
-				want += "  Key        ctrl+shift+enter\n  On         press\n"
-			} else {
-				want += "  Mode       cycle-slow\n  Colour     #FFFFFF\n"
-			}
-			if err != nil || diagnostic.Len() != 0 || out.String() != want {
-				t.Fatalf("error=%v diagnostic=%q output=%q want=%q", err, diagnostic.String(), out.String(), want)
-			}
-			checkNoUpload(t, transport)
-			if _, err := os.Stat(root); !os.IsNotExist(err) {
-				t.Fatal("created backup storage", err)
-			}
-		})
+	root := filepath.Join(t.TempDir(), "absent-state")
+	t.Setenv("XDG_STATE_HOME", root)
+	transport := newSettingsTransport()
+	transport.current[2] = 3
+	access := publicAccess{
+		interactive: func(io.Reader) bool { return false },
+		discover: func() ([]Candidate, error) {
+			return []Candidate{{PhysicalPath: "synthetic", Compatible: true}}, nil
+		},
+		query: func(c Candidate) (CaptureResult, error) {
+			q, err := queryCapture(transport, true)
+			q.result.PhysicalPath = c.PhysicalPath
+			return q.result, err
+		},
+	}
+	var out, diagnostic bytes.Buffer
+	err := runPublic(nil, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
+	want := "1️⃣ WonKey\n\nXFKEY One Key Max (0112)\n" +
+		"  USB path   synthetic\n" +
+		"  Identifier be077ba2\n" +
+		"  Version    1014\n" +
+		"  Key        ctrl+shift+enter\n" +
+		"  On         press\n" +
+		"  Mode       cycle-slow\n" +
+		"  Colour     #FFFFFF\n"
+	if err != nil || diagnostic.Len() != 0 || out.String() != want {
+		t.Fatalf("error=%v diagnostic=%q output=%q want=%q", err, diagnostic.String(), out.String(), want)
+	}
+	checkNoUpload(t, transport)
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatal("created backup storage", err)
 	}
 }
 

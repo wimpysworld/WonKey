@@ -61,7 +61,10 @@
         </div>
         <figure class="terminal" aria-label="WonKey command examples">
           <figcaption><span class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></span>wonkey · Linux</figcaption>
-          <pre><code><span class="terminal-comment"># Set your key combination</span>
+          <pre><code><span class="terminal-comment"># Inspect connected devices</span>
+<span class="prompt">$ </span><span class="terminal-command">wonkey</span>
+
+<span class="terminal-comment"># Set your key combination</span>
 <span class="prompt">$ </span><span class="terminal-command">wonkey key</span> <span class="terminal-argument">ctrl+shift+f13</span>
 
 <span class="terminal-comment"># Set a consumer media action</span>
@@ -123,7 +126,7 @@
           <p>Read settings at any time. Changes require a terminal, your confirmation, and a 128-byte post-write readback check.</p>
         </div>
         <ol class="steps">
-          <li><code>wonkey key</code><h3>Read your settings</h3><p>Bare <code>key</code>, <code>mouse</code>, <code>media</code>, <code>multi</code>, and <code>rgb</code> commands inspect the selected device without changing it.</p></li>
+          <li><code>wonkey</code><h3>Read your settings</h3><p>Run <code>wonkey</code> without arguments to inspect all connected devices without changing them.</p></li>
           <li><code>wonkey key f13 --on release</code><h3>Choose your change</h3><p>Set a complete key combination. Omit <code>--on</code> to keep the current trigger, or omit an RGB colour to keep it.</p></li>
           <li><code>Save settings? [Y/n]:</code><h3>Check and confirm</h3><p>Review the selected device and current-to-proposed settings. Press Enter to save, or enter <code>n</code> to cancel.</p></li>
           <li><code>128-byte readback</code><h3>Verify in memory</h3><p>WonKey checks for settings drift before upload, then reads back and compares all 128 configuration bytes after commit.</p></li>
