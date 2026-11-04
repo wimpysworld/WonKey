@@ -24,10 +24,10 @@ const (
 	MediaWebPageForward       MediaUsage = 0x225
 )
 
-// EncodeMedia returns a first-layer binding with a 16-bit little-endian usage.
+// EncodeMedia returns a layer binding with a 16-bit little-endian usage.
 // Encoding source: https://github.com/kriomant/ch57x-keyboard-tool/blob/bdbffca3/src/keyboard/k8890.rs
 func EncodeMedia(profile Profile, control Control, usage MediaUsage) ([]Report, error) {
-	slot, err := profile.slot(control)
+	slot, layer, err := profile.slotAndLayer(control)
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +39,7 @@ func EncodeMedia(profile Profile, control Control, usage MediaUsage) ([]Report, 
 	default:
 		return nil, fmt.Errorf("unsupported CH57 media usage %#x", usage)
 	}
-	return bindingReports(Report{0x03, slot, 0x12, byte(usage & 255), byte((usage >> 8) & 255)}), nil
+	return bindingReports(layer, Report{0x03, slot, (layer << 4) | 0x02, byte(usage & 255), byte((usage >> 8) & 255)}), nil
 }
 
 type MouseAction string
@@ -80,11 +80,11 @@ type MouseEvent struct {
 	Modifier MouseModifier
 }
 
-// EncodeMouse returns a first-layer move, drag, click, or wheel binding.
+// EncodeMouse returns a layer move, drag, click, or wheel binding.
 // Clicks and drags accept non-empty combinations of left, right, and middle buttons.
 // Source: https://github.com/kriomant/ch57x-keyboard-tool/blob/bdbffca3/src/keyboard/k8890.rs
 func EncodeMouse(profile Profile, control Control, event MouseEvent) ([]Report, error) {
-	slot, err := profile.slot(control)
+	slot, layer, err := profile.slotAndLayer(control)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func EncodeMouse(profile Profile, control Control, event MouseEvent) ([]Report, 
 	if err != nil {
 		return nil, err
 	}
-	return bindingReports(Report{0x03, slot, 0x13, buttons, dx, dy, wheel, byte(event.Modifier & 255)}), nil
+	return bindingReports(layer, Report{0x03, slot, (layer << 4) | 0x03, buttons, dx, dy, wheel, byte(event.Modifier & 255)}), nil
 }
 
 func encodeMousePayload(event MouseEvent) (byte, byte, byte, byte, error) {

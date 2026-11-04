@@ -14,13 +14,13 @@ type Stroke struct {
 	Usage     int
 }
 
-// EncodeKeyboard returns a first-layer binding for one to five ordered strokes.
+// EncodeKeyboard returns a layer binding for one to five ordered strokes.
 // Only the first stroke can carry modifiers; strokes 2 to 5 must have Modifiers == 0.
 // It performs no device access and does not change the profile or strokes.
 // Encoding source: https://github.com/kriomant/ch57x-keyboard-tool/blob/88aaa564/src/keyboard/k8890.rs#L13-L79
 // Multi-stroke modifier rule: https://github.com/kriomant/ch57x-keyboard-tool/blob/bdbffca3/src/config.rs#L38-L48
 func EncodeKeyboard(profile Profile, control Control, strokes []Stroke) ([]Report, error) {
-	slot, err := profile.slot(control)
+	slot, layer, err := profile.slotAndLayer(control)
 	if err != nil {
 		return nil, err
 	}
@@ -46,18 +46,19 @@ func EncodeKeyboard(profile Profile, control Control, strokes []Stroke) ([]Repor
 		}
 	}
 
+	kind := (layer << 4) | 0x01
 	records := make([]Report, 0, count+1)
 	// The source inserts an empty record at index zero, outside the stroke count.
-	records = append(records, Report{0x03, slot, 0x11, byte(count), 0, 0, 0})
+	records = append(records, Report{0x03, slot, kind, byte(count), 0, 0, 0})
 	for i, stroke := range strokes {
-		records = append(records, Report{0x03, slot, 0x11, byte(count), byte(i + 1), byte(stroke.Modifiers & 255), byte(stroke.Usage & 255)})
+		records = append(records, Report{0x03, slot, kind, byte(count), byte(i + 1), byte(stroke.Modifiers & 255), byte(stroke.Usage & 255)})
 	}
-	return bindingReports(records...), nil
+	return bindingReports(layer, records...), nil
 }
 
-func bindingReports(records ...Report) []Report {
+func bindingReports(layer byte, records ...Report) []Report {
 	reports := make([]Report, 0, len(records)+2)
-	reports = append(reports, Report{0x03, 0xfe, 0x01, 0x01, 0x01})
+	reports = append(reports, Report{0x03, 0xfe, layer, 0x01, 0x01})
 	reports = append(reports, records...)
 	return append(reports, Report{0x03, 0xaa, 0xaa})
 }

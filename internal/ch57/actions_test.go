@@ -152,6 +152,74 @@ func TestLEDGolden(t *testing.T) {
 	}
 }
 
+func TestMediaAndMouseFullK8890Controls(t *testing.T) {
+	for _, useKnob1Names := range []bool{false, true} {
+		profile := twelveKeyThreeKnobProfile(useKnob1Names)
+		for _, tt := range allK8890ControlSlots() {
+			t.Run(string(tt.control), func(t *testing.T) {
+				mediaGot, err := EncodeMedia(profile, tt.control, MediaVolumeUp)
+				if err != nil {
+					t.Fatal(err)
+				}
+				assertReports(t, mediaGot, []Report{
+					{0x03, 0xfe, 0x01, 0x01, 0x01},
+					{0x03, tt.slot, 0x12, 0xe9, 0x00},
+					{0x03, 0xaa, 0xaa},
+				})
+
+				mouseGot, err := EncodeMouse(profile, tt.control, MouseEvent{
+					Action:   MouseClick,
+					Buttons:  MouseLeft,
+					Modifier: MouseCtrl,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				assertReports(t, mouseGot, []Report{
+					{0x03, 0xfe, 0x01, 0x01, 0x01},
+					{0x03, tt.slot, 0x13, 0x01, 0x00, 0x00, 0x00, 0x01},
+					{0x03, 0xaa, 0xaa},
+				})
+			})
+		}
+	}
+}
+
+func TestMediaAndMouseLayers(t *testing.T) {
+	for layer := 0; layer <= 15; layer++ {
+		profile := ThreeKeyOneKnob()
+		profile.Layer = layer
+		wantLayer := byte(layer)
+		if wantLayer == 0 {
+			wantLayer = 1
+		}
+
+		mediaGot, err := EncodeMedia(profile, Key3, MediaCalculator)
+		if err != nil {
+			t.Fatal(layer, err)
+		}
+		assertReports(t, mediaGot, []Report{
+			{0x03, 0xfe, wantLayer, 0x01, 0x01},
+			{0x03, 0x03, (wantLayer << 4) | 0x02, 0x92, 0x01},
+			{0x03, 0xaa, 0xaa},
+		})
+
+		mouseGot, err := EncodeMouse(profile, KnobLeft, MouseEvent{
+			Action:   MouseWheel,
+			Wheel:    -3,
+			Modifier: MouseAlt,
+		})
+		if err != nil {
+			t.Fatal(layer, err)
+		}
+		assertReports(t, mouseGot, []Report{
+			{0x03, 0xfe, wantLayer, 0x01, 0x01},
+			{0x03, 0x0d, (wantLayer << 4) | 0x03, 0x00, 0x00, 0x00, 0xfd, 0x04},
+			{0x03, 0xaa, 0xaa},
+		})
+	}
+}
+
 func TestRejectInvalidActions(t *testing.T) {
 	for _, usage := range []MediaUsage{-1, 0, 0x04, 0x6e, 0x71, 0xb4, 0xb8, 0x100, 0x181, 0x183, 0x222, 0x226, 0xffff, 0x10000, 0x100b5} {
 		got, err := EncodeMedia(ThreeKeyOneKnob(), Key1, usage)
