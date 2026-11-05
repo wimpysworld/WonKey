@@ -2,9 +2,9 @@
 
 [Wiki home](Home) · [Protocol and evidence](protocol)
 
-WonKey is a Linux CLI for configuring supported USB macropads (`XFKEY One Key Max (0112)` and `CH57x Macropad (1189:8890)`).
+WonKey is a Linux CLI for configuring supported USB macropads (`XFKEY One Key Max (0112)`, `CH57x Macropad (1189:8890, 514c:8851, 514c:8850)`, and `SayoDevice 2x3P (8089:000c)`).
 It has one executable: bare `wonkey` inspects connected macropads, and `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, and `led` validate device capabilities and configure supported devices.
-`cmd/wonkey` handles process entry and exit. CLI, protocol, and unified Linux device discovery across `internal/xfkey` (`0112`) and `internal/ch57` (`1189:8890`) stay in `internal/`.
+`cmd/wonkey` handles process entry and exit. CLI, protocol, and unified Linux device discovery across `internal/xfkey` (`0112`) and `internal/ch57` (`1189:8890`, `514c:8851`, `514c:8850`, and `8089:000c`) stay in `internal/`.
 
 ## Offline checks
 

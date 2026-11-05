@@ -863,7 +863,17 @@ func ch57VIDPID(candidate ch57.DiscoveredCandidate) (uint16, uint16) {
 
 func ch57ProductName(candidate ch57.DiscoveredCandidate) string {
 	vid, pid := ch57VIDPID(candidate)
+	if vid == 0x8089 && pid == 0x000c {
+		return "SayoDevice 2x3P (8089:000c)"
+	}
 	return fmt.Sprintf("CH57x Macropad (%04x:%04x)", vid, pid)
+}
+
+func ch57SupportsSummary(candidate ch57.DiscoveredCandidate) string {
+	if candidate.VID == 0x8089 && candidate.PID == 0x000c {
+		return "key, mouse, media, macro, rgb"
+	}
+	return "key, mouse, media, macro, led"
 }
 
 func controlKeyAndKnobIndex(control ch57.Control) (int, int) {
@@ -905,13 +915,16 @@ func controlKeyAndKnobIndex(control ch57.Control) (int, int) {
 	}
 }
 
-func validateCH57Control(vid, pid uint16, keys, knobs int, control ch57.Control) error {
+func validateCH57Control(product string, keys, knobs int, control ch57.Control) error {
 	k, m := controlKeyAndKnobIndex(control)
 	if k > keys {
-		return fmt.Errorf("CH57x Macropad (%04x:%04x) has %d keys; %s is not available", vid, pid, keys, control)
+		return fmt.Errorf("%s has %d keys; %s is not available", product, keys, control)
 	}
 	if m > knobs {
-		return fmt.Errorf("CH57x Macropad (%04x:%04x) has %d knob(s); %s is not available", vid, pid, knobs, control)
+		if knobs == 0 {
+			return fmt.Errorf("%s has 0 knobs; %s is not available", product, control)
+		}
+		return fmt.Errorf("%s has %d knob(s); %s is not available", product, knobs, control)
 	}
 	return nil
 }
@@ -923,13 +936,16 @@ func (c publicCommand) checkCH57Capabilities() error {
 func (c publicCommand) checkCH57CapabilitiesFor(selected ch57.DiscoveredCandidate) error {
 	vid, pid := ch57VIDPID(selected)
 	product := ch57ProductName(selected)
+	if vid == 0x8089 && pid == 0x000c {
+		return c.checkSayoCapabilities(product)
+	}
 	switch c.name {
 	case "key", "macro", "mouse", "media":
 		if _, ok := parseControlName(string(c.control)); !ok {
 			return fmt.Errorf("%s does not support control %q", product, c.control)
 		}
 		if vid == 0x1189 && pid == 0x8890 {
-			if err := validateCH57Control(vid, pid, 12, 3, c.control); err != nil {
+			if err := validateCH57Control(product, 12, 3, c.control); err != nil {
 				return err
 			}
 		}
@@ -970,6 +986,62 @@ func (c publicCommand) checkCH57CapabilitiesFor(selected ch57.DiscoveredCandidat
 				ch57.MediaVolumeUp, ch57.MediaVolumeDown, ch57.MediaFavorites, ch57.MediaCalculator, ch57.MediaScreenLock,
 				ch57.MediaWebPageHome, ch57.MediaWebPageBack, ch57.MediaWebPageForward:
 			default:
+				return fmt.Errorf("%s does not support that media action", product)
+			}
+		}
+	}
+	return nil
+}
+
+func (c publicCommand) checkSayoCapabilities(product string) error {
+	switch c.name {
+	case "key", "macro", "mouse", "media":
+		if _, ok := parseControlName(string(c.control)); !ok {
+			return fmt.Errorf("%s does not support control %q", product, c.control)
+		}
+		if _, m := controlKeyAndKnobIndex(c.control); m > 0 {
+			return fmt.Errorf("%s has 0 knobs; %s is not available", product, c.control)
+		}
+		if c.layer < 1 || c.layer > 5 {
+			return fmt.Errorf("%s supports layers 1..5 only", product)
+		}
+	}
+	switch c.name {
+	case "trigger":
+		return fmt.Errorf("%s does not support trigger (key release triggers)", product)
+	case "led":
+		return fmt.Errorf("%s does not support led; use \"wonkey rgb\" instead", product)
+	case "rgb":
+		mode := settingName(lightingValues, c.changes["rgb-mode"])
+		if mode == "toggle" {
+			return fmt.Errorf("%s does not support RGB mode %q", product, mode)
+		}
+	case "key":
+		if c.changes["key"] < 0x04 || c.changes["key"] > 0x73 {
+			return fmt.Errorf("%s supports keys a-z, 0-9, and f1-f24 (usages 0x04..0x73) only", product)
+		}
+	case "macro":
+		if c.hasMultiOptions {
+			return fmt.Errorf("%s does not support --interval or --repeat", product)
+		}
+		if c.macroCount > 3 {
+			return fmt.Errorf("%s supports up to 3 strokes per macro", product)
+		}
+		if c.macroCount == 3 && (c.macroStrokes[1].Modifiers != 0 || c.macroStrokes[2].Modifiers != 0) {
+			return fmt.Errorf("%s does not support modifiers on strokes 2..3 of a 3-stroke macro", product)
+		}
+		if c.hasUnsupportedCH57MacroKey {
+			return fmt.Errorf("%s supports keys a-z, 0-9, and f1-f24 (usages 0x04..0x73) only", product)
+		}
+	case "mouse":
+		if mouse, ok := c.action.(MouseAction); ok {
+			if _, err := ch57MouseEventFor(product, mouse); err != nil {
+				return err
+			}
+		}
+	case "media":
+		if media, ok := c.action.(MediaAction); ok {
+			if _, ok := ch57.SayoMediaCode(ch57.MediaUsage(media.Usage)); !ok {
 				return fmt.Errorf("%s does not support that media action", product)
 			}
 		}
@@ -1045,6 +1117,9 @@ func formatLayoutSummary(keys, knobs int) string {
 	keyWord := "keys"
 	if keys == 1 {
 		keyWord = "key"
+	}
+	if knobs == 0 {
+		return fmt.Sprintf("%d %s", keys, keyWord)
 	}
 	knobWord := "knobs"
 	if knobs == 1 {
@@ -1148,50 +1223,20 @@ func (c publicCommand) runCH57Write(selected ch57.DiscoveredCandidate, deviceID 
 	const sysRoot, devRoot = "/sys/bus/usb/devices", "/dev/bus/usb"
 	var reports []ch57.Report
 	var views []changeView
-	if selected.VID == 0x514c {
-		probed, probeErr := access.probeCH57(sysRoot, devRoot, selected)
-		if probeErr != nil {
-			c.renderCH57CardHeading(selected, deviceID, h)
-			renderCH57ProbeOutcome(probed, h)
-			return errors.Join(probeErr, h.out.err)
-		}
-		keys, knobs, kind := default514CLayout(selected.PID)
-		if probed.Layout != nil {
-			keys, knobs, kind = probed.Layout.Keys, probed.Layout.Knobs, probed.Layout.Kind
-		}
-		switch c.name {
-		case "key", "macro", "mouse", "media":
-			if err := validateCH57Control(selected.VID, selected.PID, keys, knobs, c.control); err != nil {
-				return err
-			}
-		}
-		before := "write-only"
-		if probed.Layout != nil && c.layer == 1 && c.name != "led" {
-			if slot, ok := ch57.K884xSlot(c.control); ok {
-				if b, has := probed.Layout.Bindings[slot]; has && b.ActionType != ch57.SlotActionNone {
-					before = formatCH57SlotBinding(b)
-				}
-			}
-		}
-		var err error
-		reports, views, err = c.encodeCH57ReportsWithProfile(ch57.K884xProfile(selected.PID, kind, c.layer), before)
-		if err != nil {
-			return err
-		}
-		c.renderCH57CardHeading(selected, deviceID, h)
-		renderCH57ProbeOutcome(probed, h)
-		if h.out.err != nil {
-			return h.out.err
-		}
-	} else {
-		var err error
+	var err error
+	switch selected.VID {
+	case 0x8089:
+		reports, views, err = c.prepareSayoWrite(sysRoot, devRoot, selected, deviceID, h, access)
+	case 0x514c:
+		reports, views, err = c.prepare514CWrite(sysRoot, devRoot, selected, deviceID, h, access)
+	default:
 		reports, views, err = c.encodeCH57Reports()
-		if err != nil {
-			return err
+		if err == nil {
+			err = c.runCH57Selected(selected, deviceID, h, access)
 		}
-		if err := c.runCH57Selected(selected, deviceID, h, access); err != nil {
-			return err
-		}
+	}
+	if err != nil {
+		return err
 	}
 	h.changes(views)
 	if h.out.err != nil {
@@ -1207,22 +1252,149 @@ func (c publicCommand) runCH57Write(selected ch57.DiscoveredCandidate, deviceID 
 		h.line("33", "Stop. No automatic retry or rollback.")
 		return err
 	}
-	h.line("32", "Settings saved to CH57x Macropad.")
+	if selected.VID == 0x8089 {
+		h.line("32", "Settings saved to SayoDevice 2x3P.")
+	} else {
+		h.line("32", "Settings saved to CH57x Macropad.")
+	}
 	return h.out.err
+}
+
+func (c publicCommand) prepareSayoWrite(sysRoot, devRoot string, selected ch57.DiscoveredCandidate, deviceID int, h human, access publicAccess) ([]ch57.Report, []changeView, error) {
+	product := ch57ProductName(selected)
+	probed, probeErr := access.probeCH57(sysRoot, devRoot, selected)
+	if probeErr != nil {
+		c.renderCH57CardHeading(selected, deviceID, h)
+		renderCH57ProbeOutcome(selected, probed, h)
+		return nil, nil, errors.Join(probeErr, h.out.err)
+	}
+	keys, knobs := 6, 0
+	if probed.Layout != nil {
+		keys, knobs = probed.Layout.Keys, probed.Layout.Knobs
+	}
+	var reports []ch57.Report
+	var views []changeView
+	if c.name == "rgb" {
+		var err error
+		reports, views, err = c.encodeSayoRGBReports(keys, probed.Layout)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		if err := validateCH57Control(product, keys, knobs, c.control); err != nil {
+			return nil, nil, err
+		}
+		before := sayoBeforeBinding(probed.Layout, c.control, c.layer)
+		var err error
+		reports, views, err = c.encodeCH57ReportsWithProfile(ch57.SayoProfile(keys, c.layer, !c.seenLayer), before)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	c.renderCH57CardHeading(selected, deviceID, h)
+	renderCH57ProbeOutcome(selected, probed, h)
+	return reports, views, h.out.err
+}
+
+func (c publicCommand) encodeSayoRGBReports(keys int, layout *ch57.LayoutInfo) ([]ch57.Report, []changeView, error) {
+	beforeMode, beforeColour := "write-only", "#404040"
+	if layout != nil && layout.RGBMode != "" {
+		beforeMode, beforeColour = layout.RGBMode, layout.RGBColour
+	}
+	afterMode := settingName(lightingValues, c.changes["rgb-mode"])
+	_, hasColour := c.changes["red"]
+	var r, g, b byte
+	if hasColour {
+		r = byte(c.changes["red"] & 255)
+		g = byte(c.changes["green"] & 255)
+		b = byte(c.changes["blue"] & 255)
+	}
+	reports, err := ch57.EncodeSayoRGB(ch57.SayoProfile(keys, 1, false), afterMode, r, g, b, hasColour)
+	if err != nil {
+		return nil, nil, err
+	}
+	afterColour := beforeColour
+	if afterMode == "off" {
+		afterColour = "#000000"
+	} else if hasColour {
+		afterColour = fmt.Sprintf("#%02X%02X%02X", r, g, b)
+	}
+	var views []changeView
+	if beforeMode != afterMode || !hasColour {
+		views = append(views, changeView{Setting: "lighting", Before: beforeMode, After: afterMode})
+	}
+	if (hasColour || afterMode == "off") && (beforeColour != afterColour || len(views) == 0) {
+		views = append(views, changeView{Setting: "colour", Before: beforeColour, After: afterColour})
+	}
+	return reports, views, nil
+}
+
+func sayoBeforeBinding(layout *ch57.LayoutInfo, control ch57.Control, layer int) string {
+	if layout == nil {
+		return "write-only"
+	}
+	k, _ := controlKeyAndKnobIndex(control)
+	slot := byte(k & 255)
+	var b ch57.SlotBinding
+	var has bool
+	if layer >= 1 && layer <= len(layout.LayerBindings) && layout.LayerBindings[layer-1] != nil {
+		b, has = layout.LayerBindings[layer-1][slot]
+	} else if layer == 1 {
+		b, has = layout.Bindings[slot]
+	}
+	if has && b.ActionType != ch57.SlotActionNone {
+		return formatCH57SlotBinding(b)
+	}
+	return "write-only"
+}
+
+func (c publicCommand) prepare514CWrite(sysRoot, devRoot string, selected ch57.DiscoveredCandidate, deviceID int, h human, access publicAccess) ([]ch57.Report, []changeView, error) {
+	product := ch57ProductName(selected)
+	probed, probeErr := access.probeCH57(sysRoot, devRoot, selected)
+	if probeErr != nil {
+		c.renderCH57CardHeading(selected, deviceID, h)
+		renderCH57ProbeOutcome(selected, probed, h)
+		return nil, nil, errors.Join(probeErr, h.out.err)
+	}
+	keys, knobs, kind := default514CLayout(selected.PID)
+	if probed.Layout != nil {
+		keys, knobs, kind = probed.Layout.Keys, probed.Layout.Knobs, probed.Layout.Kind
+	}
+	switch c.name {
+	case "key", "macro", "mouse", "media":
+		if err := validateCH57Control(product, keys, knobs, c.control); err != nil {
+			return nil, nil, err
+		}
+	}
+	before := "write-only"
+	if probed.Layout != nil && c.layer == 1 && c.name != "led" {
+		if slot, ok := ch57.K884xSlot(c.control); ok {
+			if b, has := probed.Layout.Bindings[slot]; has && b.ActionType != ch57.SlotActionNone {
+				before = formatCH57SlotBinding(b)
+			}
+		}
+	}
+	reports, views, err := c.encodeCH57ReportsWithProfile(ch57.K884xProfile(selected.PID, kind, c.layer), before)
+	if err != nil {
+		return nil, nil, err
+	}
+	c.renderCH57CardHeading(selected, deviceID, h)
+	renderCH57ProbeOutcome(selected, probed, h)
+	return reports, views, h.out.err
 }
 
 func (c publicCommand) renderCH57CardHeading(selected ch57.DiscoveredCandidate, deviceID int, h human) {
 	h.heading(fmt.Sprintf("[%d] %s", deviceID, ch57ProductName(selected)))
 	h.field("USB path", selected.PhysicalPath)
-	if selected.VID != 0x514c {
-		h.field("Supports", "key, mouse, media, macro, led")
+	if selected.VID != 0x514c && selected.VID != 0x8089 {
+		h.field("Supports", ch57SupportsSummary(selected))
 	}
 }
 
-func renderCH57ProbeOutcome(probed ch57.ProbeResult, h human) {
+func renderCH57ProbeOutcome(selected ch57.DiscoveredCandidate, probed ch57.ProbeResult, h human) {
 	if probed.Layout != nil {
 		h.field("Layout", formatLayoutSummary(probed.Layout.Keys, probed.Layout.Knobs))
-		h.field("Supports", "key, mouse, media, macro, led")
+		h.field("Supports", ch57SupportsSummary(selected))
 		for k := 1; k <= probed.Layout.Keys; k++ {
 			h.field(fmt.Sprintf("key%d", k), formatCH57SlotBinding(probed.Layout.Bindings[byte(k)]))
 		}
@@ -1236,6 +1408,10 @@ func renderCH57ProbeOutcome(probed ch57.ProbeResult, h human) {
 				formatCH57SlotBinding(probed.Layout.Bindings[pressSlot]),
 				formatCH57SlotBinding(probed.Layout.Bindings[rightSlot]))
 			h.field(fmt.Sprintf("knob%d", m), val)
+		}
+		if probed.Layout.RGBMode != "" {
+			h.field("Mode", probed.Layout.RGBMode)
+			fmt.Fprintf(h.out, "  %-10s %s\n", "Colour", h.rgb(probed.Layout.RGBColour))
 		}
 		return
 	}
@@ -1303,8 +1479,8 @@ func (c publicCommand) runCH57Selected(selected ch57.DiscoveredCandidate, device
 		return h.out.err
 	}
 	probed, err := access.probeCH57(sysRoot, devRoot, selected)
-	if err != nil && selected.VID == 0x514c {
-		h.field("Supports", "key, mouse, media, macro, led")
+	if err != nil && (selected.VID == 0x514c || selected.VID == 0x8089) {
+		h.field("Supports", ch57SupportsSummary(selected))
 	}
 	if err == nil && probed.Status != ch57.ProbeRawReport && probed.Count == 1 && len(probed.Raw) == 1 && probed.Raw[0] == 0xaa {
 		probed.Status = ch57.ProbeRawReport
@@ -1321,7 +1497,7 @@ func (c publicCommand) runCH57Selected(selected ch57.DiscoveredCandidate, device
 		}
 		return errors.Join(err, h.out.err)
 	}
-	renderCH57ProbeOutcome(probed, h)
+	renderCH57ProbeOutcome(selected, probed, h)
 	return errors.Join(err, h.out.err)
 }
 

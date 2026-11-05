@@ -14,6 +14,9 @@ Read [device access requirements](hardware#device-selection-and-access) before a
 | --- | --- | --- | --- | --- |
 | XFKEY One Key Max (`0112`) | `af88:6688` | 1 key | `key`, `trigger`, `macro`, `mouse`, `media`, `rgb` | Full 128-byte readback |
 | CH57x Macropad | `1189:8890` | Up to 12 keys, 3 knobs, 15 layers | `key`, `macro`, `mouse`, `media`, `led` | Write-only firmware |
+| CH57x Macropad (4-key + 1-knob) | `514c:8851` | 4 keys, 1 knob, 15 layers | `key`, `macro`, `mouse`, `media`, `led` | Layout (`0xFB`) and Layer 1 (`0xFA`) readback |
+| CH57x Macropad (12-key + 4-knob) | `514c:8850` | 12 keys, 4 knobs, 15 layers | `key`, `macro`, `mouse`, `media`, `led` | Layout (`0xFB`) and Layer 1 (`0xFA`) readback |
+| SayoDevice 2x3P | `8089:000c` | 6 keys, 5 layers | `key`, `macro`, `mouse`, `media`, `rgb` | Key (`0x10`) and Light (`0x11`) readback |
 
 ## Use WonKey
 
@@ -26,7 +29,7 @@ Read [device access requirements](hardware#device-selection-and-access) before a
 | Select a device and verify a change | [Device selection and verification](usage#device-selection-and-verification) |
 
 The [usage guide](usage) covers command syntax, unified device discovery, and supported settings.
-Bare `wonkey` reads settings and inspects connected devices without modifying them. `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, and `led` validate device capabilities (including optional `[CONTROL]` and `--layer <1..15>` on `key`, `macro`, `mouse`, and `media`, and `led <off|reactive|cycle>` on CH57x devices) and configure supported devices (`0112` and `1189:8890`).
+Bare `wonkey` reads settings and inspects connected devices without modifying them. `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, and `led` validate device capabilities (including optional `[CONTROL]` and `--layer` on `key`, `macro`, `mouse`, and `media`, `rgb` on `0112` and `8089:000c`, and `led <off|reactive|cycle>` on CH57x devices) and configure supported devices (`0112`, `1189:8890`, `514c:8851`, `514c:8850`, and `8089:000c`).
 
 ## Hardware and development
 

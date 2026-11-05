@@ -405,3 +405,60 @@ func TestActionsK884xFEAndFD(t *testing.T) {
 		t.Fatalf("K884xFD LED:\n got %x\nwant %x", fdLED, wantFDLED)
 	}
 }
+
+func TestActionsSayoV2(t *testing.T) {
+	sayoProfile := SayoProfile(6, 1, true)
+	mediaGot, err := EncodeMedia(sayoProfile, Key3, MediaVolumeUp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mediaGot) != 2 || mediaGot[0][6] != 0x10 || mediaGot[0][7] != 2 || mediaGot[0][8] != 0x03 ||
+		mediaGot[0][24] != 0x03 || mediaGot[0][28] != 10 || mediaGot[0][32] != 0x03 || mediaGot[0][36] != 10 {
+		t.Fatalf("SayoV2 media: %x", mediaGot)
+	}
+	if _, err := EncodeMedia(sayoProfile, Key1, MediaScreenBrightnessUp); err == nil {
+		t.Fatal("accepted unsupported SayoV2 media usage")
+	}
+
+	mouseGot, err := EncodeMouse(sayoProfile, Key4, MouseEvent{Action: MouseDrag, Buttons: MouseLeft, DX: -5, DY: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mouseGot) != 2 || mouseGot[0][7] != 3 || mouseGot[0][24] != 0x02 ||
+		mouseGot[0][28] != 0x01 || mouseGot[0][29] != 0xfb || mouseGot[0][30] != 0x07 || mouseGot[0][31] != 0x00 {
+		t.Fatalf("SayoV2 mouse: %x", mouseGot)
+	}
+	if _, err := EncodeMouse(sayoProfile, Key4, MouseEvent{Action: MouseClick, Buttons: MouseLeft, Modifier: MouseCtrl}); err == nil {
+		t.Fatal("accepted mouse modifier on SayoV2")
+	}
+	if _, err := EncodeLED(sayoProfile, 0); err == nil {
+		t.Fatal("accepted EncodeLED on SayoV2")
+	}
+
+	rgbGot, err := EncodeSayoRGB(sayoProfile, "static", 0x00, 0x11, 0xff, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rgbGot) != 7 || rgbGot[6] != SayoSaveReport() {
+		t.Fatalf("SayoV2 RGB count: %d", len(rgbGot))
+	}
+	for i := range 6 {
+		r := rgbGot[i]
+		if r[0] != 0x21 || r[6] != 0x11 || r[7] != byte(i) || r[8] != 0 ||
+			r[24] != 0x00 || r[25] != 0x00 || r[26] != 0x64 || r[27] != 0x64 ||
+			r[28] != 0x00 || r[29] != 0x11 || r[30] != 0xff {
+			t.Fatalf("SayoV2 RGB report %d: %x", i, r)
+		}
+	}
+
+	rgbPreserve, err := EncodeSayoRGB(sayoProfile, "breathe", 0, 0, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rgbPreserve[0][8] != 1 || rgbPreserve[0][24] != 0x02 || rgbPreserve[0][25] != 0x00 {
+		t.Fatalf("SayoV2 RGB preserve colour: %x", rgbPreserve[0])
+	}
+	if _, err := EncodeSayoRGB(sayoProfile, "toggle", 0, 0, 0, false); err == nil {
+		t.Fatal("accepted unsupported SayoV2 RGB mode toggle")
+	}
+}

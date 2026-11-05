@@ -1182,3 +1182,226 @@ func TestDecodeFASlotKindLt10AndGe10(t *testing.T) {
 		t.Fatalf("ge10 mouse: %+v", b)
 	}
 }
+
+func makeSayoSysfs(t *testing.T, hidrawName string) string {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, "7-1.4.3.4")
+	hidrawDir := filepath.Join(dir, "7-1.4.3.4:1.1", "0003:8089:000C.0002", "hidraw", hidrawName)
+	if err := os.MkdirAll(hidrawDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{
+		"descriptors": []byte(candidateSayo000CUSBDescriptor),
+		"busnum":      []byte("7\n"),
+		"devnum":      []byte("12\n"),
+		"dev":         []byte("189:779\n"),
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hidDir := filepath.Dir(filepath.Dir(hidrawDir))
+	if err := os.WriteFile(filepath.Join(hidDir, "report_descriptor"), []byte(candidateSayoReportDescriptor), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hidrawDir, "dev"), []byte("241:9\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func TestProbeAndApplySayoHidraw(t *testing.T) {
+	root := makeSayoSysfs(t, "hidraw9")
+	candidates, err := DiscoverCandidates(root)
+	if err != nil || len(candidates) != 1 || candidates[0].VID != 0x8089 || candidates[0].PID != 0x000c {
+		t.Fatalf("discover: %+v, %v", candidates, err)
+	}
+	candidate := candidates[0]
+	ops := systemProbeOps()
+	node := unix.Stat_t{Mode: unix.S_IFCHR | 0o600, Dev: 4, Ino: 300, Rdev: unix.Mkdev(241, 9)}
+
+	var keyRecords [6]Report
+	for i := range 6 {
+		r := Report{0x21, 0x12, 0x00, 0x00, 0x3c, 0x00, 0x10, byte(i)}
+		for g := 8; g < 24; g++ {
+			r[g] = byte(0xa0 + i)
+		}
+		usage := byte(0x1e + i)
+		r[24], r[28], r[29] = 0x00, 0x00, usage
+		r[32], r[36], r[37] = 0x00, 0x00, usage
+		SayoSignPacket(&r)
+		keyRecords[i] = r
+	}
+	var lightRecords [6]Report
+	for i := range 6 {
+		r := Report{0x21, 0x12, 0x00, 0x00, 0x3c, 0x00, 0x11, byte(i)}
+		for g := 8; g < 24; g++ {
+			r[g] = byte(0xb0 + i)
+		}
+		copy(r[24:32], []byte{0x00, 0x01, 0x64, 0x64, 0x40, 0x40, 0x40, 0x00})
+		SayoSignPacket(&r)
+		lightRecords[i] = r
+	}
+
+	var pendingReplies []Report
+	var savedCount int
+	ops.lstat = func(path string, st *unix.Stat_t) error {
+		if path != "/dev/hidraw9" {
+			t.Fatalf("unexpected hidraw lstat path: %s", path)
+		}
+		*st = node
+		return nil
+	}
+	ops.open = func(path string, flags int, mode uint32) (int, error) {
+		if path != "/dev/hidraw9" || flags != unix.O_RDWR|unix.O_NOFOLLOW|unix.O_CLOEXEC || mode != 0 {
+			t.Fatalf("unsafe hidraw open: %s %#x %#x", path, flags, mode)
+		}
+		return 99, nil
+	}
+	ops.fstat = func(fd int, st *unix.Stat_t) error {
+		if fd != 99 {
+			t.Fatalf("unexpected fd: %d", fd)
+		}
+		*st = node
+		return nil
+	}
+	ops.close = func(fd int) error {
+		if fd != 99 {
+			t.Fatalf("unexpected close fd: %d", fd)
+		}
+		return nil
+	}
+	ops.writeHidraw = func(fd int, data []byte) (int, error) {
+		if fd != 99 || len(data) != 64 || data[0] != 0x21 {
+			t.Fatalf("invalid Sayo hidraw write: fd=%d len=%d", fd, len(data))
+		}
+		var pkt Report
+		copy(pkt[:], data)
+		want := pkt
+		SayoSignPacket(&want)
+		if pkt[2] != want[2] || pkt[3] != want[3] {
+			t.Fatalf("invalid Sayo checksum in %x, want %02x%02x", pkt, want[2], want[3])
+		}
+		cmdID, index := pkt[6], pkt[7]
+		switch {
+		case cmdID == 0x10 && pkt[4] == 0x04:
+			if index < 6 {
+				pendingReplies = append(pendingReplies, keyRecords[index])
+			} else {
+				errReply := Report{0x21, 0x12, 0x00, 0x00, 0x04, 0x40, 0x10, index}
+				SayoSignPacket(&errReply)
+				pendingReplies = append(pendingReplies, errReply)
+			}
+		case cmdID == 0x10 && pkt[4] == 0x3c:
+			keyRecords[index] = pkt
+			pendingReplies = append(pendingReplies, pkt)
+		case cmdID == 0x11 && pkt[4] == 0x04:
+			pendingReplies = append(pendingReplies, lightRecords[index])
+		case cmdID == 0x11 && pkt[4] == 0x3c:
+			lightRecords[index] = pkt
+			pendingReplies = append(pendingReplies, pkt)
+		case cmdID == 0x0d:
+			savedCount++
+			ack := Report{0x21, 0x12, 0x00, 0x00, 0x04, 0x00, 0x0d, 0x00}
+			SayoSignPacket(&ack)
+			pendingReplies = append(pendingReplies, ack)
+		default:
+			t.Fatalf("unexpected Sayo TX packet: %x", pkt)
+		}
+		return 64, nil
+	}
+	ops.readHidraw = func(fd int, data []byte, timeoutMs int) (int, error) {
+		if fd != 99 || len(data) != 64 || timeoutMs != 1000 || len(pendingReplies) == 0 {
+			t.Fatalf("invalid Sayo hidraw read: fd=%d len=%d pending=%d", fd, len(data), len(pendingReplies))
+		}
+		reply := pendingReplies[0]
+		pendingReplies = pendingReplies[1:]
+		copy(data, reply[:])
+		return 64, nil
+	}
+
+	probed, err := ops.probe(root, "/dev/bus/usb", candidate)
+	if err != nil || probed.Status != ProbeRawReport || probed.Layout == nil {
+		t.Fatalf("probeSayo: %+v, %v", probed, err)
+	}
+	if probed.Layout.Keys != 6 || probed.Layout.Knobs != 0 || probed.Layout.RGBMode != "held" || probed.Layout.RGBColour != "#404040" {
+		t.Fatalf("wrong Sayo layout: %+v", probed.Layout)
+	}
+	for i := range 6 {
+		b := probed.Layout.Bindings[byte(i+1)]
+		if b.ActionType != SlotActionKeyboard || len(b.Strokes) != 1 || b.Strokes[0] != (Stroke{Usage: 0x1e + i}) {
+			t.Fatalf("wrong Sayo key %d binding: %+v", i+1, b)
+		}
+	}
+
+	profile := SayoProfile(6, 1, true)
+	keyReports, err := EncodeKeyboard(profile, Key2, []Stroke{{Modifiers: 0x01, Usage: 0x68}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied, err := ops.apply(root, "/dev/bus/usb", candidate, keyReports)
+	if err != nil || !applied.WriteAttempted || applied.ReportsWritten != 2 || savedCount != 1 {
+		t.Fatalf("applySayo key: %+v, %v, saved=%d", applied, err, savedCount)
+	}
+	for g := 8; g < 24; g++ {
+		if keyRecords[1][g] != 0xa1 {
+			t.Fatalf("geometry header at %d overwritten: %x", g, keyRecords[1])
+		}
+	}
+	if keyRecords[1][28] != 0x01 || keyRecords[1][29] != 0x68 || keyRecords[1][36] != 0x01 || keyRecords[1][37] != 0x68 {
+		t.Fatalf("FN0/FN1 not updated in key2 record: %x", keyRecords[1])
+	}
+
+	rgbReports, err := EncodeSayoRGB(profile, "breathe", 0, 0, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appliedRGB, err := ops.apply(root, "/dev/bus/usb", candidate, rgbReports)
+	if err != nil || !appliedRGB.WriteAttempted || appliedRGB.ReportsWritten != 7 || savedCount != 2 {
+		t.Fatalf("applySayo RGB: %+v, %v, saved=%d", appliedRGB, err, savedCount)
+	}
+	for i := range 6 {
+		if lightRecords[i][8] != byte(0xb0+i) || lightRecords[i][24] != 0x02 || lightRecords[i][28] != 0x40 || lightRecords[i][29] != 0x40 || lightRecords[i][30] != 0x40 {
+			t.Fatalf("light record %d did not preserve header or RGB colour: %x", i, lightRecords[i])
+		}
+	}
+}
+
+func TestDecodeSayoSlotAndLight(t *testing.T) {
+	if b := DecodeSayoSlot(1, 1, []byte{0x01, 0, 0, 0, 0x03, 0x04, 0x05, 0x06}); b.ActionType != SlotActionMacro || len(b.Strokes) != 3 ||
+		b.Strokes[0] != (Stroke{Modifiers: 0x03, Usage: 0x04}) || b.Strokes[1] != (Stroke{Usage: 0x05}) || b.Strokes[2] != (Stroke{Usage: 0x06}) {
+		t.Fatalf("DecodeSayoSlot mode 0x01: %+v", b)
+	}
+	if b := DecodeSayoSlot(2, 1, []byte{0x04, 0, 0, 0, 0x01, 0x06, 0x01, 0x19}); b.ActionType != SlotActionMacro || len(b.Strokes) != 2 ||
+		b.Strokes[0] != (Stroke{Modifiers: 0x01, Usage: 0x06}) || b.Strokes[1] != (Stroke{Modifiers: 0x01, Usage: 0x19}) {
+		t.Fatalf("DecodeSayoSlot mode 0x04: %+v", b)
+	}
+	if b := DecodeSayoSlot(3, 1, []byte{0x02, 0, 0, 0, 0x01, 0xfe, 0x03, 0x00}); b.ActionType != SlotActionMouse || b.Mouse.Action != MouseDrag || b.Mouse.Buttons != MouseLeft || b.Mouse.DX != -2 || b.Mouse.DY != 3 {
+		t.Fatalf("DecodeSayoSlot mode 0x02: %+v", b)
+	}
+	for code, wantUsage := range map[byte]uint16{
+		1: 0x0192, 5: 0x0223, 8: 0x00e2, 10: 0x00e9, 11: 0x00ea,
+		12: 0x00cd, 13: 0x00b7, 14: 0x00b6, 15: 0x00b5, 19: 0x0224, 20: 0x0225,
+	} {
+		if b := DecodeSayoSlot(4, 1, []byte{0x03, 0, 0, 0, code, 0, 0, 0}); b.ActionType != SlotActionMedia || b.MediaUsage != wantUsage {
+			t.Fatalf("DecodeSayoSlot media code %d: %+v, want %#04x", code, b, wantUsage)
+		}
+	}
+	for _, tc := range []struct {
+		raw        []byte
+		wantMode   string
+		wantColour string
+	}{
+		{[]byte{0x00, 0x00, 0x64, 0x64, 0x00, 0x00, 0x00, 0x00}, "off", "#000000"},
+		{[]byte{0x00, 0x01, 0x64, 0x64, 0x40, 0x40, 0x40, 0x00}, "held", "#404040"},
+		{[]byte{0x00, 0x00, 0x64, 0x64, 0x00, 0x00, 0xff, 0x00}, "static", "#0000FF"},
+		{[]byte{0x02, 0x00, 0x64, 0x64, 0x12, 0x34, 0x56, 0x00}, "breathe", "#123456"},
+		{[]byte{0x04, 0x00, 0x64, 0x64, 0x40, 0x40, 0x40, 0x00}, "cycle-slow", "#404040"},
+		{[]byte{0x08, 0x01, 0x64, 0x64, 0xff, 0x00, 0x00, 0x00}, "flash", "#FF0000"},
+	} {
+		if mode, col := DecodeSayoLight(tc.raw); mode != tc.wantMode || col != tc.wantColour {
+			t.Fatalf("DecodeSayoLight(%x) = (%q, %q), want (%q, %q)", tc.raw, mode, col, tc.wantMode, tc.wantColour)
+		}
+	}
+}

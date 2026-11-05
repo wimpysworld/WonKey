@@ -21,6 +21,9 @@ See [supported key names and aliases](wiki/usage.md#supported-key-names).
 | --- | --- | --- | --- | --- |
 | XFKEY One Key Max (`0112`) | `af88:6688` | 1 key | `key`, `trigger`, `macro`, `mouse`, `media`, `rgb` | Full 128-byte readback |
 | CH57x Macropad | `1189:8890` | Up to 12 keys, 3 knobs, 15 layers | `key`, `macro`, `mouse`, `media`, `led` | Write-only firmware |
+| CH57x Macropad (4-key + 1-knob) | `514c:8851` | 4 keys, 1 knob, 15 layers | `key`, `macro`, `mouse`, `media`, `led` | Layout (`0xFB`) and Layer 1 (`0xFA`) readback |
+| CH57x Macropad (12-key + 4-knob) | `514c:8850` | 12 keys, 4 knobs, 15 layers | `key`, `macro`, `mouse`, `media`, `led` | Layout (`0xFB`) and Layer 1 (`0xFA`) readback |
+| SayoDevice 2x3P | `8089:000c` | 6 keys, 5 layers | `key`, `macro`, `mouse`, `media`, `rgb` | Key (`0x10`) and Light (`0x11`) readback |
 
 ## Get started
 
@@ -77,8 +80,8 @@ Inspect connected macropads and read current settings without changing them:
 wonkey
 ```
 
-Bare `wonkey` enumerates and inspects all connected supported macropads automatically, sorted by USB physical path with numbered headings such as `[1] XFKEY One Key Max (0112)` and `[2] CH57x Macropad (1189:8890)`.
-For each device, `wonkey` shows its USB path, supported commands, and current settings (decoded action and RGB lighting on `0112`, or `Settings   Write-only (not readable over USB)` on `1189:8890`, plus `Input hex` when a 65-byte report ID 3 reply is returned). Stock write-only `1189:8890` firmware returns a 1-byte `0xaa` status reply, which WonKey accepts alongside 65-byte report ID 3 replies.
+Bare `wonkey` enumerates and inspects all connected supported macropads automatically, sorted by USB physical path with numbered headings such as `[1] XFKEY One Key Max (0112)`, `[2] CH57x Macropad (1189:8890)`, `[3] CH57x Macropad (514c:8851)`, `[4] CH57x Macropad (514c:8850)`, and `[5] SayoDevice 2x3P (8089:000c)`.
+For each device, `wonkey` shows its USB path, layout where readable, supported commands, and current settings (decoded action and RGB lighting on `0112`, layout and Layer 1 key/knob bindings on `514c:8851` and `514c:8850`, key bindings and RGB lighting on `8089:000c`, or `Settings   Write-only (not readable over USB)` on `1189:8890`, plus `Input hex` when a 65-byte report ID 3 reply is returned). Stock write-only `1189:8890` firmware returns a 1-byte `0xaa` status reply, which WonKey accepts alongside 65-byte report ID 3 replies.
 
 Bind keys, rotary knobs, and key triggers:
 
@@ -92,7 +95,7 @@ wonkey trigger release
 ```
 
 A key expression is the **complete combination**. `key f13` clears all modifiers and preserves an existing keyboard trigger (or defaults to `press` when replacing another action).
-On multi-control pads (`1189:8890`), `key`, `macro`, `mouse`, and `media` accept an optional `[CONTROL]` (`key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right`, defaulting to `key1`) before the action argument and an optional `--layer <1..15>` flag (defaulting to `1`). Single-key pads (`0112`) reject `[CONTROL]` and `--layer` with a capability error.
+On multi-control pads (`1189:8890`, `514c:8851`, `514c:8850`, and `8089:000c`), `key`, `macro`, `mouse`, and `media` accept an optional `[CONTROL]` (`key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob4-right`, validated per device and defaulting to `key1`) before the action argument and an optional `--layer` flag (`1..15` on CH57x pads, `1..5` on `8089:000c`, defaulting to `1`). Single-key pads (`0112`) reject `[CONTROL]` and `--layer` with a capability error.
 Use `wonkey trigger <press|release|both>` on devices that support key triggers (`0112`) to change when a configured keyboard key fires.
 
 Names ignore letter case. `A` means the same key as `a`, without an implied <kbd>Shift</kbd>.
@@ -123,9 +126,9 @@ wonkey led cycle
 wonkey led off
 ```
 
-`wonkey rgb` sets 24-bit RGB modes on devices with addressable RGB (`0112`). `static`, `breathe`, `flash`, `held`, and `toggle` accept an optional colour: six hexadecimal digits without `#`.
+`wonkey rgb` sets 24-bit RGB modes on devices with addressable RGB (`0112` and `8089:000c`). `static`, `breathe`, `flash`, `held`, and `toggle` (on `0112`) accept an optional colour: six hexadecimal digits without `#`.
 Omit the colour to preserve it. `cycle-slow`, `cycle-fast`, and `off` do not use a colour and reject supplied colours.
-`wonkey led` sets LED backlight modes (`off`, `reactive`, or `cycle`) on CH57x macropads (`1189:8890`).
+`wonkey led` sets LED backlight modes (`off`, `reactive`, or `cycle`) on CH57x macropads (`1189:8890`, `514c:8851`, and `514c:8850`).
 Each lighting command rejects unsupported devices with a hint to use the device's supported lighting command (`wonkey led` or `wonkey rgb`), and preserves key settings.
 
 ## Writing settings

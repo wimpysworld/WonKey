@@ -10,6 +10,7 @@ const (
 	KriomantFE Variant = "kriomant-88aaa564-fe"
 	K884xFE    Variant = "k884x-fe"
 	K884xFD    Variant = "k884x-fd"
+	SayoV2     Variant = "sayo-v2"
 )
 
 type Control string
@@ -102,11 +103,12 @@ var k884xCanonicalSlots = map[Control]byte{
 }
 
 type Profile struct {
-	VID          uint16
-	PID          uint16
-	Variant      Variant
-	Layer        int
-	ControlSlots map[Control]byte
+	VID               uint16
+	PID               uint16
+	Variant           Variant
+	Layer             int
+	BothDefaultLayers bool
+	ControlSlots      map[Control]byte
 }
 
 // ThreeKeyOneKnob returns an independent 1189:8890 profile.
@@ -198,6 +200,26 @@ func K884xProfile(pid uint16, kind, layer int) Profile {
 			Knob3Press: 23,
 			Knob3Right: 24,
 		},
+	}
+}
+
+// SayoProfile returns an 8089:000c SayoDevice v2 profile for the given key count and layer.
+func SayoProfile(keys, layer int, bothDefaultLayers bool) Profile {
+	allKeys := [...]Control{Key1, Key2, Key3, Key4, Key5, Key6, Key7, Key8, Key9, Key10, Key11, Key12}
+	if keys < 1 || keys > len(allKeys) {
+		keys = 6
+	}
+	slots := make(map[Control]byte, keys)
+	for i := range keys {
+		slots[allKeys[i]] = byte(i + 1)
+	}
+	return Profile{
+		VID:               0x8089,
+		PID:               0x000c,
+		Variant:           SayoV2,
+		Layer:             layer,
+		BothDefaultLayers: bothDefaultLayers,
+		ControlSlots:      slots,
 	}
 }
 
@@ -293,6 +315,14 @@ func (p Profile) validate() error {
 		if p.VID != 0x514c || (p.PID != 0x8851 && p.PID != 0x8850) || !validK884xControlSlots(p.ControlSlots) {
 			return fmt.Errorf("unsupported CH57 profile %04x:%04x or control slots", p.VID, p.PID)
 		}
+	case SayoV2:
+		if p.VID != 0x8089 || p.PID != 0x000c || !validSayoControlSlots(p.ControlSlots) {
+			return fmt.Errorf("unsupported CH57 profile %04x:%04x or control slots", p.VID, p.PID)
+		}
+		if p.Layer < 0 || p.Layer > 5 {
+			return fmt.Errorf("unsupported CH57 layer %d", p.Layer)
+		}
+		return nil
 	default:
 		return fmt.Errorf("unsupported CH57 variant %q", p.Variant)
 	}
@@ -300,6 +330,21 @@ func (p Profile) validate() error {
 		return fmt.Errorf("unsupported CH57 layer %d", p.Layer)
 	}
 	return nil
+}
+
+func validSayoControlSlots(slots map[Control]byte) bool {
+	if len(slots) == 0 || len(slots) > 12 {
+		return false
+	}
+	var seen [22]bool
+	for control, slot := range slots {
+		canonical, ok := k8890CanonicalSlots[control]
+		if !ok || canonical > 12 || slot != canonical || seen[slot] {
+			return false
+		}
+		seen[slot] = true
+	}
+	return contiguousButtons(seen)
 }
 
 func validK884xControlSlots(slots map[Control]byte) bool {

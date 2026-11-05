@@ -1565,3 +1565,131 @@ func TestPublic514CReadValidationAndWrite(t *testing.T) {
 		}
 	})
 }
+
+func TestPublicSayo000CReadValidationAndWrite(t *testing.T) {
+	cSayo := ch57.DiscoveredCandidate{
+		Candidate:    ch57.Candidate{PhysicalPath: "7-1.4.3.4", VID: 0x8089, PID: 0x000c},
+		BusNumber:    7,
+		DeviceNumber: 12,
+	}
+	probeSayo := func(_ string, _ string, _ ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
+		bindings := map[byte]ch57.SlotBinding{
+			1: {Slot: 1, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x1e}}},
+			2: {Slot: 2, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x1f}}},
+			3: {Slot: 3, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x20}}},
+			4: {Slot: 4, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x21}}},
+			5: {Slot: 5, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x22}}},
+			6: {Slot: 6, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x23}}},
+		}
+		var layerBindings [5]map[byte]ch57.SlotBinding
+		layerBindings[0] = bindings
+		layerBindings[1] = bindings
+		return ch57.ProbeResult{
+			Status: ch57.ProbeRawReport,
+			Layout: &ch57.LayoutInfo{
+				Keys:          6,
+				Knobs:         0,
+				Bindings:      bindings,
+				LayerBindings: layerBindings,
+				RGBMode:       "held",
+				RGBColour:     "#404040",
+			},
+		}, nil
+	}
+
+	t.Run("bare-read-card", func(t *testing.T) {
+		access := ch57TestAccess(t)
+		access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
+			return []ch57.DiscoveredCandidate{cSayo}, nil
+		}
+		access.probeCH57 = probeSayo
+		var out, diag bytes.Buffer
+		if err := runPublic(nil, &cliRuntime{strings.NewReader(""), &out, &diag}, access); err != nil {
+			t.Fatalf("err=%v diag=%q", err, diag.String())
+		}
+		want := "1️⃣ WonKey\n\n" +
+			"[1] SayoDevice 2x3P (8089:000c)\n" +
+			"  USB path   7-1.4.3.4\n" +
+			"  Layout     6 keys\n" +
+			"  Supports   key, mouse, media, macro, rgb\n" +
+			"  key1       1\n" +
+			"  key2       2\n" +
+			"  key3       3\n" +
+			"  key4       4\n" +
+			"  key5       5\n" +
+			"  key6       6\n" +
+			"  Mode       held\n" +
+			"  Colour     #404040\n"
+		if out.String() != want {
+			t.Fatalf("got:\n%s\nwant:\n%s", out.String(), want)
+		}
+	})
+
+	t.Run("capability-and-control-gating", func(t *testing.T) {
+		for _, tc := range []struct {
+			args []string
+			want string
+		}{
+			{[]string{"key", "key7", "f13"}, "SayoDevice 2x3P (8089:000c) has 6 keys; key7 is not available"},
+			{[]string{"key", "key12", "f13"}, "SayoDevice 2x3P (8089:000c) has 6 keys; key12 is not available"},
+			{[]string{"media", "knob1-left", "volumeup"}, "SayoDevice 2x3P (8089:000c) has 0 knobs; knob1-left is not available"},
+			{[]string{"mouse", "knob-press", "left"}, "SayoDevice 2x3P (8089:000c) has 0 knobs; knob-press is not available"},
+			{[]string{"key", "key1", "f13", "--layer", "6"}, "SayoDevice 2x3P (8089:000c) supports layers 1..5 only"},
+			{[]string{"led", "reactive"}, `SayoDevice 2x3P (8089:000c) does not support led; use "wonkey rgb" instead`},
+			{[]string{"trigger", "release"}, "SayoDevice 2x3P (8089:000c) does not support trigger (key release triggers)"},
+			{[]string{"macro", "a,b,c,d"}, "SayoDevice 2x3P (8089:000c) supports up to 3 strokes per macro"},
+			{[]string{"macro", "ctrl+a,ctrl+b,c"}, "SayoDevice 2x3P (8089:000c) does not support modifiers on strokes 2..3 of a 3-stroke macro"},
+			{[]string{"macro", "a,b", "--interval", "50"}, "SayoDevice 2x3P (8089:000c) does not support --interval or --repeat"},
+			{[]string{"rgb", "toggle"}, `SayoDevice 2x3P (8089:000c) does not support RGB mode "toggle"`},
+		} {
+			access := ch57TestAccess(t)
+			access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
+				return []ch57.DiscoveredCandidate{cSayo}, nil
+			}
+			access.probeCH57 = probeSayo
+			var out, diag bytes.Buffer
+			err := runPublic(tc.args, &cliRuntime{strings.NewReader(""), &out, &diag}, access)
+			if err == nil || err.Error() != tc.want || !strings.Contains(strings.ReplaceAll(diag.String(), "\n", " "), tc.want) {
+				t.Fatalf("args=%v err=%v diag=%q want=%q", tc.args, err, diag.String(), tc.want)
+			}
+		}
+	})
+
+	t.Run("live-programming", func(t *testing.T) {
+		for _, tc := range []struct {
+			args          []string
+			wantChange    string
+			wantCount     int
+			wantCmdID     byte
+			wantLayerMask byte
+		}{
+			{[]string{"key", "key1", "f13"}, "  key1: 1 -> f13\n", 2, 0x10, 0x03},
+			{[]string{"key", "key2", "ctrl+f13", "--layer", "2"}, "  key2 (layer 2): 2 -> ctrl+f13\n", 2, 0x10, 0x02},
+			{[]string{"macro", "key3", "ctrl+c,ctrl+v"}, "  key3: 3 -> ctrl+c,ctrl+v\n", 2, 0x10, 0x03},
+			{[]string{"mouse", "key4", "left"}, "  key4: 4 -> mouse left (x=0, y=0, wheel=0)\n", 2, 0x10, 0x03},
+			{[]string{"media", "key5", "volumeup"}, "  key5: 5 -> media volumeup (0x00e9)\n", 2, 0x10, 0x03},
+			{[]string{"rgb", "static", "0000ff"}, "  lighting: held -> static\n  colour: #404040 -> #0000FF\n", 7, 0x11, 0x00},
+			{[]string{"rgb", "breathe"}, "  lighting: held -> breathe\n", 7, 0x11, 0x01},
+			{[]string{"rgb", "off"}, "  lighting: held -> off\n  colour: #404040 -> #000000\n", 7, 0x11, 0x00},
+		} {
+			access := ch57TestAccess(t)
+			access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
+				return []ch57.DiscoveredCandidate{cSayo}, nil
+			}
+			access.probeCH57 = probeSayo
+			var written []ch57.Report
+			access.applyCH57 = func(_ string, _ string, _ ch57.DiscoveredCandidate, reports []ch57.Report) (ch57.ApplyResult, error) {
+				written = reports
+				return ch57.ApplyResult{WriteAttempted: true, ReportsWritten: len(reports)}, nil
+			}
+			var out, diag bytes.Buffer
+			if err := runPublic(tc.args, &cliRuntime{strings.NewReader(""), &out, &diag}, access); err != nil {
+				t.Fatalf("args=%v err=%v diag=%q", tc.args, err, diag.String())
+			}
+			if !strings.Contains(out.String(), tc.wantChange) || !strings.Contains(out.String(), "Settings saved to SayoDevice 2x3P.\n") ||
+				len(written) != tc.wantCount || written[0][0] != 0x21 || written[0][6] != tc.wantCmdID || written[0][8] != tc.wantLayerMask {
+				t.Fatalf("args=%v out=%q written=%x", tc.args, out.String(), written)
+			}
+		}
+	})
+}

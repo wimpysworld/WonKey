@@ -26,6 +26,11 @@ const candidate8850USBDescriptor = "\x12\x01\x10\x01\x00\x00\x00\x40\x4c\x51\x50
 	"\x09\x04\x00\x00\x02\x03\x00\x00\x00\x09\x21\x11\x01\x00\x01\x22\x24\x00\x07\x05\x84\x03\x40\x00\x01\x07\x05\x04\x03\x40\x00\x01" +
 	"\x09\x04\x01\x00\x01\x03\x01\x01\x00\x09\x21\x01\x02\x00\x01\x22\xcf\x00\x07\x05\x82\x03\x10\x00\x01"
 
+const candidateSayo000CUSBDescriptor = "\x12\x01\x10\x01\x00\x00\x00\x40\x89\x80\x0c\x00\x9a\x08\x01\x02\x03\x01" +
+	"\x09\x02\x42\x00\x02\x01\x00\xe0\x32" +
+	"\x09\x04\x00\x00\x01\x03\x01\x01\x00\x09\x21\x10\x01\x00\x01\x22\x41\x00\x07\x05\x81\x03\x08\x00\x01" +
+	"\x09\x04\x01\x00\x02\x03\x00\x00\x00\x09\x21\x11\x01\x00\x01\x22\x9a\x00\x07\x05\x82\x03\x40\x00\x01\x07\x05\x03\x03\x40\x00\x01"
+
 var physicalUSBPath = regexp.MustCompile(`^[1-9][0-9]*-[1-9][0-9]*(\.[1-9][0-9]*)*$`)
 
 // Candidate is a provisional USB structure match, not firmware identification.
@@ -69,7 +74,8 @@ func MatchCandidate(physicalPath string, descriptors []byte) (Candidate, error) 
 	raw := string(descriptors)
 	is8890 := len(descriptors) == len(candidateUSBDescriptor) && raw == candidateUSBDescriptor
 	is514C := len(descriptors) == len(candidate8851USBDescriptor) && (raw == candidate8851USBDescriptor || raw == candidate8850USBDescriptor)
-	if !is8890 && !is514C {
+	isSayo := len(descriptors) == len(candidateSayo000CUSBDescriptor) && raw == candidateSayo000CUSBDescriptor
+	if !is8890 && !is514C && !isSayo {
 		return Candidate{}, fmt.Errorf("USB descriptors do not match a supported CH57x candidate structure")
 	}
 	candidate := Candidate{
@@ -82,6 +88,11 @@ func MatchCandidate(physicalPath string, descriptors []byte) (Candidate, error) 
 	if is514C {
 		candidate.Interfaces[0] = parseCandidateInterface(descriptors[27:59])
 		candidate.Interfaces[1] = parseCandidateInterface(descriptors[59:84])
+		return candidate, nil
+	}
+	if isSayo {
+		candidate.Interfaces[0] = parseCandidateInterface(descriptors[27:52])
+		candidate.Interfaces[1] = parseCandidateInterface(descriptors[52:84])
 		return candidate, nil
 	}
 	for i := range candidate.Interfaces {
