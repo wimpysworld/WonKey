@@ -125,7 +125,7 @@ wonkey led cycle
 wonkey led off
 ```
 
-`wonkey rgb` sets 24-bit RGB modes on devices with addressable RGB (`0112` and `8089:000c`). `static`, `breathe`, `flash`, `held`, and `toggle` (on `0112`) accept an optional colour: six hexadecimal digits without `#`.
+`wonkey rgb` sets 24-bit RGB modes on XFKEY One Key Max (`0112`) and supported SayoDevice macropads (`8089:0002..0005`, `0009..000c`, `000e`). `static`, `breathe`, `flash`, `held`, and `toggle` (on `0112`) accept an optional colour: six hexadecimal digits without `#`.
 Omit the colour to preserve it. `cycle-slow`, `cycle-fast`, and `off` do not use a colour and reject supplied colours.
 `wonkey led` sets LED backlight modes (`off`, `reactive`, or `cycle`) on CH57x macropads (`1189:8890`, `514c:8851`, and `514c:8850`).
 Each lighting command rejects unsupported devices with a hint to use the device's supported lighting command (`wonkey led` or `wonkey rgb`), and preserves key settings.
