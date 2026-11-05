@@ -6,9 +6,8 @@ import (
 	"regexp"
 )
 
-// This is the USB descriptor structure published at
-// https://github.com/the-via/keyboards/issues/2169, not a device capture.
-// Exact matching deliberately excludes other 1189:8890 layouts and revisions.
+// candidateUSBDescriptor is the reference 1189:8890 USB descriptor structure
+// published at https://github.com/the-via/keyboards/issues/2169, not a device capture.
 const candidateUSBDescriptor = "\x12\x01\x10\x01\x00\x00\x00\x08\x89\x11\x90\x88\x00\x00\x00\x00\x00\x01" +
 	"\x09\x02\x6d\x00\x04\x01\x00\xa0\x32" +
 	"\x09\x04\x00\x00\x01\x03\x01\x01\x00\x09\x21\x11\x01\x00\x01\x22\x40\x00\x07\x05\x81\x03\x40\x00\x0a" +
