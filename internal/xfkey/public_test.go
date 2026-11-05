@@ -815,16 +815,23 @@ func TestPublicCH57Selection(t *testing.T) {
 			}
 			if tc.count > 0 {
 				for i, candidate := range candidates[:tc.count] {
-					wantTexts := []string{fmt.Sprintf("[%d] CH57x Macropad (1189:8890)", i+1), candidate.PhysicalPath, "3-key / 1-knob up to 12-key / 3-knob", "key1..key12, knob-left/press/right, knob1..knob3, layers 1..15", "Not readable over USB", "Supports   key, mouse, media, macro, led"}
-					if tc.shortReply {
-						wantTexts = append(wantTexts, "Connected (write-only firmware)")
-					} else {
-						wantTexts = append(wantTexts, "Connected", "03"+strings.Repeat("ab", 64))
+					wantTexts := []string{
+						fmt.Sprintf("[%d] CH57x Macropad (1189:8890)", i+1),
+						candidate.PhysicalPath,
+						"Supports   key, mouse, media, macro, led\n  Settings   Write-only (not readable over USB)",
+					}
+					if !tc.shortReply {
+						wantTexts = append(wantTexts, "03"+strings.Repeat("ab", 64))
 					}
 					for _, text := range wantTexts {
 						if !strings.Contains(out.String(), text) {
 							t.Fatal("missing output", text, out.String())
 						}
+					}
+				}
+				for _, unwanted := range []string{"Layout", "Controls", "Status", "Connected"} {
+					if strings.Contains(out.String(), unwanted) {
+						t.Fatal("unexpected CH57 card field", unwanted, out.String())
 					}
 				}
 				if tc.shortReply {
@@ -885,9 +892,14 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 			t.Fatalf("err=%v queried=%d probed=%d out=%q", err, queried, probed, out.String())
 		}
 		checkPublicHeader(t, out.String())
-		for _, text := range []string{"[1] XFKEY One Key Max (0112)", "1-1", "Supports   key, trigger, mouse, media, macro, rgb", "Key        enter", "On         press", "Mode       cycle-slow", "Colour     #FFFFFF", "[2] CH57x Macropad (1189:8890)", "3-key / 1-knob up to 12-key / 3-knob", "Connected (write-only firmware)", "Not readable over USB", "Supports   key, mouse, media, macro, led", "1-2"} {
+		for _, text := range []string{"[1] XFKEY One Key Max (0112)", "1-1", "Supports   key, trigger, mouse, media, macro, rgb", "Key        enter", "On         press", "Mode       cycle-slow", "Colour     #FFFFFF", "[2] CH57x Macropad (1189:8890)", "1-2", "Supports   key, mouse, media, macro, led\n  Settings   Write-only (not readable over USB)"} {
 			if !strings.Contains(out.String(), text) {
 				t.Fatal("missing mixed read entry", text, out.String())
+			}
+		}
+		for _, unwanted := range []string{"Identifier", "Version", "Layout", "Controls", "Status", "Connected"} {
+			if strings.Contains(out.String(), unwanted) {
+				t.Fatal("unexpected field in mixed read", unwanted, out.String())
 			}
 		}
 		if strings.Contains(out.String(), "Select a device") {
@@ -1161,10 +1173,13 @@ func TestPublicCH57ProbeFailures(t *testing.T) {
 			if !errors.Is(err, failure) || ExitCode(err) != 1 || probes != 1 || !strings.Contains(diagnostic.String(), failure.Error()) {
 				t.Fatal(err, probes, diagnostic.String())
 			}
-			for _, text := range []string{"[1] CH57x Macropad (1189:8890)", "1-2", "3-key / 1-knob up to 12-key / 3-knob", string(result.Status)} {
+			for _, text := range []string{"[1] CH57x Macropad (1189:8890)", "1-2", "Supports   key, mouse, media, macro, led", string(result.Status)} {
 				if !strings.Contains(out.String(), text) {
 					t.Fatal("missing failure output", text, out.String())
 				}
+			}
+			if result.ReportDescriptor != nil && (!strings.Contains(out.String(), "Descriptor bytes 3") || !strings.Contains(out.String(), fmt.Sprintf("%x", result.ReportDescriptor))) {
+				t.Fatal("missing descriptor diagnostic", out.String())
 			}
 			if result.Raw != nil && (!strings.Contains(out.String(), "Input bytes 2") || !strings.Contains(out.String(), fmt.Sprintf("%x", result.Raw))) {
 				t.Fatal("missing input diagnostic", out.String())
@@ -1174,7 +1189,7 @@ func TestPublicCH57ProbeFailures(t *testing.T) {
 }
 
 func TestPublicCH57OutputFailure(t *testing.T) {
-	for _, needle := range []string{"[1] CH57x Macropad (1189:8890)", "USB path", "Layout", "Controls", "Status", "Settings", "Supports", "Input hex"} {
+	for _, needle := range []string{"[1] CH57x Macropad (1189:8890)", "USB path", "Supports", "Settings", "Input hex"} {
 		for _, short := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/short=%v", needle, short), func(t *testing.T) {
 				access := ch57TestAccess(t)
@@ -1194,7 +1209,7 @@ func TestPublicCH57OutputFailure(t *testing.T) {
 					want = io.ErrShortWrite
 				}
 				wantProbes := 0
-				if needle == "Status" || needle == "Settings" || needle == "Supports" || needle == "Input hex" {
+				if needle == "Settings" || needle == "Input hex" {
 					wantProbes = 1
 				}
 				if !errors.Is(err, want) || probes != wantProbes || input.Len() != len("1\n") {
@@ -1279,8 +1294,6 @@ func TestPublicUnknownConfiguration(t *testing.T) {
 				if query {
 					want := fmt.Sprintf("1️⃣ WonKey\n\n[1] XFKEY One Key Max (0112)\n"+
 						"  USB path   synthetic\n"+
-						"  Identifier be077ba2\n"+
-						"  Version    1014\n"+
 						"  Supports   key, trigger, mouse, media, macro, rgb\n"+
 						"  Layout     Unknown (unsupported configuration)\n"+
 						"  Raw type   0x%02x (byte 0)\n  Raw 0-15   %x\n"+
@@ -1332,8 +1345,6 @@ func TestPublicSupportedQueryOutput(t *testing.T) {
 	err := runPublic(nil, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
 	want := "1️⃣ WonKey\n\n[1] XFKEY One Key Max (0112)\n" +
 		"  USB path   synthetic\n" +
-		"  Identifier be077ba2\n" +
-		"  Version    1014\n" +
 		"  Supports   key, trigger, mouse, media, macro, rgb\n" +
 		"  Key        ctrl+shift+enter\n" +
 		"  On         press\n" +

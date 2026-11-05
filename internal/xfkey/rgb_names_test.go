@@ -48,7 +48,7 @@ func TestPublicRGBNamesRoundTrip(t *testing.T) {
 				}
 			}
 			var output bytes.Buffer
-			command.showCurrentSettings(changed, Candidate{}, 1, ApplyTarget{}, newHuman(&output))
+			command.showCurrentSettings(changed, Candidate{}, 1, newHuman(&output))
 			if !strings.Contains(output.String(), fmt.Sprintf("  %-10s %s\n", "Mode", mode.name)) {
 				t.Fatal(output.String())
 			}

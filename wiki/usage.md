@@ -17,13 +17,13 @@ WonKey verifies all 128 configuration bytes in memory after each settings upload
 ```
 
 Bare `wonkey` discovers and inspects all compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices automatically without prompting for selection, sorted deterministically by USB physical path (`[1]`, `[2]`, and so on).
-On each XFKEY One Key Max (`0112`), the section heading is `[N] XFKEY One Key Max (0112)` and `wonkey` shows the physical USB path, identifier, version, `Supports` (`key, trigger, mouse, media, macro, rgb`), the keyboard combination and trigger (or the current typed action), and the RGB mode and configured colour.
+On each XFKEY One Key Max (`0112`), the section heading is `[N] XFKEY One Key Max (0112)` and `wonkey` shows the physical USB path, `Supports` (`key, trigger, mouse, media, macro, rgb`), the keyboard combination and trigger (or the current typed action), and the RGB mode and configured colour.
 For an unsupported `0112` configuration, bare `wonkey` instead shows an explicit unknown layout.
 It shows the raw type at byte 0 and configuration bytes 0 to 15 as hexadecimal.
 It does not decode key, trigger, lighting, mouse, media, or macro fields from an unknown layout.
 This read-only display does not enable changes. Live writes remain blocked for unsupported configurations.
 
-On each CH57x Macropad (`1189:8890`) device, the section heading is `[N] CH57x Macropad (1189:8890)` and bare `wonkey` shows the USB path, layout, connection status, that settings are not readable over USB, `Controls` (`key1..key12, knob-left/press/right, knob1..knob3, layers 1..15`), and `Supports` (`key, mouse, media, macro, led`).
+On each CH57x Macropad (`1189:8890`) device, the section heading is `[N] CH57x Macropad (1189:8890)` and bare `wonkey` shows the USB path, `Supports` (`key, mouse, media, macro, led`), and `Settings   Write-only (not readable over USB)` (plus `Input hex` when a 65-byte report ID 3 reply is returned).
 The USB check requests Input report ID 3.
 Stock `1189:8890` write-only firmware returns a 1-byte `0xaa` status response to `GET_REPORT`. WonKey accepts that 1-byte `0xaa` status (exit 0) alongside 65-byte report ID 3 replies.
 When a CH57x Macropad (`1189:8890`) is selected for a write command, WonKey checks per-device capabilities first (accepting optional `[CONTROL]` in `key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right` defaulting to `key1` and `--layer <1..15>` defaulting to `1` on `key`, `macro`, `mouse`, and `media`, and rejecting `trigger`, keys outside `0x04..0x73`, `macro` options `--interval` or `--repeat`, sequences over 5 strokes, `rgb` with a hint to use `wonkey led`, and unsupported media usages) before refusing live writes on `1189:8890`.

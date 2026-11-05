@@ -959,27 +959,27 @@ func (c publicCommand) runCH57Selected(selected ch57.DiscoveredCandidate, device
 	const sysRoot, devRoot = "/sys/bus/usb/devices", "/dev/bus/usb"
 	h.heading(fmt.Sprintf("[%d] CH57x Macropad (1189:8890)", deviceID))
 	h.field("USB path", selected.PhysicalPath)
-	h.field("Layout", "3-key / 1-knob up to 12-key / 3-knob")
-	h.field("Controls", "key1..key12, knob-left/press/right, knob1..knob3, layers 1..15")
+	h.field("Supports", "key, mouse, media, macro, led")
 	if h.out.err != nil {
 		return h.out.err
 	}
 	result, err := access.probeCH57(sysRoot, devRoot, selected)
-	shortAA := err == nil && result.Count == 1 && len(result.Raw) == 1 && result.Raw[0] == 0xaa
 	if err == nil {
-		if shortAA {
-			h.field("Status", "Connected (write-only firmware)")
-			h.field("Settings", "Not readable over USB")
-			h.field("Supports", "key, mouse, media, macro, led")
-		} else if result.Status == ch57.ProbeRawReport {
-			h.field("Status", "Connected")
-			h.field("Settings", "Not readable over USB")
-			h.field("Supports", "key, mouse, media, macro, led")
-			h.field("Input hex", hex.EncodeToString(result.Raw))
+		if result.Count == 1 && len(result.Raw) == 1 && result.Raw[0] == 0xaa {
+			h.field("Settings", "Write-only (not readable over USB)")
+			return h.out.err
 		}
-		return h.out.err
+		if result.Status == ch57.ProbeRawReport {
+			h.field("Settings", "Write-only (not readable over USB)")
+			h.field("Input hex", hex.EncodeToString(result.Raw))
+			return h.out.err
+		}
 	}
 	h.field("Status", string(result.Status))
+	if result.ReportDescriptor != nil || result.ReportDescriptorCount != 0 {
+		h.field("Descriptor bytes", strconv.Itoa(result.ReportDescriptorCount))
+		h.field("Descriptor hex", hex.EncodeToString(result.ReportDescriptor))
+	}
 	if result.Raw != nil || result.Count != 0 || result.Status == ch57.ProbeTransferFailed {
 		h.field("Input bytes", strconv.Itoa(result.Count))
 		h.field("Input hex", hex.EncodeToString(result.Raw))
@@ -987,11 +987,9 @@ func (c publicCommand) runCH57Selected(selected ch57.DiscoveredCandidate, device
 	return errors.Join(err, h.out.err)
 }
 
-func (c publicCommand) showCurrentSettings(current configuration, selected Candidate, deviceID int, target ApplyTarget, h human) {
+func (c publicCommand) showCurrentSettings(current configuration, selected Candidate, deviceID int, h human) {
 	h.heading(fmt.Sprintf("[%d] XFKEY One Key Max (0112)", deviceID))
 	h.field("USB path", selected.PhysicalPath)
-	h.field("Identifier", target.Identifier)
-	h.field("Version", target.Version)
 	h.field("Supports", "key, trigger, mouse, media, macro, rgb")
 	if c.supportedConfiguration(current) != nil {
 		h.field("Layout", "Unknown (unsupported configuration)")
@@ -1057,7 +1055,7 @@ func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, d
 	}
 	copy(current[:], raw)
 	if c.isReadOnly() {
-		c.showCurrentSettings(current, selected, deviceID, target, h)
+		c.showCurrentSettings(current, selected, deviceID, h)
 		return h.out.err
 	}
 	if err := c.supportedConfiguration(current); err != nil {
@@ -1066,7 +1064,7 @@ func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, d
 	if c.name == "trigger" && current[0] != 0 {
 		return fmt.Errorf("trigger requires a configured keyboard key; set one with \"wonkey key\" first")
 	}
-	c.showCurrentSettings(current, selected, deviceID, target, h)
+	c.showCurrentSettings(current, selected, deviceID, h)
 	if h.out.err != nil {
 		return h.out.err
 	}
