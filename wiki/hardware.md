@@ -2,7 +2,7 @@
 
 [Wiki home](Home) · [Usage and configuration](usage)
 
-WonKey configures supported USB macropads on Linux (`XFKEY One Key Max (0112)`, `CH57x Macropad (1189:8890)`, `CH57x Macropad (514c:8851)`, `CH57x Macropad (514c:8850)`, and `SayoDevice 2x3P (8089:000c)`).
+WonKey configures supported USB macropads on Linux (`XFKEY One Key Max (0112)`, `CH57x Macropads (1189 / 514c : 8830..8833, 8840, 8842, 8850, 8851, 8890)`, and `SayoDevice Macropads (8089:0002..0005, 0009..000c, 000e)`).
 `key [CONTROL] <COMBINATION>`, `trigger <press|release|both>`, `macro [CONTROL] <STROKE[,STROKE...]>`, `mouse [CONTROL] <BUTTONS>`, `media [CONTROL] <ACTION|0xHHHH>`, `rgb <MODE> [RGB]`, and `led <MODE>` change settings on supported devices (`[CONTROL]` and `--layer` apply to multi-control devices; `led <MODE>` applies to CH57x devices; `rgb` applies to `0112` and all supported SayoDevice macropads; `trigger` applies to `0112`).
 Bare `wonkey` reads all compatible macropads without modifying them.
 
