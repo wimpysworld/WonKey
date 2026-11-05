@@ -139,7 +139,7 @@ Old public names are not accepted. WonKey has no brightness or speed option.
 
 ## Device selection and verification
 
-WonKey enumerates compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices together and sorts them deterministically by USB physical path (`1-1.2` before `1-1.10` before `2-1`), assigning `1..N` device IDs shown as `[1]`, `[2]`, and so on.
+WonKey enumerates compatible XFKEY One Key Max (`0112`), CH57x Macropads (`1189` / `514c`: `8890`, `8830..8851`), and SayoDevice Macropads (`8089`) together and sorts them deterministically by USB physical path (`1-1.2` before `1-1.10` before `2-1`), assigning `1..N` device IDs shown as `[1]`, `[2]`, and so on.
 Bare `wonkey` inspects all compatible devices without modifying them.
 For changes (`key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, and `led`), one compatible device is selected automatically as `[1]`.
 When multiple compatible devices are connected, pass `--device <N>` (or `--device=<N>`) to select the target device; omitting `--device` or passing an out-of-range number fails before opening any device node.
