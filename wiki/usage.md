@@ -7,8 +7,15 @@ Run command examples from the project root. Device examples are instructions, no
 
 [Read settings](#read-settings) · [Set the key](#set-the-key) · [Mouse, media, and macro actions](#mouse-media-and-macro-actions) · [Lighting](#lighting) · [Device selection](#device-selection-and-verification)
 
-Changes require a supported device (`0112` or `1189:8890`).
-On `0112`, WonKey shows the current-to-proposed diff, skips no-op writes, checks for settings drift before writing, and verifies all 128 configuration bytes in memory after each settings upload.
+WonKey configures supported USB macropads and mini-keyboards on Linux.
+Changes require a supported device (`0112` or `1189:8890`). WonKey validates device capabilities and descriptors before writing, shows the proposed change, and verifies all 128 configuration bytes in memory after each settings upload on devices that support readback (`0112`).
+
+## Supported devices
+
+| Device | USB ID | Controls | Supported Commands | Settings Readback |
+| --- | --- | --- | --- | --- |
+| XFKEY One Key Max (`0112`) | `af88:6688` | 1 key | `key`, `trigger`, `macro`, `mouse`, `media`, `rgb` | Full 128-byte readback |
+| CH57x Macropad | `1189:8890` | Up to 12 keys, 3 knobs, 15 layers | `key`, `macro`, `mouse`, `media`, `led` | Write-only firmware |
 
 ## Read settings
 
@@ -16,7 +23,7 @@ On `0112`, WonKey shows the current-to-proposed diff, skips no-op writes, checks
 ./wonkey
 ```
 
-Bare `wonkey` discovers and inspects all compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices automatically without prompting for selection, sorted deterministically by USB physical path (`[1]`, `[2]`, and so on).
+Bare `wonkey` discovers and inspects all connected supported macropads automatically without prompting for selection, sorted deterministically by USB physical path (`[1]`, `[2]`, and so on).
 On each XFKEY One Key Max (`0112`), the section heading is `[N] XFKEY One Key Max (0112)` and `wonkey` shows the physical USB path, `Supports` (`key, trigger, mouse, media, macro, rgb`), the keyboard combination and trigger (or the current typed action), and the RGB mode and configured colour.
 For an unsupported `0112` configuration, bare `wonkey` instead shows an explicit unknown layout.
 It shows the raw type at byte 0 and configuration bytes 0 to 15 as hexadecimal.
@@ -67,7 +74,7 @@ Use `wonkey trigger <press|release|both> [--device N]` on `0112` to change when 
 Repeated modifiers, unsupported keys, and extra arguments are rejected before device access.
 Key and trigger changes preserve lighting and unrelated bytes. Conversion to or from a keyboard action with `both` is rejected because separate release fields remain uncertain.
 
-Hardware tests confirmed <kbd>F13</kbd> events and persistence, as recorded in [hardware verification](protocol#hardware-verification).
+Hardware tests confirmed <kbd>F13</kbd> events and persistence on XFKEY One Key Max (`0112`) and `key1`..`key3` key bindings on a 3-key, 1-knob CH57x Macropad (`1189:8890`), as recorded in [hardware verification](protocol#hardware-verification).
 All other selectable keys remain hardware-unverified. The captured descriptor confirms that the added usages fit, not that firmware executes them.
 Desktop keymaps can show different symbols for function keys. Check the key name in your target shortcut editor.
 
@@ -91,7 +98,7 @@ The `media` command uses HID consumer page `0x0c`. In contrast, `key mute` uses 
 Mouse values are signed relative movement, not pointer positions. `wheelup` means `+1` and `wheeldown` means `-1`.
 On `0112`, the `macro` key limit stops at configuration byte 119, so bytes 120 to 123 remain unchanged.
 The options accept `--name VALUE` or `--name=VALUE` and each option can appear once. Repeated names, invalid values, and extra actions fail before device access.
-See [wire layouts and evidence](protocol#action-layouts) for the stored fields. Hardware effects and persistence for these three actions remain unverified.
+See [wire layouts and evidence](protocol#action-layouts) for the stored fields. Hardware checks confirmed `knob-left`, `knob-right`, and `knob-press` media volume controls on a 3-key, 1-knob CH57x Macropad (`1189:8890`); other mouse, media, and macro actions remain hardware-unverified.
 
 ## Lighting
 
@@ -112,7 +119,7 @@ These commands change or validate lighting settings:
 `cycle-slow`, `cycle-fast`, and `off` do not use a colour. They reject supplied colours before device access and preserve the stored colour.
 RGB commands preserve the current typed action and unrelated bytes.
 
-`wonkey led <MODE> [--device N]` configures LED backlight mode (`off`, `reactive`, or `cycle`) on CH57x Macropad (`1189:8890`) and is rejected on `0112` with a hint to use `wonkey rgb`.
+`wonkey led <MODE> [--device N]` configures LED backlight mode (`off`, `reactive`, or `cycle`, encoded as mode indices `0`, `1`, and `2`) on CH57x Macropad (`1189:8890`) and is rejected on `0112` with a hint to use `wonkey rgb`. Hardware checks on a 3-key, 1-knob CH57x Macropad (`1189:8890`) confirmed `off`, `reactive`, and `cycle` backlight modes.
 
 | Mode | Description | Stored byte |
 |---|---|---|

@@ -2,8 +2,8 @@
 
 [Wiki home](Home) · [Development](development)
 
-WonKey reads and writes settings through the device's vendor HID interface.
-This reference records reply layouts and the evidence behind the implementation.
+WonKey reads and writes macropad settings through each supported device's USB or vendor HID interface.
+This reference records reply layouts, report encodings, and the evidence behind the implementation.
 
 [Hardware verification](#hardware-verification) · [Reply layout](#reply-layout) · [Action layouts](#action-layouts) · [Source evidence](#evidence)
 
@@ -11,14 +11,26 @@ See [device selection](hardware#device-selection-and-access) for descriptor requ
 
 ## Hardware verification
 
+### XFKEY One Key Max (`0112`)
+
 The authentic user fixture in `internal/xfkey/testdata/hardware-20260911` confirms identify/readback framing on this unit:
 model `0112`, version `1014`, identifier `be077ba2`, <kbd>Enter</kbd> on press without modifiers, and RGB API mode 0 with channels `255,255,255`.
 The four report descriptors also match. Separate user-run tests confirmed upload/commit echoes and full 128-byte readback after <kbd>F13</kbd> and steady-blue changes.
 The user confirmed <kbd>F13</kbd> press/release events, steady-blue RGB, and persistence of both settings after reconnect.
-Other settings and devices remain unverified.
-All other selectable keys, including the added keyboard usages through `0x91`, and all mouse, consumer media, and macro (`03` multi-key) actions remain hardware-unverified.
+All other selectable keys on `0112`, including the added keyboard usages through `0x91`, and all mouse, consumer media, and macro (`03` multi-key) actions on `0112` remain hardware-unverified.
 Existing parser output and fixture metadata retain the status `host-derived, hardware-unverified`.
 The included query fixture does not record the later upload tests.
+
+### CH57x Macropad (`1189:8890`)
+
+Hardware checks on a 3-key, 1-knob CH57x Macropad (`1189:8890`) unit confirmed:
+
+- Inspection via `GET_REPORT` Input report ID 3 returning the 1-byte `0xaa` status response on stock write-only firmware.
+- Keyboard bindings on `key1`..`key3` via report ID `0x03` sequences on interrupt OUT endpoint `0x02`.
+- Rotary knob consumer media actions on `knob-left`, `knob-right`, and `knob-press` (volume down, volume up, and mute).
+- LED backlight modes via `wonkey led` (`off` = `0`, `reactive` = `1`, `cycle` = `2`, encoded with `03 a1 01`, `03 b0 18 <mode>`, and `03 aa a1`).
+
+Other controls (`key4`..`key12`, `knob2`..`knob3`), higher layers (`2..15`), mouse actions, multi-stroke macros, and unverified keyboard/media usages on `1189:8890` remain hardware-unverified.
 
 ## Reply layout
 

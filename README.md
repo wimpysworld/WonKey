@@ -4,18 +4,23 @@
   WonKey
 </h1>
 
-<p align="center"><b>Configure your XFKEY One Key Max on Linux. One key, to rule them all 1️⃣</b></p>
+<p align="center"><b>Macropad configuration tool for Linux. One key, to rule them all 1️⃣</b></p>
 
 <p align="center">Made with 💝 for 🐧</p>
 
-Set a keyboard, relative mouse, consumer media, or macro action, and choose RGB or LED lighting.
+Configure USB macropads and mini-keyboards from one Linux CLI. Inspect connected pads with `wonkey`, bind keys, rotary knobs, multi-stroke macros, consumer media controls, and relative mouse actions, and configure RGB or LED lighting.
 
-WonKey shows the proposed changes and writes settings to XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices.
-
-WonKey discovers compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices automatically. Bare `wonkey` inspects all connected XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices.
+WonKey discovers supported macropads automatically, shows proposed changes before writing, and verifies device descriptors and readback where supported.
 Keyboard actions use one base key with optional <kbd>Ctrl</kbd>, <kbd>Shift</kbd>, <kbd>Alt</kbd>, and <kbd>Super</kbd> modifiers.
 Current source supports letters, digits, function keys, navigation, punctuation names, keypad keys, and other defined keyboard usages through `0x91`.
 See [supported key names and aliases](wiki/usage.md#supported-key-names).
+
+## Supported devices
+
+| Device | USB ID | Controls | Supported Commands | Settings Readback |
+| --- | --- | --- | --- | --- |
+| XFKEY One Key Max (`0112`) | `af88:6688` | 1 key | `key`, `trigger`, `macro`, `mouse`, `media`, `rgb` | Full 128-byte readback |
+| CH57x Macropad | `1189:8890` | Up to 12 keys, 3 knobs, 15 layers | `key`, `macro`, `mouse`, `media`, `led` | Write-only firmware |
 
 ## Get started
 
@@ -62,21 +67,20 @@ wonkey --help
 ```
 
 Help commands do not access the device.
-Your user needs permission to access the XFKEY vendor hidraw node or the CH57 USB device node. WonKey does not install permission rules.
+Your user needs permission to access the macropad's USB or vendor hidraw device node. WonKey does not install permission rules.
 
 ## Make it yours
 
-Read the current settings without changing them:
+Inspect connected macropads and read current settings without changing them:
 
 ```sh
 wonkey
 ```
 
-Bare `wonkey` enumerates and inspects all compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices automatically, sorted by USB physical path with numbered headings such as `[1] XFKEY One Key Max (0112)` and `[2] CH57x Macropad (1189:8890)`.
-On each XFKEY One Key Max (`0112`), `wonkey` shows its USB path, supported commands (`key, trigger, mouse, media, macro, rgb`), configured action, and RGB lighting.
-On each CH57x Macropad (`1189:8890`), `wonkey` shows its USB path, supported commands (`key, mouse, media, macro, led`), and `Settings   Write-only (not readable over USB)` (plus `Input hex` when a 65-byte report ID 3 reply is returned). Stock write-only `1189:8890` firmware returns a 1-byte `0xaa` status reply, which WonKey accepts alongside 65-byte report ID 3 replies.
+Bare `wonkey` enumerates and inspects all connected supported macropads automatically, sorted by USB physical path with numbered headings such as `[1] XFKEY One Key Max (0112)` and `[2] CH57x Macropad (1189:8890)`.
+For each device, `wonkey` shows its USB path, supported commands, and current settings (decoded action and RGB lighting on `0112`, or `Settings   Write-only (not readable over USB)` on `1189:8890`, plus `Input hex` when a 65-byte report ID 3 reply is returned). Stock write-only `1189:8890` firmware returns a 1-byte `0xaa` status reply, which WonKey accepts alongside 65-byte report ID 3 replies.
 
-Set the key combination and keyboard trigger:
+Bind keys, rotary knobs, and key triggers:
 
 ```sh
 wonkey key f13
@@ -88,13 +92,13 @@ wonkey trigger release
 ```
 
 A key expression is the **complete combination**. `key f13` clears all modifiers and preserves an existing keyboard trigger (or defaults to `press` when replacing another action).
-Use `wonkey trigger <press|release|both>` on XFKEY One Key Max (`0112`) to change when a configured keyboard key fires.
-`key`, `macro`, `mouse`, and `media` accept an optional `[CONTROL]` (`key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right`, defaulting to `key1`) before the action argument and an optional `--layer <1..15>` flag (defaulting to `1`) on multi-control CH57x (`1189:8890`) devices. Single-key XFKEY One Key Max (`0112`) devices reject `[CONTROL]` and `--layer` with a capability error.
+On multi-control pads (`1189:8890`), `key`, `macro`, `mouse`, and `media` accept an optional `[CONTROL]` (`key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right`, defaulting to `key1`) before the action argument and an optional `--layer <1..15>` flag (defaulting to `1`). Single-key pads (`0112`) reject `[CONTROL]` and `--layer` with a capability error.
+Use `wonkey trigger <press|release|both>` on devices that support key triggers (`0112`) to change when a configured keyboard key fires.
 
 Names ignore letter case. `A` means the same key as `a`, without an implied <kbd>Shift</kbd>.
 Letters and digits name HID keys, not guaranteed text. The active host layout and modifiers determine the output.
 
-Set a mouse movement, a consumer media action, or a macro key sequence:
+Bind relative mouse actions, consumer media controls, or multi-stroke macros:
 
 ```sh
 wonkey mouse left+right --x -20 --y 10
@@ -106,10 +110,10 @@ wonkey macro a,f13,enter --interval 50 --repeat 2
 wonkey macro key3 ctrl+c,ctrl+v --layer 2
 ```
 
-Mouse coordinates and wheel ticks are relative; omitted values are zero. On `0112`, the `macro` defaults are 50 milliseconds and one repetition for 1 to 115 base keys; `1189:8890` supports 1 to 5 strokes including per-stroke modifiers such as `ctrl+c,ctrl+v`.
+Mouse coordinates and wheel ticks are relative; omitted values are zero. For `macro`, `0112` defaults to 50 milliseconds and one repetition for 1 to 115 base keys, while `1189:8890` supports 1 to 5 strokes including per-stroke modifiers such as `ctrl+c,ctrl+v`.
 See [action syntax and limits](wiki/usage.md#mouse-media-and-macro-actions) before a change.
 
-Choose RGB lighting on `0112` or LED backlight mode on `1189:8890`:
+Configure RGB lighting or LED backlight modes:
 
 ```sh
 wonkey rgb static 0000ff
@@ -119,11 +123,10 @@ wonkey led cycle
 wonkey led off
 ```
 
-`static`, `breathe`, `flash`, `held`, and `toggle` accept an optional colour on `0112`: six hexadecimal digits without `#`.
+`wonkey rgb` sets 24-bit RGB modes on devices with addressable RGB (`0112`). `static`, `breathe`, `flash`, `held`, and `toggle` accept an optional colour: six hexadecimal digits without `#`.
 Omit the colour to preserve it. `cycle-slow`, `cycle-fast`, and `off` do not use a colour and reject supplied colours.
-`wonkey rgb` is supported on `0112` only (rejected on `1189:8890` with a hint to use `wonkey led`).
-`wonkey led` accepts `off`, `reactive`, or `cycle` on `1189:8890` (rejected on `0112` with a hint to use `wonkey rgb`).
-Lighting commands preserve key settings.
+`wonkey led` sets LED backlight modes (`off`, `reactive`, or `cycle`) on CH57x macropads (`1189:8890`).
+Each lighting command rejects unsupported devices with a hint to use the device's supported lighting command (`wonkey led` or `wonkey rgb`), and preserves key settings.
 
 ## Writing settings
 
@@ -136,8 +139,9 @@ On `0112`, if the device state drifts before upload, WonKey stops before it writ
 WonKey checks exact device descriptors for XFKEY One Key Max (`af88:6688`, model `0112`) and CH57x Macropad (`1189:8890`). For `0112`, it rejects unsupported special, macro (`06`), touch, and unknown layouts, rejects `[CONTROL]` and `--layer` (`XFKEY One Key Max (0112) has a single key and does not support ...` / `XFKEY One Key Max (0112) does not support --layer`), and rejects `wonkey led` with a hint to use `wonkey rgb`. For CH57x Macropad (`1189:8890`), WonKey checks that the requested command and options fit CH57x hardware capabilities (optional `[CONTROL]` in `key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right` defaulting to `key1`, `--layer <1..15>` defaulting to `1`, `a-z`, `0-9`, and `f1-f24` usages `0x04..0x73`, no `trigger` command, `macro` up to 5 strokes with optional per-stroke modifiers and without `--interval` or `--repeat`, CH57x-supported consumer media usages, and `led` modes `off`, `reactive`, or `cycle` instead of `rgb`) before showing and writing the settings.
 The `key` names `mute`, `volumeup`, and `volumedown` use keyboard-page usages. The `media` command uses consumer-page usages. Right-hand modifiers are unsupported.
 
-Hardware checks on one `0112` unit confirmed <kbd>F13</kbd> press/release events, steady-blue lighting, and persistence of both settings after reconnect.
-All other selectable keys and the new mouse, media, and macro actions remain hardware-unverified. Descriptor coverage does not prove firmware execution.
+Hardware checks on one XFKEY One Key Max (`0112`) unit confirmed <kbd>F13</kbd> press/release events, steady-blue lighting, and persistence of both settings after reconnect.
+Hardware checks on one 3-key, 1-knob CH57x Macropad (`1189:8890`) unit confirmed `key1`..`key3` key bindings, `knob-left`/`knob-right`/`knob-press` media volume controls, and `led` `off`/`reactive`/`cycle` backlight modes.
+All other selectable keys and unverified mouse, media, and macro actions remain hardware-unverified. Descriptor coverage does not prove firmware execution.
 Other devices and descriptor profiles remain unsupported.
 Configuration readback alone does not prove physical effects or persistence.
 

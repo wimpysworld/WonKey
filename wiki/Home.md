@@ -1,10 +1,19 @@
 # WonKey documentation
 
-WonKey configures the XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices on Linux.
-For XFKEY One Key Max writes, it shows the current-to-proposed diff, checks for settings drift before writing, and verifies all 128 configuration bytes in memory after each write.
+WonKey is a macropad configuration tool for Linux. One key, to rule them all.
+
+Configure supported USB macropads and mini-keyboards from one CLI: inspect connected pads with `wonkey`, bind keys, rotary knobs, multi-stroke macros, consumer media controls, and relative mouse actions, and set RGB or LED lighting.
+WonKey validates device capabilities and descriptors before every write, and verifies all 128 configuration bytes in memory after each write on devices that support readback.
 
 [Build WonKey](https://github.com/wimpysworld/WonKey/blob/main/README.md#get-started), then [read the current settings](usage#read-settings).
 Read [device access requirements](hardware#device-selection-and-access) before a hardware command.
+
+## Supported devices
+
+| Device | USB ID | Controls | Supported Commands | Settings Readback |
+| --- | --- | --- | --- | --- |
+| XFKEY One Key Max (`0112`) | `af88:6688` | 1 key | `key`, `trigger`, `macro`, `mouse`, `media`, `rgb` | Full 128-byte readback |
+| CH57x Macropad | `1189:8890` | Up to 12 keys, 3 knobs, 15 layers | `key`, `macro`, `mouse`, `media`, `led` | Write-only firmware |
 
 ## Use WonKey
 
