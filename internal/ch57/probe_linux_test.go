@@ -1115,6 +1115,9 @@ func TestProbeAndApply514CHidraw(t *testing.T) {
 			if len(txReports) != 2 || txReports[0][1] != 0xfb || !bytes.Equal(txReports[1][:5], tc.wantFA[:]) {
 				t.Fatalf("unexpected probe TX: %x", txReports)
 			}
+			if readIndex != tc.reportCount+1 {
+				t.Fatalf("unexpected probe RX count: got %d, want %d", readIndex, tc.reportCount+1)
+			}
 			b1 := probed.Layout.Bindings[1]
 			if b1.ActionType != SlotActionKeyboard || len(b1.Strokes) != 1 || b1.Strokes[0] != (Stroke{Modifiers: 0, Usage: 0x04}) {
 				t.Fatalf("wrong slot 1 binding: %+v", b1)
