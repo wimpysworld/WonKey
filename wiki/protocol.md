@@ -44,10 +44,12 @@ Hardware checks on a 4-key, 1-knob (`514c:8851`, `kind = 0`) unit and a 12-key, 
 
 Hardware checks on a 6-key SayoDevice 2x3P (`8089:000c`, `bcdDevice = 0x089a`) unit confirmed:
 
-- SayoDevice HID v2 (`Report ID 0x21`, 64-byte packets on interface 1 `hidraw` with 16-bit little-endian word checksum at `pkt[2..3]`), plus HID v1 (`Report ID 0x02` on `0xFF00` with 8-bit sum checksum) for `8089:0002..0005`.
-- Dynamic key and rotary knob (`key_type` `0`, `1`, `2`) discovery and Layer 1..5 slot readback via `cmd_id = 0x10` on v2 (`index = 0..5`, with `index = 6` returning `rx[5] = 0x40`) or `cmd = 0x16` on v1.
-- Per-key RGB lighting readback via `cmd_id = 0x11` on v2 (`index = 0`, factory default `00 01 64 64 40 40 40 00` -> `held`, `#404040`) or `cmd = 0x10` on v1.
-- Read-modify-write programming of `key`, `macro`, `mouse`, `media` (`0x10` / `0x16`) and `rgb` (`0x11` / `0x10`) preserving the button geometry header, committed with Save (`0x0D` on v2, `0x04` on v1).
+- SayoDevice HID v2 (`Report ID 0x21`, 64-byte packets on interface 1 `hidraw` with 16-bit little-endian word checksum at `pkt[2..3]`).
+- Dynamic key and rotary knob (`key_type` `0`, `1`, `2`) discovery and Layer 1..5 slot readback via `cmd_id = 0x10` on v2 (`index = 0..5`, with `index = 6` returning `rx[5] = 0x40`).
+- Per-key RGB lighting readback via `cmd_id = 0x11` on v2 (`index = 0`, factory default `00 01 64 64 40 40 40 00` -> `held`, `#404040`).
+- Read-modify-write programming of `key`, `macro`, `mouse`, `media` (`cmd_id = 0x10`) and `rgb` (`cmd_id = 0x11`) preserving the button geometry header, committed with Save (`cmd_id = 0x0D` on v2).
+
+SayoDevice HID v1 (`Report ID 0x02` on `0xFF00` with 8-bit sum checksum, slot readback and programming via `cmd = 0x16`, RGB readback and programming via `cmd = 0x10`, and Save via `cmd = 0x04` for `8089:0002..0005`) and the other untested PIDs (`8089:0009..000b`, `000e`) are host-derived from protocol documentation and remain hardware-unverified.
 
 ## Reply layout
 
