@@ -295,4 +295,19 @@ func TestProbeAndApplyV1Hidraw(t *testing.T) {
 			t.Fatalf("v1 light record %d not updated: %x", i, lightRecords[i][:16])
 		}
 	}
+
+	readCalls := 0
+	ops.readHidraw = func(_ int, data []byte, _ int) (int, error) {
+		readCalls++
+		if readCalls == 2 {
+			return 0, unix.ETIMEDOUT
+		}
+		reply := pendingReplies[0]
+		pendingReplies = pendingReplies[1:]
+		copy(data, reply[:])
+		return 64, nil
+	}
+	if timedOut, err := ops.probe(root, "/dev/bus/usb", candidate); err == nil || timedOut.Status != ProbeTransferFailed {
+		t.Fatalf("probe v1 timeout on slot 1 = (%+v, %v), want ProbeTransferFailed error", timedOut, err)
+	}
 }

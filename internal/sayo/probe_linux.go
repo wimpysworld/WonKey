@@ -509,9 +509,6 @@ func (ops probeOps) exchangeV1LayoutAndSettings(fd int, result ProbeResult) (Pro
 			}
 		}
 		if err != nil {
-			if index > 0 && errors.Is(err, unix.ETIMEDOUT) {
-				break
-			}
 			return result, fmt.Errorf("read 0x16 key %d reply: %w", index, err)
 		}
 		result.Status = ProbeInvalidReport
