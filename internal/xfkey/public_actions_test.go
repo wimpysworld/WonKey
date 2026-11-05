@@ -14,23 +14,24 @@ import (
 
 func TestPublicActionParser(t *testing.T) {
 	for _, tc := range []struct {
-		args []string
-		want Action
+		args       []string
+		want       Action
+		wantDevice int
 	}{
-		{[]string{"mouse", "none"}, MouseAction{}},
-		{[]string{"mouse", "LEFT+right+middle", "--x", "-127", "--y=127", "--wheel", "-1"}, MouseAction{Buttons: 7, X: -127, Y: 127, Wheel: -1}},
-		{[]string{"mouse", "wheelup"}, MouseAction{Wheel: 1}},
-		{[]string{"mouse", "wheeldown", "--x=1"}, MouseAction{X: 1, Wheel: -1}},
-		{[]string{"media", "0x0001"}, MediaAction{Usage: 1}},
-		{[]string{"media", "0x023C"}, MediaAction{Usage: 0x23c}},
-		{[]string{"multi", "A,escape,arrowup,lang2"}, MultiAction{Interval: 50, Repeat: 1, Keys: []byte{4, 0x29, 0x52, 0x91}}},
-		{[]string{"multi", "f13", "--interval", "1", "--repeat=255"}, MultiAction{Interval: 1, Repeat: 255, Keys: []byte{0x68}}},
-		{[]string{"multi", strings.TrimSuffix(strings.Repeat("lang2,", 115), ","), "--interval=65535", "--repeat", "1"}, MultiAction{Interval: 65535, Repeat: 1, Keys: bytes.Repeat([]byte{0x91}, 115)}},
+		{[]string{"mouse", "none"}, MouseAction{}, 0},
+		{[]string{"mouse", "LEFT+right+middle", "--x", "-127", "--y=127", "--wheel", "-1"}, MouseAction{Buttons: 7, X: -127, Y: 127, Wheel: -1}, 0},
+		{[]string{"mouse", "wheelup"}, MouseAction{Wheel: 1}, 0},
+		{[]string{"mouse", "wheeldown", "--x=1", "--device", "2"}, MouseAction{X: 1, Wheel: -1}, 2},
+		{[]string{"media", "0x0001"}, MediaAction{Usage: 1}, 0},
+		{[]string{"media", "0x023C", "--device=3"}, MediaAction{Usage: 0x23c}, 3},
+		{[]string{"multi", "A,escape,arrowup,lang2"}, MultiAction{Interval: 50, Repeat: 1, Keys: []byte{4, 0x29, 0x52, 0x91}}, 0},
+		{[]string{"multi", "f13", "--interval", "1", "--repeat=255", "--device", "1"}, MultiAction{Interval: 1, Repeat: 255, Keys: []byte{0x68}}, 1},
+		{[]string{"multi", strings.TrimSuffix(strings.Repeat("lang2,", 115), ","), "--interval=65535", "--repeat", "1"}, MultiAction{Interval: 65535, Repeat: 1, Keys: bytes.Repeat([]byte{0x91}, 115)}, 0},
 	} {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
 			got, err := parsePublic(tc.args)
-			if err != nil || !reflect.DeepEqual(got.action, tc.want) {
-				t.Fatalf("action=%#v want=%#v error=%v", got.action, tc.want, err)
+			if err != nil || !reflect.DeepEqual(got.action, tc.want) || got.device != tc.wantDevice {
+				t.Fatalf("action=%#v want=%#v device=%d wantDevice=%d error=%v", got.action, tc.want, got.device, tc.wantDevice, err)
 			}
 		})
 	}
@@ -308,7 +309,7 @@ func TestPublicActionOutput(t *testing.T) {
 		if got := actionDescription(tc.action); got != tc.want {
 			t.Fatalf("got %q, want %q", got, tc.want)
 		}
-		for _, needle := range []string{"XFKEY One Key Max (0112)", "  Action", " -> ", "Save settings?"} {
+		for _, needle := range []string{"[1] XFKEY One Key Max (0112)", "  Action", " -> ", "Save settings?"} {
 			t.Run(tc.want+"/"+needle, func(t *testing.T) {
 				first := newSettingsTransport()
 				first.current = actionConfiguration(t, tc.action)

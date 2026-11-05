@@ -16,14 +16,14 @@ WonKey verifies all 128 configuration bytes in memory after each settings upload
 ./wonkey
 ```
 
-Bare `wonkey` discovers and inspects all compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices automatically without prompting for selection.
-On each XFKEY One Key Max (`0112`), the section heading is `XFKEY One Key Max (0112)` and `wonkey` shows the physical USB path, identifier, version, the keyboard combination and trigger (or the current typed action), and the RGB mode and configured colour.
+Bare `wonkey` discovers and inspects all compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices automatically without prompting for selection, sorted deterministically by USB physical path (`[1]`, `[2]`, and so on).
+On each XFKEY One Key Max (`0112`), the section heading is `[N] XFKEY One Key Max (0112)` and `wonkey` shows the physical USB path, identifier, version, the keyboard combination and trigger (or the current typed action), and the RGB mode and configured colour.
 For an unsupported `0112` configuration, bare `wonkey` instead shows an explicit unknown layout.
 It shows the raw type at byte 0 and configuration bytes 0 to 15 as hexadecimal.
 It does not decode key, trigger, lighting, mouse, media, or multi-key fields from an unknown layout.
 This read-only display does not enable changes. Live writes remain blocked for unsupported configurations.
 
-On each CH57x Macropad (`1189:8890`) device, the section heading is `CH57x Macropad (1189:8890)` and bare `wonkey` shows the USB path, layout, connection status, and that settings are not readable over USB.
+On each CH57x Macropad (`1189:8890`) device, the section heading is `[N] CH57x Macropad (1189:8890)` and bare `wonkey` shows the USB path, layout, connection status, and that settings are not readable over USB.
 The USB check requests Input report ID 3.
 Stock `1189:8890` write-only firmware returns a 1-byte `0xaa` status response to `GET_REPORT`. WonKey accepts that 1-byte `0xaa` status (exit 0) alongside 65-byte report ID 3 replies.
 Live writes are not supported on `1189:8890`.
@@ -120,14 +120,13 @@ Old public names are not accepted. WonKey has no brightness or speed option.
 
 ## Selection and confirmation
 
-WonKey enumerates compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices together.
+WonKey enumerates compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices together and sorts them deterministically by USB physical path (`1-1.2` before `1-1.10` before `2-1`), assigning `1..N` device IDs shown as `[1]`, `[2]`, and so on.
 Bare `wonkey` inspects all compatible devices without a terminal prompt.
-For changes, one compatible device is selected automatically, and multiple matches require a terminal prompt showing each device name, USB physical path, and device node.
-A number selects only the path displayed for this command. It is not a persistent device identifier.
-Blank, invalid, out-of-range, or incomplete selection cancels without opening a device node.
+For changes (`key`, `mouse`, `media`, `multi`, and `rgb`), one compatible device is selected automatically as `[1]`.
+When multiple compatible devices are connected, pass `--device <N>` (or `--device=<N>`) to select the target device; omitting `--device` or passing an out-of-range number fails before opening any device node.
 Without a terminal, all changes are refused before device access.
 
-Live writes are restricted to XFKEY One Key Max (`0112`). Before a change, WonKey reads current settings in memory and shows current-to-proposed values.
+Live writes are restricted to XFKEY One Key Max (`0112`). Before a change, WonKey reads current settings in memory and shows the `[N] XFKEY One Key Max (0112)` heading and current-to-proposed values.
 <!-- markdownlint-disable-next-line MD038 -->
 At `Save settings? [Y/n]: `, press <kbd>Enter</kbd> to accept the default Yes.
 You can also enter `y` or `yes`, ignoring letter case.
@@ -202,7 +201,7 @@ Human output is not a machine-readable contract. Redirected output, `TERM=dumb`,
 True-colour terminals also show a configured RGB swatch. The swatch does not prove the observed LED colour.
 Output escapes control characters in external text.
 
-Public flags are `-h`/`--help`, `key --on`, `mouse --x`/`--y`/`--wheel`, and `multi --interval`/`--repeat`.
-Unknown or retired commands and flags, including `show`, `set`, `advanced`, `apply`, `plan`, `--device`, `--report`, `--json`, `--yes`, and `--dry-run`, fail before hardware access.
+Public flags are `-h`/`--help`, `--device`, `key --on`, `mouse --x`/`--y`/`--wheel`, and `multi --interval`/`--repeat`.
+Unknown or retired commands and flags, including `show`, `set`, `advanced`, `apply`, `plan`, `--report`, `--json`, `--yes`, and `--dry-run`, fail before hardware access.
 There is one executable, `wonkey`. The developer executable, protocol commands, and helper scripts are removed.
 WonKey has no arbitrary packet sender, firmware writer, reset, or bootloader command.

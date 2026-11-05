@@ -72,7 +72,7 @@ Read the current settings without changing them:
 wonkey
 ```
 
-Bare `wonkey` enumerates and inspects all compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices automatically.
+Bare `wonkey` enumerates and inspects all compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices automatically, sorted by USB physical path with numbered headings such as `[1] XFKEY One Key Max (0112)` and `[2] CH57x Macropad (1189:8890)`.
 On each XFKEY One Key Max (`0112`), `wonkey` shows its USB path, identifier, version, configured action, and RGB lighting.
 On each CH57x Macropad (`1189:8890`), `wonkey` shows its USB path, layout, connection status, and that settings are not readable over USB. Stock write-only `1189:8890` firmware returns a 1-byte `0xaa` status reply, which WonKey accepts alongside 65-byte report ID 3 replies.
 
@@ -118,7 +118,7 @@ RGB commands preserve key settings.
 
 ## Before you save
 
-Changes require a terminal and an XFKEY One Key Max (`0112`). When one compatible device is attached, WonKey selects it automatically; when multiple compatible devices are attached, WonKey prompts you to select the device and USB physical path in the terminal. WonKey shows the selected device and current-to-proposed settings before it asks `Save settings? [Y/n]:`.
+Changes require a terminal and an XFKEY One Key Max (`0112`). When one compatible device is attached, WonKey selects it automatically; when multiple compatible devices are attached, pass `--device <N>` using the USB-path-sorted device number from `wonkey` (for example `wonkey key f13 --device 1`). WonKey shows the selected device heading (such as `[1] XFKEY One Key Max (0112)`) and current-to-proposed settings before it asks `Save settings? [Y/n]:`.
 Press <kbd>Enter</kbd> to save, or enter `n` to cancel. Cancellation and unchanged settings send no settings writes.
 
 If the device state changes after the preview, WonKey stops before it writes settings.

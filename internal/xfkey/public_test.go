@@ -83,7 +83,7 @@ func checkPublicOutputFailure(t *testing.T, args []string, input, needle string,
 	if short {
 		want = io.ErrShortWrite
 	}
-	if !out.failed || !errors.Is(err, want) || applied || queried != (!multiple && needle != "") {
+	if !out.failed || !errors.Is(err, want) || applied || queried != (needle != "") {
 		t.Fatalf("output failed=%v error=%v applied=%v queried=%v", out.failed, err, applied, queried)
 	}
 	checkNoUpload(t, first)
@@ -98,10 +98,9 @@ func TestPublicOutputFailure(t *testing.T) {
 			multiple     bool
 		}{
 			{"all-output", "", []string{"key", "f13"}, false},
-			{"selection-heading", "Select a device", []string{"key", "f13"}, true},
-			{"selection-row", "1-3", []string{"key", "f13"}, true},
-			{"selection-prompt", "Device number", []string{"key", "f13"}, true},
-			{"preview-heading", "XFKEY One Key Max (0112)", []string{"key", "f13"}, false},
+			{"second-device-heading", "[2] XFKEY One Key Max (0112)", []string{"key", "f13", "--device", "2"}, true},
+			{"second-device-path", "1-3", []string{"key", "f13", "--device=2"}, true},
+			{"preview-heading", "[1] XFKEY One Key Max (0112)", []string{"key", "f13"}, false},
 			{"preview-field", "USB path", []string{"key", "f13"}, false},
 			{"preview-colour", "Colour", []string{"rgb", "off"}, false},
 			{"changes-heading", "Changes:", []string{"key", "f13"}, false},
@@ -109,11 +108,7 @@ func TestPublicOutputFailure(t *testing.T) {
 			{"confirmation", "Save settings?", []string{"key", "f13"}, false},
 		} {
 			t.Run(fmt.Sprintf("%s/short=%v", tc.name, short), func(t *testing.T) {
-				input := "\n"
-				if tc.multiple {
-					input = "1\n\n"
-				}
-				checkPublicOutputFailure(t, tc.args, input, tc.needle, tc.multiple, short)
+				checkPublicOutputFailure(t, tc.args, "\n", tc.needle, tc.multiple, short)
 			})
 		}
 	}
@@ -121,22 +116,23 @@ func TestPublicOutputFailure(t *testing.T) {
 
 func TestPublicParser(t *testing.T) {
 	for _, tc := range []struct {
-		args []string
-		want Changes
+		args       []string
+		want       Changes
+		wantDevice int
 	}{
-		{nil, nil},
-		{[]string{}, nil},
-		{[]string{"key", "f13"}, Changes{"key": 0x68, "modifiers": 0}},
-		{[]string{"key", "ctrl+shift+f13"}, Changes{"key": 0x68, "modifiers": 3}},
-		{[]string{"key", "alt+super+enter", "--on", "release"}, Changes{"key": 0x28, "modifiers": 12, "trigger": 2}},
-		{[]string{"key", "SUPER+f13"}, Changes{"key": 0x68, "modifiers": 8}},
-		{[]string{"key", "--on=both", "f13"}, Changes{"key": 0x68, "modifiers": 0, "trigger": 3}},
-		{[]string{"key", "f13", "--on", "press"}, Changes{"key": 0x68, "modifiers": 0, "trigger": 1}},
-		{[]string{"rgb", "static", "0000ff"}, Changes{"rgb-mode": 1, "red": 0, "green": 0, "blue": 255}},
+		{nil, nil, 0},
+		{[]string{}, nil, 0},
+		{[]string{"key", "f13"}, Changes{"key": 0x68, "modifiers": 0}, 0},
+		{[]string{"key", "ctrl+shift+f13", "--device", "1"}, Changes{"key": 0x68, "modifiers": 3}, 1},
+		{[]string{"key", "--device=2", "alt+super+enter", "--on", "release"}, Changes{"key": 0x28, "modifiers": 12, "trigger": 2}, 2},
+		{[]string{"key", "SUPER+f13"}, Changes{"key": 0x68, "modifiers": 8}, 0},
+		{[]string{"key", "--on=both", "f13"}, Changes{"key": 0x68, "modifiers": 0, "trigger": 3}, 0},
+		{[]string{"key", "f13", "--on", "press"}, Changes{"key": 0x68, "modifiers": 0, "trigger": 1}, 0},
+		{[]string{"rgb", "static", "0000ff", "--device", "3"}, Changes{"rgb-mode": 1, "red": 0, "green": 0, "blue": 255}, 3},
 	} {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
 			got, err := parsePublic(tc.args)
-			if err != nil || !reflect.DeepEqual(got.changes, tc.want) {
+			if err != nil || !reflect.DeepEqual(got.changes, tc.want) || got.device != tc.wantDevice {
 				t.Fatal(got, err)
 			}
 		})
@@ -302,6 +298,21 @@ func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 		{"rgb", "--report=output"},
 		{"key", "--device"},
 		{"key", "--device="},
+		{"--device", "1"},
+		{"--device=1"},
+		{"key", "f13", "--device", "0"},
+		{"key", "f13", "--device=0"},
+		{"key", "f13", "--device", "-1"},
+		{"key", "f13", "--device", "+1"},
+		{"key", "f13", "--device", "01"},
+		{"key", "f13", "--device", "abc"},
+		{"key", "f13", "--device", "1", "--device", "2"},
+		{"key", "f13", "--device=1", "--device=1"},
+		{"key", "--device", "1"},
+		{"mouse", "--device", "1"},
+		{"media", "--device", "1"},
+		{"multi", "--device", "1"},
+		{"rgb", "--device", "1"},
 		{"key", "--device", "1189:8891"},
 		{"key", "--device=0x1189:0x8890"},
 		{"key", "--device", "1189:8890", "--device=1189:8890"},
@@ -362,19 +373,19 @@ func TestPublicHelpNoAccess(t *testing.T) {
 		if (args[0] == "--help" || args[0] == "-h") && !strings.HasPrefix(out.String(), "1️⃣ WonKey\n\nInspect and configure supported macropads.\n") {
 			t.Fatal(out.String())
 		}
-		for _, removed := range []string{"--device", "--report", "--json", "--yes", "--dry-run", "advanced", "wonkey set", "Apply result", "restore"} {
+		for _, removed := range []string{"--report", "--json", "--yes", "--dry-run", "advanced", "wonkey set", "Apply result", "restore"} {
 			if strings.Contains(out.String(), removed) {
 				t.Fatal(removed, out.String())
 			}
 		}
-		if !strings.Contains(out.String(), "Usage:") || strings.Contains(out.String(), "\x1b") {
+		if !strings.Contains(out.String(), "Usage:") || !strings.Contains(out.String(), "--device N") || strings.Contains(out.String(), "\x1b") {
 			t.Fatal(out.String())
 		}
 	}
 }
 
 func TestPublicWorkflow(t *testing.T) {
-	for _, name := range []string{"confirm", "confirm-blank", "confirm-upper", "confirm-yes", "confirm-yes-upper", "cancel-upper", "cancel-no", "cancel-no-upper", "old-confirm", "space-only", "rgb-write", "rgb-mode-cycle-slow", "rgb-mode-cycle-fast", "rgb-mode-off", "clear-modifiers", "pasted-crlf", "pasted-selection", "second-device", "query", "query-multiple", "zero", "incompatible", "cancel", "eof", "partial-write", "invalid-confirm", "space-confirm", "blank-selection", "eof-selection", "partial-selection", "invalid-selection", "out-of-range", "no-op", "noninteractive", "noninteractive-selection", "identity-changed", "version-changed", "settings-changed", "became-no-op", "mismatch", "echo", "deadline", "unsupported", "query-failed", "discover-failed", "wrong-path", "wrong-model", "missing-settings", "short-settings", "bad-settings"} {
+	for _, name := range []string{"confirm", "confirm-blank", "confirm-upper", "confirm-yes", "confirm-yes-upper", "cancel-upper", "cancel-no", "cancel-no-upper", "old-confirm", "space-only", "rgb-write", "rgb-mode-cycle-slow", "rgb-mode-cycle-fast", "rgb-mode-off", "clear-modifiers", "pasted-crlf", "first-device", "second-device", "multiple-missing-device", "query", "query-multiple", "zero", "incompatible", "cancel", "eof", "partial-write", "invalid-confirm", "space-confirm", "out-of-range", "no-op", "noninteractive", "identity-changed", "version-changed", "settings-changed", "became-no-op", "mismatch", "echo", "deadline", "unsupported", "query-failed", "discover-failed", "wrong-path", "wrong-model", "missing-settings", "short-settings", "bad-settings"} {
 		t.Run(name, func(t *testing.T) {
 			args := []string{"key", "f13"}
 			if name == "rgb-write" {
@@ -389,16 +400,19 @@ func TestPublicWorkflow(t *testing.T) {
 			if name == "no-op" {
 				args = []string{"key", "enter"}
 			}
-			input := "y\n"
-			multiple := name == "pasted-crlf" || name == "pasted-selection" || name == "second-device" || strings.Contains(name, "selection") || name == "query-multiple" || name == "out-of-range"
-			if multiple {
-				input = "1\ny\n"
+			multiple := name == "first-device" || name == "second-device" || name == "multiple-missing-device" || name == "query-multiple" || name == "out-of-range"
+			switch name {
+			case "first-device":
+				args = append(args, "--device", "1")
+			case "second-device":
+				args = append(args, "--device=2")
+			case "out-of-range":
+				args = append(args, "--device", "3")
 			}
+			input := "y\n"
 			switch name {
 			case "pasted-crlf":
-				input = "1\r\ny\r\n"
-			case "second-device":
-				input = "2\ny\n"
+				input = "y\r\n"
 			case "confirm-blank":
 				input = "\n"
 			case "confirm-upper":
@@ -419,20 +433,14 @@ func TestPublicWorkflow(t *testing.T) {
 				input = "WRITE\n"
 			case "space-only":
 				input = " \n"
-			case "blank-selection":
-				input = "\ny\n"
-			case "eof", "eof-selection":
+			case "eof":
 				input = ""
 			case "partial-write":
 				input = "yes"
-			case "partial-selection":
-				input = "1"
-			case "invalid-confirm", "invalid-selection":
+			case "invalid-confirm":
 				input = "invalid\ny\n"
 			case "space-confirm":
 				input = " y\n"
-			case "out-of-range":
-				input = "3\ny\n"
 			case "query-multiple":
 				input = ""
 			}
@@ -459,7 +467,7 @@ func TestPublicWorkflow(t *testing.T) {
 			}
 			access := publicAccess{
 				interactive: func(io.Reader) bool {
-					return name != "noninteractive" && name != "noninteractive-selection" && name != "query" && name != "query-multiple"
+					return name != "noninteractive" && name != "query" && name != "query-multiple"
 				},
 				discover: func() ([]Candidate, error) {
 					discovered = true
@@ -529,21 +537,34 @@ func TestPublicWorkflow(t *testing.T) {
 			if strings.Contains(diagnostic.String(), "WonKey") {
 				t.Fatal("runtime error repeated the header", diagnostic.String())
 			}
-			failure := name == "zero" || name == "incompatible" || strings.HasPrefix(name, "noninteractive") || strings.HasSuffix(name, "changed") || name == "became-no-op" || name == "mismatch" || name == "echo" || name == "deadline" || name == "unsupported" || strings.HasSuffix(name, "failed") || strings.HasPrefix(name, "wrong-") || strings.HasSuffix(name, "settings")
+			failure := name == "zero" || name == "incompatible" || name == "multiple-missing-device" || name == "out-of-range" || strings.HasPrefix(name, "noninteractive") || strings.HasSuffix(name, "changed") || name == "became-no-op" || name == "mismatch" || name == "echo" || name == "deadline" || name == "unsupported" || strings.HasSuffix(name, "failed") || strings.HasPrefix(name, "wrong-") || strings.HasSuffix(name, "settings")
 			if (err != nil) != failure {
 				t.Fatal(err, out.String(), diagnostic.String())
 			}
-			success := name == "rgb-write" || strings.HasPrefix(name, "rgb-mode-") || name == "clear-modifiers" || name == "pasted-crlf" || strings.HasPrefix(name, "confirm") || name == "pasted-selection" || name == "second-device"
+			success := name == "rgb-write" || strings.HasPrefix(name, "rgb-mode-") || name == "clear-modifiers" || name == "pasted-crlf" || strings.HasPrefix(name, "confirm") || name == "first-device" || name == "second-device"
 			wantApply := success || strings.HasSuffix(name, "changed") || name == "became-no-op" || name == "mismatch" || name == "echo" || name == "deadline"
 			if applied != wantApply {
 				t.Fatal("apply", applied, err)
 			}
-			noQuery := name == "zero" || name == "incompatible" || strings.HasPrefix(name, "noninteractive") || strings.HasSuffix(name, "selection") && name != "pasted-selection" || name == "out-of-range" || name == "discover-failed"
+			noQuery := name == "zero" || name == "incompatible" || name == "multiple-missing-device" || name == "out-of-range" || strings.HasPrefix(name, "noninteractive") || name == "discover-failed"
 			if queried == noQuery {
 				t.Fatal("query", queried, err)
 			}
+			if name == "multiple-missing-device" {
+				for _, want := range []string{"multiple compatible devices connected; specify --device <N>:", "--device 1  XFKEY One Key Max (0112) (USB path 1-1.2)", "--device 2  XFKEY One Key Max (0112) (USB path 1-1.3)"} {
+					if !strings.Contains(diagnostic.String(), want) {
+						t.Fatalf("missing %q in %q", want, diagnostic.String())
+					}
+				}
+			}
+			if name == "out-of-range" && !strings.Contains(diagnostic.String(), "device 3 not found (2 compatible device(s) connected)") {
+				t.Fatalf("unexpected out-of-range diagnostic: %q", diagnostic.String())
+			}
+			if name == "second-device" && !strings.Contains(out.String(), "[2] XFKEY One Key Max (0112)\n") {
+				t.Fatalf("missing [2] heading in %q", out.String())
+			}
 			if name == "query-multiple" {
-				if !reflect.DeepEqual(queriedPaths, []string{"1-1.2", "1-1.3"}) || strings.Contains(out.String(), "Select a device") || strings.Count(out.String(), "XFKEY One Key Max (0112)\n") != 2 {
+				if !reflect.DeepEqual(queriedPaths, []string{"1-1.2", "1-1.3"}) || !strings.Contains(out.String(), "[1] XFKEY One Key Max (0112)\n") || !strings.Contains(out.String(), "[2] XFKEY One Key Max (0112)\n") {
 					t.Fatal("query-multiple did not enumerate all compatible devices", queriedPaths, out.String())
 				}
 			}
@@ -675,8 +696,8 @@ func TestPublicCH57Selection(t *testing.T) {
 				t.Fatalf("error=%v discovered=%d probed=%v output=%q", err, discovered, probedPaths, out.String())
 			}
 			if tc.count > 0 {
-				for _, candidate := range candidates[:tc.count] {
-					wantTexts := []string{"CH57x Macropad (1189:8890)", candidate.PhysicalPath, "3-key / 1-knob up to 12-key / 3-knob", "Not readable over USB"}
+				for i, candidate := range candidates[:tc.count] {
+					wantTexts := []string{fmt.Sprintf("[%d] CH57x Macropad (1189:8890)", i+1), candidate.PhysicalPath, "3-key / 1-knob up to 12-key / 3-knob", "Not readable over USB"}
 					if tc.shortReply {
 						wantTexts = append(wantTexts, "Connected (write-only firmware)")
 					} else {
@@ -746,7 +767,7 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 			t.Fatalf("err=%v queried=%d probed=%d out=%q", err, queried, probed, out.String())
 		}
 		checkPublicHeader(t, out.String())
-		for _, text := range []string{"XFKEY One Key Max (0112)", "1-1", "Key        enter", "On         press", "Mode       cycle-slow", "Colour     #FFFFFF", "CH57x Macropad (1189:8890)", "3-key / 1-knob up to 12-key / 3-knob", "Connected (write-only firmware)", "Not readable over USB", "1-2"} {
+		for _, text := range []string{"[1] XFKEY One Key Max (0112)", "1-1", "Key        enter", "On         press", "Mode       cycle-slow", "Colour     #FFFFFF", "[2] CH57x Macropad (1189:8890)", "3-key / 1-knob up to 12-key / 3-knob", "Connected (write-only firmware)", "Not readable over USB", "1-2"} {
 			if !strings.Contains(out.String(), text) {
 				t.Fatal("missing mixed read entry", text, out.String())
 			}
@@ -757,14 +778,16 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 	})
 	t.Run("mixed-write-selection", func(t *testing.T) {
 		for _, tc := range []struct {
-			input      string
-			wantXFKEY  bool
-			wantCH57   bool
-			wantCancel bool
+			args          []string
+			wantXFKEY     bool
+			wantErr       bool
+			wantDiag      string
+			wantOutSubstr string
 		}{
-			{"1\ny\n", true, false, false},
-			{"2\ny\n", false, true, false},
-			{"\n", false, false, true},
+			{[]string{"key", "f13", "--device", "1"}, true, false, "", "[1] XFKEY One Key Max (0112)"},
+			{[]string{"key", "f13", "--device", "2"}, false, true, "live writes are not supported for 1189:8890", ""},
+			{[]string{"key", "f13"}, false, true, "--device 1  XFKEY One Key Max (0112) (USB path 1-1)\n  --device 2  CH57x Macropad (1189:8890) (USB path 1-2)", ""},
+			{[]string{"key", "f13", "--device", "3"}, false, true, "device 3 not found (2 compatible device(s) connected)", ""},
 		} {
 			queried, applied := false, false
 			first := newSettingsTransport()
@@ -793,21 +816,75 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 				},
 			}
 			var out, diagnostic bytes.Buffer
-			err := runPublic([]string{"key", "f13"}, &cliRuntime{strings.NewReader(tc.input), &out, &diagnostic}, access)
-			if (err != nil) != tc.wantCH57 || queried != tc.wantXFKEY || applied != tc.wantXFKEY {
-				t.Fatalf("err=%v queried=%v applied=%v out=%q diag=%q", err, queried, applied, out.String(), diagnostic.String())
+			err := runPublic(tc.args, &cliRuntime{strings.NewReader("y\n"), &out, &diagnostic}, access)
+			if (err != nil) != tc.wantErr || queried != tc.wantXFKEY || applied != tc.wantXFKEY {
+				t.Fatalf("args=%v err=%v queried=%v applied=%v out=%q diag=%q", tc.args, err, queried, applied, out.String(), diagnostic.String())
 			}
-			for _, text := range []string{"XFKEY One Key Max (0112) 1-1 (/dev/hidraw0)", "CH57x Macropad (1189:8890) 1-2 (/dev/bus/usb/001/019)"} {
-				if !strings.Contains(out.String(), text) {
-					t.Fatal("missing unified selection entry", text, out.String())
-				}
+			if tc.wantDiag != "" && !strings.Contains(diagnostic.String(), tc.wantDiag) {
+				t.Fatalf("args=%v missing %q in diagnostic %q", tc.args, tc.wantDiag, diagnostic.String())
 			}
-			if tc.wantCH57 && !strings.Contains(diagnostic.String(), "live writes are not supported for 1189:8890") {
-				t.Fatal("missing CH57 write refusal", diagnostic.String())
+			if tc.wantOutSubstr != "" && !strings.Contains(out.String(), tc.wantOutSubstr) {
+				t.Fatalf("args=%v missing %q in output %q", tc.args, tc.wantOutSubstr, out.String())
 			}
-			if tc.wantCancel && !strings.Contains(out.String(), "Cancelled. No HID device opened.") {
-				t.Fatal("missing cancellation message", out.String())
+		}
+	})
+	t.Run("physical-path-sorting", func(t *testing.T) {
+		var queriedPaths []string
+		transport := newSettingsTransport()
+		access := publicAccess{
+			interactive: func(io.Reader) bool { return true },
+			discover: func() ([]Candidate, error) {
+				return []Candidate{
+					{PhysicalPath: "7-1.4.3.1", Compatible: true},
+					{PhysicalPath: "1-1.10", Compatible: true},
+					{PhysicalPath: "1-1.2", Compatible: true},
+				}, nil
+			},
+			discoverCH57: func(string) ([]ch57.DiscoveredCandidate, error) {
+				return []ch57.DiscoveredCandidate{
+					{Candidate: ch57.Candidate{PhysicalPath: "2-1"}, BusNumber: 2, DeviceNumber: 3},
+				}, nil
+			},
+			query: func(c Candidate) (CaptureResult, error) {
+				queriedPaths = append(queriedPaths, c.PhysicalPath)
+				q, err := queryCapture(transport, true)
+				q.result.PhysicalPath = c.PhysicalPath
+				return q.result, err
+			},
+			probeCH57: func(_ string, _ string, selected ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
+				queriedPaths = append(queriedPaths, selected.PhysicalPath)
+				return ch57.ProbeResult{Status: ch57.ProbeRawReport, Raw: []byte{0xaa}, Count: 1}, nil
+			},
+		}
+		var out, diagnostic bytes.Buffer
+		if err := runPublic(nil, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access); err != nil {
+			t.Fatal(err)
+		}
+		wantOrder := []string{"1-1.2", "1-1.10", "2-1", "7-1.4.3.1"}
+		if !reflect.DeepEqual(queriedPaths, wantOrder) {
+			t.Fatalf("got order %v, want %v", queriedPaths, wantOrder)
+		}
+		for _, heading := range []string{
+			"[1] XFKEY One Key Max (0112)\n  USB path   1-1.2\n",
+			"[2] XFKEY One Key Max (0112)\n  USB path   1-1.10\n",
+			"[3] CH57x Macropad (1189:8890)\n  USB path   2-1\n",
+			"[4] XFKEY One Key Max (0112)\n  USB path   7-1.4.3.1\n",
+		} {
+			if !strings.Contains(out.String(), heading) {
+				t.Fatalf("missing %q in %q", heading, out.String())
 			}
+		}
+		out.Reset()
+		diagnostic.Reset()
+		err := runPublic([]string{"key", "f13"}, &cliRuntime{strings.NewReader("y\n"), &out, &diagnostic}, access)
+		wantErr := "Error: multiple compatible devices connected; specify --device <N>:\n" +
+			"  --device 1  XFKEY One Key Max (0112) (USB path 1-1.2)\n" +
+			"  --device 2  XFKEY One Key Max (0112) (USB path 1-1.10)\n" +
+			"  --device 3  CH57x Macropad (1189:8890) (USB path 2-1)\n" +
+			"  --device 4  XFKEY One Key Max (0112) (USB path 7-1.4.3.1)\n" +
+			"Run \"wonkey --help\" for commands.\n"
+		if err == nil || diagnostic.String() != wantErr {
+			t.Fatalf("err=%v diagnostic=%q want=%q", err, diagnostic.String(), wantErr)
 		}
 	})
 	t.Run("rejects-writes-on-ch57", func(t *testing.T) {
@@ -853,7 +930,7 @@ func TestPublicCH57ProbeFailures(t *testing.T) {
 			if !errors.Is(err, failure) || ExitCode(err) != 1 || probes != 1 || !strings.Contains(diagnostic.String(), failure.Error()) {
 				t.Fatal(err, probes, diagnostic.String())
 			}
-			for _, text := range []string{"CH57x Macropad (1189:8890)", "1-2", "3-key / 1-knob up to 12-key / 3-knob", string(result.Status)} {
+			for _, text := range []string{"[1] CH57x Macropad (1189:8890)", "1-2", "3-key / 1-knob up to 12-key / 3-knob", string(result.Status)} {
 				if !strings.Contains(out.String(), text) {
 					t.Fatal("missing failure output", text, out.String())
 				}
@@ -866,30 +943,21 @@ func TestPublicCH57ProbeFailures(t *testing.T) {
 }
 
 func TestPublicCH57OutputFailure(t *testing.T) {
-	for _, needle := range []string{"Select a device", "1-3", "Device number", "CH57x Macropad (1189:8890)", "USB path", "Layout", "Status", "Settings", "Input hex"} {
+	for _, needle := range []string{"[1] CH57x Macropad (1189:8890)", "USB path", "Layout", "Status", "Settings", "Input hex"} {
 		for _, short := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/short=%v", needle, short), func(t *testing.T) {
 				access := ch57TestAccess(t)
-				selection := needle == "Select a device" || needle == "1-3" || needle == "Device number"
 				access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
-					candidates := []ch57.DiscoveredCandidate{{Candidate: ch57.Candidate{PhysicalPath: "1-2"}}}
-					if selection {
-						candidates = append(candidates, ch57.DiscoveredCandidate{Candidate: ch57.Candidate{PhysicalPath: "1-3"}})
-					}
-					return candidates, nil
+					return []ch57.DiscoveredCandidate{{Candidate: ch57.Candidate{PhysicalPath: "1-2"}}}, nil
 				}
 				probes := 0
 				access.probeCH57 = func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
 					probes++
 					return ch57.ProbeResult{Status: ch57.ProbeRawReport, Raw: []byte{3}, Count: 1}, nil
 				}
-				var args []string
-				if selection {
-					args = []string{"key", "f13"}
-				}
 				input := strings.NewReader("1\n")
 				out := &failingHumanOutput{needle: needle, short: short}
-				err := runPublic(args, &cliRuntime{input, out, io.Discard}, access)
+				err := runPublic(nil, &cliRuntime{input, out, io.Discard}, access)
 				want := io.ErrClosedPipe
 				if short {
 					want = io.ErrShortWrite
@@ -978,7 +1046,7 @@ func TestPublicUnknownConfiguration(t *testing.T) {
 				input := strings.NewReader("yes\n")
 				err := runPublic(args, &cliRuntime{input, &out, &diagnostic}, access)
 				if query {
-					want := fmt.Sprintf("1️⃣ WonKey\n\nXFKEY One Key Max (0112)\n"+
+					want := fmt.Sprintf("1️⃣ WonKey\n\n[1] XFKEY One Key Max (0112)\n"+
 						"  USB path   synthetic\n"+
 						"  Identifier be077ba2\n"+
 						"  Version    1014\n"+
@@ -1030,7 +1098,7 @@ func TestPublicSupportedQueryOutput(t *testing.T) {
 	}
 	var out, diagnostic bytes.Buffer
 	err := runPublic(nil, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
-	want := "1️⃣ WonKey\n\nXFKEY One Key Max (0112)\n" +
+	want := "1️⃣ WonKey\n\n[1] XFKEY One Key Max (0112)\n" +
 		"  USB path   synthetic\n" +
 		"  Identifier be077ba2\n" +
 		"  Version    1014\n" +
@@ -1096,7 +1164,7 @@ func TestPublicLiveBoundaryOffline(t *testing.T) {
 			access := publicDeviceAccess()
 			access.interactive = func(io.Reader) bool { return true }
 			var out bytes.Buffer
-			err := runPublic([]string{"key", "f13"}, &cliRuntime{strings.NewReader("1\ny\n"), &out, io.Discard}, access)
+			err := runPublic([]string{"key", "f13", "--device", "1"}, &cliRuntime{strings.NewReader("y\n"), &out, io.Discard}, access)
 			success := name == "write" || name == "reordered"
 			if (err == nil) != success {
 				t.Fatal(err, out.String())

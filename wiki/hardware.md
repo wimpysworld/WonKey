@@ -19,7 +19,7 @@ WonKey enumerates both supported device families automatically:
 - **XFKEY One Key Max (`0112`)**: Requires VID/PID `af88:6688`, revision `0100`, and exact USB/configuration bytes. All four report descriptors must match (62, 114, 25, and 34 bytes). The device must have interfaces 0 to 3 and one vendor hidraw mapping on interface 3 (usage page `FF00`, usage `01`, endpoints `84`/`04`, 64-byte payloads, and no report IDs). The shared serial `XFKEY` is not unique.
 - **CH57 (`1189:8890`)**: Requires VID/PID `1189:8890` and the exact published single-configuration USB descriptor structure across interfaces 0 to 3. Bare `wonkey` verifies the 36-byte report ID 3 descriptor on interface 1 and issues one Input report ID 3 `GET_REPORT` control IN transfer. WonKey accepts a 65-byte report ID 3 reply or the 1-byte `0xaa` status response returned by stock write-only firmware. Live writes are refused for `1189:8890`.
 
-Bare `wonkey` enumerates and inspects all compatible devices automatically. For changes, when one compatible device is attached, WonKey selects it automatically; when multiple devices are attached, WonKey prompts for terminal selection tied to the device name and USB physical path. Moving or reconnecting a device can change its path and node.
+Bare `wonkey` enumerates and inspects all compatible devices automatically in deterministic USB-path order (`[1]`, `[2]`, and so on). For changes, when one compatible device is attached, WonKey selects it automatically; when multiple devices are attached, pass `--device <N>` using the USB-path-sorted device number shown by `wonkey`. Moving or reconnecting a device can change its path, node, and device number.
 
 ## Check hardware effects and persistence
 
@@ -41,7 +41,7 @@ The [selection and confirmation guide](usage#selection-and-confirmation) covers 
 
 ### Revalidation
 
-Selection and confirmation share one buffered input reader, so pasted answers remain available.
+Confirmation reads from one buffered input reader.
 After confirmation, WonKey revalidates the selected descriptor, physical path, and node identity, then performs a fresh readback in memory.
 The transaction uses the freshly acquired identifier and version as expected values. It also checks every configuration byte against the approved plan.
 Changed identity, version, or settings stop before upload, even if the new settings already match the requested values.

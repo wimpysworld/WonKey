@@ -2,11 +2,13 @@ package xfkey
 
 import (
 	"bufio"
+	"cmp"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"wonkey/internal/ch57"
@@ -26,6 +28,7 @@ Commands:
   rgb <MODE> [RGB]    Change the RGB lighting.
 
 Options:
+  --device N          Select device N when multiple devices are connected.
   -h, --help          Show help without device access.
 
 Examples:
@@ -38,7 +41,7 @@ Examples:
 Run "wonkey <command> --help" for values and options.
 `
 
-const keyHelp = `Usage: wonkey key <COMBINATION> [--on WHEN]
+const keyHelp = `Usage: wonkey key <COMBINATION> [--on WHEN] [--device N]
 
 Run "wonkey" without arguments to inspect connected devices.
 A combination contains exactly one base key from the names below.
@@ -70,6 +73,7 @@ Added keys fit the captured descriptor but remain hardware-unverified.
 
 Options:
   --on WHEN     press, release or both. Requires a key combination.
+  --device N    Select device N when multiple devices are connected.
   -h, --help    Show help without device access.
 
 Examples:
@@ -80,7 +84,7 @@ Examples:
 At [Y/n], Enter accepts. No or EOF cancels.
 `
 
-const rgbHelp = `Usage: wonkey rgb <MODE> [RGB]
+const rgbHelp = `Usage: wonkey rgb <MODE> [RGB] [--device N]
 
 Run "wonkey" without arguments to inspect connected devices.
 RGB is six hexadecimal digits without #, for example 0000ff for blue.
@@ -97,7 +101,8 @@ Modes:
   off            Lights off
 
 Options:
-  -h, --help   Show help without device access.
+  --device N    Select device N when multiple devices are connected.
+  -h, --help    Show help without device access.
 
 Examples:
   wonkey rgb static 0000ff
@@ -107,7 +112,7 @@ Examples:
 At [Y/n], Enter accepts. No or EOF cancels.
 `
 
-const mouseHelp = `Usage: wonkey mouse <BUTTONS> [--x N] [--y N] [--wheel N]
+const mouseHelp = `Usage: wonkey mouse <BUTTONS> [--x N] [--y N] [--wheel N] [--device N]
 
 Run "wonkey" without arguments to inspect connected devices.
 Buttons: left, right, middle, none. Join buttons with +, for example left+right.
@@ -115,10 +120,14 @@ Use none alone for movement without a button, or a zero action.
 Use wheelup or wheeldown alone for one wheel tick. Do not combine with --wheel.
 X, Y and wheel accept -127..127. Omitted values are zero.
 
+Options:
+  --device N    Select device N when multiple devices are connected.
+  -h, --help    Show help without device access.
+
 At [Y/n], Enter accepts. No or EOF cancels.
 `
 
-const mediaHelp = `Usage: wonkey media <ACTION|0xHHHH>
+const mediaHelp = `Usage: wonkey media <ACTION|0xHHHH> [--device N]
 
 Run "wonkey" without arguments to inspect connected devices.
 Names ignore case:
@@ -127,16 +136,24 @@ Names ignore case:
   search, home, back, forward, refresh, bookmarks
 Raw usages need exactly four hexadecimal digits and must be 0x0001..0x023c.
 
+Options:
+  --device N    Select device N when multiple devices are connected.
+  -h, --help    Show help without device access.
+
 At [Y/n], Enter accepts. No or EOF cancels.
 `
 
-const multiHelp = `Usage: wonkey multi <KEY[,KEY...]> [--interval MS] [--repeat COUNT]
+const multiHelp = `Usage: wonkey multi <KEY[,KEY...]> [--interval MS] [--repeat COUNT] [--device N]
 
 Run "wonkey" without arguments to inspect connected devices.
 Use 1..115 comma-separated base key names from "wonkey key --help".
 Modifiers and raw usage numbers are unsupported.
 --interval accepts 1..65535 milliseconds (default: 50).
 --repeat accepts 1..255 repetitions (default: 1).
+
+Options:
+  --device N    Select device N when multiple devices are connected.
+  -h, --help    Show help without device access.
 
 At [Y/n], Enter accepts. No or EOF cancels.
 `
@@ -145,6 +162,7 @@ type publicCommand struct {
 	name    string
 	changes Changes
 	action  Action
+	device  int
 	help    bool
 }
 
@@ -193,6 +211,24 @@ func parsePublic(args []string) (publicCommand, error) {
 			if _, ok := triggerValues[strings.ToLower(on)]; !ok {
 				return c, fmt.Errorf("--on needs press, release or both")
 			}
+		case arg == "--device" || strings.HasPrefix(arg, "--device="):
+			if c.device != 0 {
+				return c, fmt.Errorf("--device is accepted once")
+			}
+			var value string
+			if arg == "--device" {
+				if len(args) == 0 {
+					return c, fmt.Errorf("--device needs a positive device number")
+				}
+				value, args = args[0], args[1:]
+			} else {
+				value = strings.TrimPrefix(arg, "--device=")
+			}
+			device, err := parseDeviceNumber(value)
+			if err != nil {
+				return c, err
+			}
+			c.device = device
 		case strings.HasPrefix(arg, "-"):
 			var err error
 			args, err = parseActionOption(c.name, arg, args, options)
@@ -206,10 +242,29 @@ func parsePublic(args []string) (publicCommand, error) {
 	return c.parsePositionals(positional, options, on, seenOn)
 }
 
+func parseDeviceNumber(value string) (int, error) {
+	if len(value) == 0 || value[0] < '1' || value[0] > '9' {
+		return 0, fmt.Errorf("--device needs a positive device number")
+	}
+	for i := 1; i < len(value); i++ {
+		if value[i] < '0' || value[i] > '9' {
+			return 0, fmt.Errorf("--device needs a positive device number")
+		}
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("--device needs a positive device number")
+	}
+	return n, nil
+}
+
 func (c publicCommand) parsePositionals(positional []string, options map[string]int, on string, seenOn bool) (publicCommand, error) {
 	if len(positional) == 0 {
 		if seenOn {
 			return c, fmt.Errorf("--on requires a key combination")
+		}
+		if c.device > 0 {
+			return c, fmt.Errorf("--device requires a command value")
 		}
 		if len(options) > 0 {
 			return c, fmt.Errorf("%s options require an action", c.name)
@@ -444,53 +499,85 @@ func runPublic(args []string, rt *cliRuntime, access publicAccess) error {
 		err = c.run(rt, access)
 	}
 	if err != nil {
-		newHuman(rt.errOut).line("31", "Error: "+err.Error()+".")
+		errH := newHuman(rt.errOut)
+		lines := strings.Split(err.Error(), "\n")
+		if len(lines) == 1 {
+			errH.line("31", "Error: "+lines[0]+".")
+		} else {
+			errH.line("31", "Error: "+lines[0])
+			for _, line := range lines[1:] {
+				fmt.Fprintln(errH.out, escapeHuman(line))
+			}
+		}
 		fmt.Fprintln(rt.errOut, `Run "wonkey --help" for commands.`)
 		return &CLIError{Err: err, Code: code}
 	}
 	return nil
 }
 
-func choosePublic(candidates []Candidate, input *bufio.Reader, h human, interactive bool) (*Candidate, error) {
+func comparePhysicalPath(a, b string) int {
+	split := func(r rune) bool { return r == '-' || r == '.' }
+	sa, sb := strings.FieldsFunc(a, split), strings.FieldsFunc(b, split)
+	for i := range min(len(sa), len(sb)) {
+		na, errA := strconv.Atoi(sa[i])
+		nb, errB := strconv.Atoi(sb[i])
+		switch {
+		case errA == nil && errB == nil:
+			if c := cmp.Compare(na, nb); c != 0 {
+				return c
+			}
+			if c := strings.Compare(sa[i], sb[i]); c != 0 {
+				return c
+			}
+		case errA == nil:
+			return -1
+		case errB == nil:
+			return 1
+		default:
+			if c := strings.Compare(sa[i], sb[i]); c != 0 {
+				return c
+			}
+		}
+	}
+	if c := cmp.Compare(len(sa), len(sb)); c != 0 {
+		return c
+	}
+	return strings.Compare(a, b)
+}
+
+func compatibleCandidates(candidates []Candidate) []Candidate {
 	var matches []Candidate
-	for _, c := range candidates {
-		if c.Compatible {
-			matches = append(matches, c)
+	for _, candidate := range candidates {
+		if candidate.Compatible {
+			matches = append(matches, candidate)
 		}
 	}
-	if len(matches) == 0 {
-		return nil, fmt.Errorf("no compatible device found")
-	}
-	if len(matches) == 1 {
-		return &matches[0], nil
-	}
-	if !interactive {
-		return nil, fmt.Errorf("multiple devices require terminal selection; no HID device opened")
-	}
-	h.line("36", "Select a device for this command:")
-	for i, c := range matches {
-		product := c.Product
-		if product == "" {
-			product = "XFKEY One Key Max (0112)"
+	slices.SortFunc(matches, func(a, b Candidate) int {
+		return comparePhysicalPath(a.PhysicalPath, b.PhysicalPath)
+	})
+	return matches
+}
+
+func (c publicCommand) selectWriteDevice(matches []Candidate) (Candidate, int, error) {
+	if c.device == 0 {
+		if len(matches) == 1 {
+			return matches[0], 1, nil
 		}
-		h.field(strconv.Itoa(i+1), product+" "+c.PhysicalPath+" ("+c.VendorNode.Path+")")
-	}
-	fmt.Fprint(h.out, "Device number [cancel]: ")
-	if h.out.err != nil {
-		return nil, h.out.err
-	}
-	line, err := input.ReadString('\n')
-	if err != nil {
-		if errors.Is(err, io.EOF) {
-			return nil, nil
+		var b strings.Builder
+		b.WriteString("multiple compatible devices connected; specify --device <N>:")
+		for i, m := range matches {
+			product := m.Product
+			if product == "" {
+				product = "XFKEY One Key Max (0112)"
+			}
+			fmt.Fprintf(&b, "\n  --device %d  %s (USB path %s)", i+1, product, m.PhysicalPath)
 		}
-		return nil, err
+		return Candidate{}, 0, errors.New(b.String())
 	}
-	n, err := strconv.Atoi(strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r"))
-	if err != nil || n < 1 || n > len(matches) {
-		return nil, nil
+	if c.device > len(matches) {
+		return Candidate{}, 0, fmt.Errorf("device %d not found (%d compatible device(s) connected)", c.device, len(matches))
 	}
-	return &matches[n-1], nil
+	return matches[c.device-1], c.device, nil
 }
 
 func (c publicCommand) isReadOnly() bool {
@@ -529,55 +616,43 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 		})
 		byCH57Path[candidate.PhysicalPath] = candidate
 	}
-	if c.isReadOnly() {
-		return c.runReadAll(candidates, byCH57Path, h, access)
+	matches := compatibleCandidates(candidates)
+	if len(matches) == 0 {
+		return fmt.Errorf("no compatible device found")
 	}
-	selected, err := choosePublic(candidates, input, h, interactive)
+	if c.isReadOnly() {
+		return c.runReadAll(matches, byCH57Path, h, access)
+	}
+	selected, deviceID, err := c.selectWriteDevice(matches)
 	if err != nil {
 		return err
-	}
-	if selected == nil {
-		if len(chCandidates) > 0 && len(candidates) == len(chCandidates) {
-			h.line("", "Cancelled. No USB device opened.")
-		} else {
-			h.line("", "Cancelled. No HID device opened.")
-		}
-		return h.out.err
 	}
 	if _, ok := byCH57Path[selected.PhysicalPath]; ok {
 		return fmt.Errorf("live writes are not supported for 1189:8890; no settings write sent")
 	}
-	return c.runXFKEYSelected(*selected, input, h, access)
+	return c.runXFKEYSelected(selected, deviceID, input, h, access)
 }
 
-func (c publicCommand) runReadAll(candidates []Candidate, byCH57Path map[string]ch57.DiscoveredCandidate, h human, access publicAccess) error {
-	var matches []Candidate
-	for _, candidate := range candidates {
-		if candidate.Compatible {
-			matches = append(matches, candidate)
-		}
-	}
-	if len(matches) == 0 {
-		return fmt.Errorf("no compatible device found")
-	}
+func (c publicCommand) runReadAll(matches []Candidate, byCH57Path map[string]ch57.DiscoveredCandidate, h human, access publicAccess) error {
 	for i, selected := range matches {
+		deviceID := i + 1
 		if i > 0 {
 			fmt.Fprintln(h.out)
 		}
 		if chCandidate, ok := byCH57Path[selected.PhysicalPath]; ok {
-			if err := c.runCH57Selected(chCandidate, h, access); err != nil {
+			if err := c.runCH57Selected(chCandidate, deviceID, h, access); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := c.runXFKEYSelected(selected, nil, h, access); err != nil {
+		if err := c.runXFKEYSelected(selected, deviceID, nil, h, access); err != nil {
 			return err
 		}
 	}
 	return h.out.err
 }
 
-func (c publicCommand) runXFKEYSelected(selected Candidate, input *bufio.Reader, h human, access publicAccess) error {
+func (c publicCommand) runXFKEYSelected(selected Candidate, deviceID int, input *bufio.Reader, h human, access publicAccess) error {
 	observed, err := access.query(selected)
 	if err != nil {
 		return err
@@ -592,12 +667,12 @@ func (c publicCommand) runXFKEYSelected(selected Candidate, input *bufio.Reader,
 	if observed.Readback == nil {
 		return fmt.Errorf("device settings are missing")
 	}
-	return c.runObserved(observed, selected, target, input, h, access)
+	return c.runObserved(observed, selected, deviceID, target, input, h, access)
 }
 
-func (c publicCommand) runCH57Selected(selected ch57.DiscoveredCandidate, h human, access publicAccess) error {
+func (c publicCommand) runCH57Selected(selected ch57.DiscoveredCandidate, deviceID int, h human, access publicAccess) error {
 	const sysRoot, devRoot = "/sys/bus/usb/devices", "/dev/bus/usb"
-	h.heading("CH57x Macropad (1189:8890)")
+	h.heading(fmt.Sprintf("[%d] CH57x Macropad (1189:8890)", deviceID))
 	h.field("USB path", selected.PhysicalPath)
 	h.field("Layout", "3-key / 1-knob up to 12-key / 3-knob")
 	if h.out.err != nil {
@@ -624,8 +699,8 @@ func (c publicCommand) runCH57Selected(selected ch57.DiscoveredCandidate, h huma
 	return errors.Join(err, h.out.err)
 }
 
-func (c publicCommand) showCurrentSettings(current configuration, selected Candidate, target ApplyTarget, h human) {
-	h.heading("XFKEY One Key Max (0112)")
+func (c publicCommand) showCurrentSettings(current configuration, selected Candidate, deviceID int, target ApplyTarget, h human) {
+	h.heading(fmt.Sprintf("[%d] XFKEY One Key Max (0112)", deviceID))
 	h.field("USB path", selected.PhysicalPath)
 	h.field("Identifier", target.Identifier)
 	h.field("Version", target.Version)
@@ -682,7 +757,7 @@ func (c publicCommand) configurationChanges(current configuration) configuration
 	return ActionChanges{RGB: c.changes}
 }
 
-func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, target ApplyTarget, input *bufio.Reader, h human, access publicAccess) error {
+func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, deviceID int, target ApplyTarget, input *bufio.Reader, h human, access publicAccess) error {
 	raw, err := hex.DecodeString(observed.Readback.Configuration)
 	if err != nil {
 		return err
@@ -693,13 +768,13 @@ func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, t
 	}
 	copy(current[:], raw)
 	if len(c.changes) == 0 && c.action == nil {
-		c.showCurrentSettings(current, selected, target, h)
+		c.showCurrentSettings(current, selected, deviceID, target, h)
 		return h.out.err
 	}
 	if err := c.supportedConfiguration(current); err != nil {
 		return err
 	}
-	c.showCurrentSettings(current, selected, target, h)
+	c.showCurrentSettings(current, selected, deviceID, target, h)
 	if h.out.err != nil {
 		return h.out.err
 	}
