@@ -74,7 +74,7 @@ wonkey
 
 Bare `wonkey` enumerates and inspects all compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices automatically, sorted by USB physical path with numbered headings such as `[1] XFKEY One Key Max (0112)` and `[2] CH57x Macropad (1189:8890)`.
 On each XFKEY One Key Max (`0112`), `wonkey` shows its USB path, identifier, version, supported commands (`key, trigger, mouse, media, macro, rgb`), configured action, and RGB lighting.
-On each CH57x Macropad (`1189:8890`), `wonkey` shows its USB path, layout, connection status, that settings are not readable over USB, and supported commands (`key, mouse, media, macro, led`). Stock write-only `1189:8890` firmware returns a 1-byte `0xaa` status reply, which WonKey accepts alongside 65-byte report ID 3 replies.
+On each CH57x Macropad (`1189:8890`), `wonkey` shows its USB path, layout, connection status, that settings are not readable over USB, controls (`key1..key12, knob-left/press/right, knob1..knob3, layers 1..15`), and supported commands (`key, mouse, media, macro, led`). Stock write-only `1189:8890` firmware returns a 1-byte `0xaa` status reply, which WonKey accepts alongside 65-byte report ID 3 replies.
 
 Set the key combination and keyboard trigger:
 
@@ -83,11 +83,13 @@ wonkey key f13
 wonkey key ctrl+shift+a
 wonkey key 0
 wonkey key f12
+wonkey key key2 f13
 wonkey trigger release
 ```
 
 A key expression is the **complete combination**. `key f13` clears all modifiers and preserves an existing keyboard trigger (or defaults to `press` when replacing another action).
 Use `wonkey trigger <press|release|both>` on XFKEY One Key Max (`0112`) to change when a configured keyboard key fires.
+`key`, `macro`, `mouse`, and `media` accept an optional `[CONTROL]` (`key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right`, defaulting to `key1`) before the action argument and an optional `--layer <1..15>` flag (defaulting to `1`) on multi-control CH57x (`1189:8890`) devices. Single-key XFKEY One Key Max (`0112`) devices reject `[CONTROL]` and `--layer` with a capability error.
 
 Names ignore letter case. `A` means the same key as `a`, without an implied <kbd>Shift</kbd>.
 Letters and digits name HID keys, not guaranteed text. The active host layout and modifiers determine the output.
@@ -98,8 +100,10 @@ Set a mouse movement, a consumer media action, or a macro key sequence:
 wonkey mouse left+right --x -20 --y 10
 wonkey mouse wheelup
 wonkey media playpause
+wonkey media knob-right volumeup
 wonkey media 0x00e9
 wonkey macro a,f13,enter --interval 50 --repeat 2
+wonkey macro key3 ctrl+c,ctrl+v --layer 2
 ```
 
 Mouse coordinates and wheel ticks are relative; omitted values are zero. On `0112`, the `macro` defaults are 50 milliseconds and one repetition for 1 to 115 base keys; `1189:8890` supports 1 to 5 strokes including per-stroke modifiers such as `ctrl+c,ctrl+v`.
@@ -130,7 +134,7 @@ After an `AF02` upload and `AF04` commit, it reads back and compares all 128 con
 
 ## Compatibility
 
-WonKey checks exact device descriptors for XFKEY One Key Max (`af88:6688`, model `0112`) and CH57x Macropad (`1189:8890`). For `0112`, it rejects unsupported special, macro (`06`), touch, and unknown layouts, and rejects `wonkey led` with a hint to use `wonkey rgb`. CH57x Macropad (`1189:8890`) supports read-only USB inspection only; when targeted for a write, WonKey first checks whether the requested command and options fit CH57x hardware capabilities (`a-z`, `0-9`, and `f1-f24` usages `0x04..0x73`, no `trigger` command, `macro` up to 5 strokes with optional per-stroke modifiers and without `--interval` or `--repeat`, CH57x-supported consumer media usages, and `led` modes `off`, `on`, `static`, or `0..255` instead of `rgb`) before refusing live writes.
+WonKey checks exact device descriptors for XFKEY One Key Max (`af88:6688`, model `0112`) and CH57x Macropad (`1189:8890`). For `0112`, it rejects unsupported special, macro (`06`), touch, and unknown layouts, rejects `[CONTROL]` and `--layer` (`XFKEY One Key Max (0112) has a single key and does not support ...` / `XFKEY One Key Max (0112) does not support --layer`), and rejects `wonkey led` with a hint to use `wonkey rgb`. CH57x Macropad (`1189:8890`) supports read-only USB inspection only; when targeted for a write, WonKey first checks whether the requested command and options fit CH57x hardware capabilities (optional `[CONTROL]` in `key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right` defaulting to `key1`, `--layer <1..15>` defaulting to `1`, `a-z`, `0-9`, and `f1-f24` usages `0x04..0x73`, no `trigger` command, `macro` up to 5 strokes with optional per-stroke modifiers and without `--interval` or `--repeat`, CH57x-supported consumer media usages, and `led` modes `off`, `on`, `static`, or `0..255` instead of `rgb`) before refusing live writes.
 The `key` names `mute`, `volumeup`, and `volumedown` use keyboard-page usages. The `media` command uses consumer-page usages. Right-hand modifiers are unsupported.
 
 Hardware checks on one `0112` unit confirmed <kbd>F13</kbd> press/release events, steady-blue lighting, and persistence of both settings after reconnect.

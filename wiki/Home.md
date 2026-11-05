@@ -17,7 +17,7 @@ Read [device access requirements](hardware#device-selection-and-access) before a
 | Select a device and confirm a change | [Selection and confirmation](usage#selection-and-confirmation) |
 
 The [usage guide](usage) covers command syntax, unified device discovery, and supported settings.
-Bare `wonkey` reads settings and inspects connected devices without modifying them. `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, and `led` validate device capabilities and configure XFKEY One Key Max (`0112`) devices after terminal confirmation.
+Bare `wonkey` reads settings and inspects connected devices without modifying them. `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, and `led` validate device capabilities (including optional `[CONTROL]` and `--layer <1..15>` on `key`, `macro`, `mouse`, and `media` for multi-control CH57x devices) and configure XFKEY One Key Max (`0112`) devices after terminal confirmation.
 
 ## Hardware and development
 

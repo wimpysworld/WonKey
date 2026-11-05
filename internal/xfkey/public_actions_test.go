@@ -10,28 +10,34 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"wonkey/internal/ch57"
 )
 
 func TestPublicActionParser(t *testing.T) {
 	for _, tc := range []struct {
-		args       []string
-		want       Action
-		wantDevice int
+		args        []string
+		want        Action
+		wantControl ch57.Control
+		wantLayer   int
+		wantDevice  int
 	}{
-		{[]string{"mouse", "none"}, MouseAction{}, 0},
-		{[]string{"mouse", "LEFT+right+middle", "--x", "-127", "--y=127", "--wheel", "-1"}, MouseAction{Buttons: 7, X: -127, Y: 127, Wheel: -1}, 0},
-		{[]string{"mouse", "wheelup"}, MouseAction{Wheel: 1}, 0},
-		{[]string{"mouse", "wheeldown", "--x=1", "--device", "2"}, MouseAction{X: 1, Wheel: -1}, 2},
-		{[]string{"media", "0x0001"}, MediaAction{Usage: 1}, 0},
-		{[]string{"media", "0x023C", "--device=3"}, MediaAction{Usage: 0x23c}, 3},
-		{[]string{"macro", "A,escape,arrowup,lang2"}, MultiAction{Interval: 50, Repeat: 1, Keys: []byte{4, 0x29, 0x52, 0x91}}, 0},
-		{[]string{"macro", "f13", "--interval", "1", "--repeat=255", "--device", "1"}, MultiAction{Interval: 1, Repeat: 255, Keys: []byte{0x68}}, 1},
-		{[]string{"macro", strings.TrimSuffix(strings.Repeat("lang2,", 115), ","), "--interval=65535", "--repeat", "1"}, MultiAction{Interval: 65535, Repeat: 1, Keys: bytes.Repeat([]byte{0x91}, 115)}, 0},
+		{[]string{"mouse", "none"}, MouseAction{}, ch57.Key1, 1, 0},
+		{[]string{"mouse", "knob1-press", "middle", "--layer", "2"}, MouseAction{Buttons: 4}, ch57.Knob1Press, 2, 0},
+		{[]string{"mouse", "LEFT+right+middle", "--x", "-127", "--y=127", "--wheel", "-1"}, MouseAction{Buttons: 7, X: -127, Y: 127, Wheel: -1}, ch57.Key1, 1, 0},
+		{[]string{"mouse", "wheelup"}, MouseAction{Wheel: 1}, ch57.Key1, 1, 0},
+		{[]string{"mouse", "wheeldown", "--x=1", "--device", "2"}, MouseAction{X: 1, Wheel: -1}, ch57.Key1, 1, 2},
+		{[]string{"media", "0x0001"}, MediaAction{Usage: 1}, ch57.Key1, 1, 0},
+		{[]string{"media", "knob-right", "volumeup", "--layer=15"}, MediaAction{Usage: 0xe9}, ch57.KnobRight, 15, 0},
+		{[]string{"media", "0x023C", "--device=3"}, MediaAction{Usage: 0x23c}, ch57.Key1, 1, 3},
+		{[]string{"macro", "A,escape,arrowup,lang2"}, MultiAction{Interval: 50, Repeat: 1, Keys: []byte{4, 0x29, 0x52, 0x91}}, ch57.Key1, 1, 0},
+		{[]string{"macro", "key3", "a,b", "--layer", "4"}, MultiAction{Interval: 50, Repeat: 1, Keys: []byte{4, 5}}, ch57.Key3, 4, 0},
+		{[]string{"macro", "f13", "--interval", "1", "--repeat=255", "--device", "1"}, MultiAction{Interval: 1, Repeat: 255, Keys: []byte{0x68}}, ch57.Key1, 1, 1},
+		{[]string{"macro", strings.TrimSuffix(strings.Repeat("lang2,", 115), ","), "--interval=65535", "--repeat", "1"}, MultiAction{Interval: 65535, Repeat: 1, Keys: bytes.Repeat([]byte{0x91}, 115)}, ch57.Key1, 1, 0},
 	} {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
 			got, err := parsePublic(tc.args)
-			if err != nil || !reflect.DeepEqual(got.action, tc.want) || got.device != tc.wantDevice {
-				t.Fatalf("action=%#v want=%#v device=%d wantDevice=%d error=%v", got.action, tc.want, got.device, tc.wantDevice, err)
+			if err != nil || !reflect.DeepEqual(got.action, tc.want) || got.control != tc.wantControl || got.layer != tc.wantLayer || got.device != tc.wantDevice {
+				t.Fatalf("action=%#v want=%#v control=%q layer=%d device=%d error=%v", got.action, tc.want, got.control, got.layer, got.device, err)
 			}
 		})
 	}
@@ -42,8 +48,8 @@ func TestPublicActionParser(t *testing.T) {
 		}
 	}
 	for _, expr := range []string{"ctrl+c,ctrl+v", "CTRL+SHIFT+TAB,enter", "ctrl,shift"} {
-		c, err := parsePublic([]string{"macro", expr, "--device", "2"})
-		if err != nil || !c.hasMacroModifiers || c.macroCount != 2 || c.device != 2 || c.isReadOnly() {
+		c, err := parsePublic([]string{"macro", "key3", expr, "--layer", "3", "--device", "2"})
+		if err != nil || !c.hasMacroModifiers || c.macroCount != 2 || c.control != ch57.Key3 || !c.seenControl || c.layer != 3 || !c.seenLayer || c.device != 2 || c.isReadOnly() {
 			t.Fatalf("expr=%q got=%+v err=%v", expr, c, err)
 		}
 	}
@@ -115,6 +121,19 @@ func TestPublicActionInvalidBeforeAccess(t *testing.T) {
 		{"macro", strings.TrimSuffix(strings.Repeat("a,", 116), ",")},
 		{"macro", "--repeat=1"},
 		{"macro", "a", "--repeat=1", "--repeat=2"},
+		{"mouse", "key2"},
+		{"mouse", "knob1-press"},
+		{"media", "knob-right"},
+		{"macro", "key3"},
+		{"mouse", "key2", "left", "right"},
+		{"media", "knob-right", "volumeup", "extra"},
+		{"macro", "key3", "a", "b"},
+		{"mouse", "left", "--layer", "0"},
+		{"media", "volumeup", "--layer", "16"},
+		{"macro", "a", "--layer", "abc"},
+		{"mouse", "--layer", "2"},
+		{"media", "--layer=2"},
+		{"macro", "--layer", "2"},
 	}
 	for _, flag := range []string{"--x", "--y", "--wheel"} {
 		for _, value := range []string{"-128", "128", "999999999999999999999999", "1.5", "", "no"} {

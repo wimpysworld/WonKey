@@ -2,7 +2,7 @@
 
 [Wiki home](Home) · [Usage and configuration](usage)
 
-`key <COMBINATION>`, `trigger <press|release|both>`, `macro <STROKE,...>`, `mouse <BUTTONS>`, `media <ACTION>`, and `rgb <MODE> [RGB]` change settings on an XFKEY One Key Max (`0112`) after confirmation (`led <MODE>` is for CH57 `1189:8890` only).
+`key [CONTROL] <COMBINATION>`, `trigger <press|release|both>`, `macro [CONTROL] <STROKE[,STROKE...]>`, `mouse [CONTROL] <BUTTONS>`, `media [CONTROL] <ACTION|0xHHHH>`, and `rgb <MODE> [RGB]` change settings on an XFKEY One Key Max (`0112`) after confirmation (`[CONTROL]`, `--layer <1..15>`, and `led <MODE>` are for CH57 `1189:8890` only; `[CONTROL]` and `--layer` are rejected on `0112`).
 Bare `wonkey` reads all compatible XFKEY One Key Max (`0112`) and CH57 (`1189:8890`) devices without modifying them.
 
 [Device access](#device-selection-and-access) · [Hardware checks](#check-hardware-effects-and-persistence) · [Apply safety](#apply-safety)
@@ -17,7 +17,7 @@ Do not guess a device from its hidraw or USB bus number.
 WonKey enumerates both supported device families automatically:
 
 - **XFKEY One Key Max (`0112`)**: Requires VID/PID `af88:6688`, revision `0100`, and exact USB/configuration bytes. All four report descriptors must match (62, 114, 25, and 34 bytes). The device must have interfaces 0 to 3 and one vendor hidraw mapping on interface 3 (usage page `FF00`, usage `01`, endpoints `84`/`04`, 64-byte payloads, and no report IDs). The shared serial `XFKEY` is not unique.
-- **CH57 (`1189:8890`)**: Requires VID/PID `1189:8890` and the exact published single-configuration USB descriptor structure across interfaces 0 to 3. Bare `wonkey` verifies the 36-byte report ID 3 descriptor on interface 1 and issues one Input report ID 3 `GET_REPORT` control IN transfer. WonKey accepts a 65-byte report ID 3 reply or the 1-byte `0xaa` status response returned by stock write-only firmware. Live writes are refused for `1189:8890`.
+- **CH57 (`1189:8890`)**: Requires VID/PID `1189:8890` and the exact published single-configuration USB descriptor structure across interfaces 0 to 3. Bare `wonkey` verifies the 36-byte report ID 3 descriptor on interface 1, issues one Input report ID 3 `GET_REPORT` control IN transfer, and reports `Controls   key1..key12, knob-left/press/right, knob1..knob3, layers 1..15`. WonKey accepts a 65-byte report ID 3 reply or the 1-byte `0xaa` status response returned by stock write-only firmware. On `1189:8890`, `key`, `macro`, `mouse`, and `media` validate optional `[CONTROL]` (`key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right`, defaulting to `key1`) and `--layer <1..15>` (defaulting to `1`) before live writes are refused for `1189:8890`.
 
 Bare `wonkey` enumerates and inspects all compatible devices automatically in deterministic USB-path order (`[1]`, `[2]`, and so on). For changes, when one compatible device is attached, WonKey selects it automatically; when multiple devices are attached, pass `--device <N>` using the USB-path-sorted device number shown by `wonkey`. Moving or reconnecting a device can change its path, node, and device number.
 

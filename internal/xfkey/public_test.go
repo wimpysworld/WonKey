@@ -133,10 +133,37 @@ func TestPublicParser(t *testing.T) {
 	} {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
 			got, err := parsePublic(tc.args)
-			if err != nil || !reflect.DeepEqual(got.changes, tc.want) || got.device != tc.wantDevice {
+			if err != nil || !reflect.DeepEqual(got.changes, tc.want) || got.device != tc.wantDevice || got.control != ch57.Key1 || got.seenControl || got.layer != 1 || got.seenLayer {
 				t.Fatal(got, err)
 			}
 		})
+	}
+	for _, control := range []ch57.Control{
+		ch57.Key1, ch57.Key2, ch57.Key3, ch57.Key4, ch57.Key5, ch57.Key6,
+		ch57.Key7, ch57.Key8, ch57.Key9, ch57.Key10, ch57.Key11, ch57.Key12,
+		ch57.KnobLeft, ch57.KnobPress, ch57.KnobRight,
+		ch57.Knob1Left, ch57.Knob1Press, ch57.Knob1Right,
+		ch57.Knob2Left, ch57.Knob2Press, ch57.Knob2Right,
+		ch57.Knob3Left, ch57.Knob3Press, ch57.Knob3Right,
+	} {
+		for _, rawControl := range []string{string(control), strings.ToUpper(string(control))} {
+			got, err := parsePublic([]string{"key", rawControl, "ctrl+shift+f13", "--layer", "15", "--device=2"})
+			want := Changes{"key": 0x68, "modifiers": 3}
+			if err != nil || !reflect.DeepEqual(got.changes, want) || got.control != control || !got.seenControl || got.layer != 15 || !got.seenLayer || got.device != 2 {
+				t.Fatalf("control=%q got=%+v err=%v", rawControl, got, err)
+			}
+		}
+	}
+	for layer := 1; layer <= 15; layer++ {
+		for _, args := range [][]string{
+			{"key", "f13", "--layer", fmt.Sprintf("%d", layer)},
+			{"key", "key2", "f13", fmt.Sprintf("--layer=%d", layer)},
+		} {
+			got, err := parsePublic(args)
+			if err != nil || got.layer != layer || !got.seenLayer {
+				t.Fatalf("args=%v got=%+v err=%v", args, got, err)
+			}
+		}
 	}
 	for _, tc := range []struct {
 		args       []string
@@ -374,6 +401,37 @@ func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 		{"rgb", "--device=1189:8890"},
 		{"led", "--device=1189:8890"},
 		{"restore", "--device=1189:8890"},
+		{"key", "key1"},
+		{"key", "key2"},
+		{"key", "knob-right"},
+		{"key", "key2", "f13", "extra"},
+		{"key", "key13", "f13"},
+		{"key", "knob4-left", "f13"},
+		{"--layer", "1"},
+		{"--layer=1"},
+		{"key", "--layer"},
+		{"key", "--layer="},
+		{"key", "--layer", "1"},
+		{"key", "--layer=1"},
+		{"key", "f13", "--layer"},
+		{"key", "f13", "--layer="},
+		{"key", "f13", "--layer", "0"},
+		{"key", "f13", "--layer=0"},
+		{"key", "f13", "--layer", "16"},
+		{"key", "f13", "--layer=16"},
+		{"key", "f13", "--layer", "-1"},
+		{"key", "f13", "--layer", "+1"},
+		{"key", "f13", "--layer", "01"},
+		{"key", "f13", "--layer", "abc"},
+		{"key", "f13", "--layer", "1", "--layer", "2"},
+		{"key", "f13", "--layer=1", "--layer=1"},
+		{"trigger", "release", "--layer", "1"},
+		{"trigger", "release", "--layer=1"},
+		{"rgb", "off", "--layer", "1"},
+		{"rgb", "off", "--layer=1"},
+		{"led", "on", "--layer", "1"},
+		{"led", "on", "--layer=1"},
+		{"key", "--help", "--layer=1"},
 	}
 	for _, flag := range []string{"--device", "--report", "--capture-root", "--json", "--yes", "--dry-run", "--write", "--target", "--path", "--key", "--modifiers", "--trigger", "--lighting", "--colour", "--rgb-mode", "--red", "--expect-identifier", "--expect-version", "--json=false", "--yes=false"} {
 		cases = append(cases, []string{"key", "f13", flag}, []string{"trigger", "release", flag}, []string{"rgb", "off", flag}, []string{"led", "off", flag}, []string{"key", "--help", flag})
@@ -408,7 +466,7 @@ func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 
 func TestPublicHelpNoAccess(t *testing.T) {
 	access := publicAccess{interactive: func(io.Reader) bool { t.Fatal("help accessed runtime"); return false }}
-	for _, args := range [][]string{{"--help"}, {"-h"}, {"key", "--help"}, {"trigger", "--help"}, {"macro", "--help"}, {"mouse", "--help"}, {"media", "--help"}, {"rgb", "--help"}, {"led", "--help"}, {"key", "f13", "--help"}, {"trigger", "release", "--help"}, {"rgb", "off", "-h"}, {"led", "on", "-h"}} {
+	for _, args := range [][]string{{"--help"}, {"-h"}, {"key", "--help"}, {"trigger", "--help"}, {"macro", "--help"}, {"mouse", "--help"}, {"media", "--help"}, {"rgb", "--help"}, {"led", "--help"}, {"key", "f13", "--help"}, {"key", "key2", "f13", "--help"}, {"trigger", "release", "--help"}, {"rgb", "off", "-h"}, {"led", "on", "-h"}} {
 		var out bytes.Buffer
 		if err := runPublic(args, &cliRuntime{strings.NewReader(""), &out, io.Discard}, access); err != nil {
 			t.Fatal(err)
@@ -417,7 +475,10 @@ func TestPublicHelpNoAccess(t *testing.T) {
 		if strings.Contains(out.String(), "One key, to rule them all.") {
 			t.Fatal(out.String())
 		}
-		if (args[0] == "--help" || args[0] == "-h") && !strings.HasPrefix(out.String(), "1️⃣ WonKey\n\nInspect and configure supported macropads.\n") {
+		if (args[0] == "--help" || args[0] == "-h") && (!strings.HasPrefix(out.String(), "1️⃣ WonKey\n\nInspect and configure supported macropads.\n") || !strings.Contains(out.String(), "[CONTROL]") || !strings.Contains(out.String(), "--layer N")) {
+			t.Fatal(out.String())
+		}
+		if (args[0] == "key" || args[0] == "macro" || args[0] == "mouse" || args[0] == "media") && (!strings.Contains(out.String(), "[CONTROL]") || !strings.Contains(out.String(), "[--layer N]") || !strings.Contains(out.String(), "Controls (multi-control devices, default: key1):")) {
 			t.Fatal(out.String())
 		}
 		for _, removed := range []string{"--on", "--report", "--json", "--yes", "--dry-run", "advanced", "wonkey set", "Apply result", "restore", "wonkey multi"} {
@@ -754,7 +815,7 @@ func TestPublicCH57Selection(t *testing.T) {
 			}
 			if tc.count > 0 {
 				for i, candidate := range candidates[:tc.count] {
-					wantTexts := []string{fmt.Sprintf("[%d] CH57x Macropad (1189:8890)", i+1), candidate.PhysicalPath, "3-key / 1-knob up to 12-key / 3-knob", "Not readable over USB", "Supports   key, mouse, media, macro, led"}
+					wantTexts := []string{fmt.Sprintf("[%d] CH57x Macropad (1189:8890)", i+1), candidate.PhysicalPath, "3-key / 1-knob up to 12-key / 3-knob", "key1..key12, knob-left/press/right, knob1..knob3, layers 1..15", "Not readable over USB", "Supports   key, mouse, media, macro, led"}
 					if tc.shortReply {
 						wantTexts = append(wantTexts, "Connected (write-only firmware)")
 					} else {
@@ -987,9 +1048,12 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 			{[]string{"media", "bookmarks"}, "CH57x Macropad (1189:8890) does not support that media action"},
 			{[]string{"media", "0x0001"}, "CH57x Macropad (1189:8890) does not support that media action"},
 			{[]string{"key", "f13"}, "live writes are not supported for 1189:8890; no settings write sent"},
+			{[]string{"key", "key2", "ctrl+shift+f13", "--layer", "2"}, "live writes are not supported for 1189:8890; no settings write sent"},
+			{[]string{"mouse", "knob1-press", "middle", "--layer=15"}, "live writes are not supported for 1189:8890; no settings write sent"},
 			{[]string{"media", "volumeup"}, "live writes are not supported for 1189:8890; no settings write sent"},
+			{[]string{"media", "knob-right", "volumeup", "--layer", "3"}, "live writes are not supported for 1189:8890; no settings write sent"},
 			{[]string{"macro", "a,b,c,d,e"}, "live writes are not supported for 1189:8890; no settings write sent"},
-			{[]string{"macro", "ctrl+c,ctrl+v"}, "live writes are not supported for 1189:8890; no settings write sent"},
+			{[]string{"macro", "key3", "ctrl+c,ctrl+v", "--layer=4"}, "live writes are not supported for 1189:8890; no settings write sent"},
 			{[]string{"led", "off"}, "live writes are not supported for 1189:8890; no settings write sent"},
 			{[]string{"led", "on"}, "live writes are not supported for 1189:8890; no settings write sent"},
 			{[]string{"led", "static"}, "live writes are not supported for 1189:8890; no settings write sent"},
@@ -1009,6 +1073,22 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 				t.Fatalf("args=%v err=%v diagnostic=%q want=%q", tc.args, err, diagnostic.String(), tc.want)
 			}
 		}
+		for _, control := range []ch57.Control{
+			ch57.Key1, ch57.Key2, ch57.Key3, ch57.Key4, ch57.Key5, ch57.Key6,
+			ch57.Key7, ch57.Key8, ch57.Key9, ch57.Key10, ch57.Key11, ch57.Key12,
+			ch57.KnobLeft, ch57.KnobPress, ch57.KnobRight,
+			ch57.Knob1Left, ch57.Knob1Press, ch57.Knob1Right,
+			ch57.Knob2Left, ch57.Knob2Press, ch57.Knob2Right,
+			ch57.Knob3Left, ch57.Knob3Press, ch57.Knob3Right,
+		} {
+			c, err := parsePublic([]string{"key", string(control), "f13", "--layer", "15"})
+			if err != nil {
+				t.Fatal(control, err)
+			}
+			if err := c.checkCH57Capabilities(); err != nil {
+				t.Fatal(control, err)
+			}
+		}
 	})
 	t.Run("xfkey-capability-gating", func(t *testing.T) {
 		for _, tc := range []struct {
@@ -1022,6 +1102,17 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 			{[]string{"macro", "ctrl+c,ctrl+v"}, "XFKEY One Key Max (0112) does not support modifiers in macro sequences; use base key names only"},
 			{[]string{"macro", "ctrl+a"}, "XFKEY One Key Max (0112) does not support modifiers in macro sequences; use base key names only"},
 			{[]string{"macro", "ctrl,shift"}, "XFKEY One Key Max (0112) does not support modifiers in macro sequences; use base key names only"},
+			{[]string{"key", "key1", "f13"}, "XFKEY One Key Max (0112) has a single key and does not support key1"},
+			{[]string{"key", "key2", "f13"}, "XFKEY One Key Max (0112) has a single key and does not support key2"},
+			{[]string{"key", "KEY12", "f13"}, "XFKEY One Key Max (0112) has a single key and does not support key12"},
+			{[]string{"media", "knob-right", "volumeup"}, "XFKEY One Key Max (0112) has a single key and does not support knob-right"},
+			{[]string{"mouse", "knob1-press", "middle"}, "XFKEY One Key Max (0112) has a single key and does not support knob1-press"},
+			{[]string{"macro", "knob3-left", "a,b"}, "XFKEY One Key Max (0112) has a single key and does not support knob3-left"},
+			{[]string{"key", "f13", "--layer", "1"}, "XFKEY One Key Max (0112) does not support --layer"},
+			{[]string{"key", "f13", "--layer=2"}, "XFKEY One Key Max (0112) does not support --layer"},
+			{[]string{"macro", "a,b", "--layer", "3"}, "XFKEY One Key Max (0112) does not support --layer"},
+			{[]string{"mouse", "left", "--layer=4"}, "XFKEY One Key Max (0112) does not support --layer"},
+			{[]string{"media", "volumeup", "--layer", "15"}, "XFKEY One Key Max (0112) does not support --layer"},
 		} {
 			access := publicAccess{
 				interactive: func(io.Reader) bool { return true },
@@ -1083,7 +1174,7 @@ func TestPublicCH57ProbeFailures(t *testing.T) {
 }
 
 func TestPublicCH57OutputFailure(t *testing.T) {
-	for _, needle := range []string{"[1] CH57x Macropad (1189:8890)", "USB path", "Layout", "Status", "Settings", "Supports", "Input hex"} {
+	for _, needle := range []string{"[1] CH57x Macropad (1189:8890)", "USB path", "Layout", "Controls", "Status", "Settings", "Supports", "Input hex"} {
 		for _, short := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/short=%v", needle, short), func(t *testing.T) {
 				access := ch57TestAccess(t)

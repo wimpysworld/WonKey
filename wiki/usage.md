@@ -23,10 +23,10 @@ It shows the raw type at byte 0 and configuration bytes 0 to 15 as hexadecimal.
 It does not decode key, trigger, lighting, mouse, media, or macro fields from an unknown layout.
 This read-only display does not enable changes. Live writes remain blocked for unsupported configurations.
 
-On each CH57x Macropad (`1189:8890`) device, the section heading is `[N] CH57x Macropad (1189:8890)` and bare `wonkey` shows the USB path, layout, connection status, that settings are not readable over USB, and `Supports` (`key, mouse, media, macro, led`).
+On each CH57x Macropad (`1189:8890`) device, the section heading is `[N] CH57x Macropad (1189:8890)` and bare `wonkey` shows the USB path, layout, connection status, that settings are not readable over USB, `Controls` (`key1..key12, knob-left/press/right, knob1..knob3, layers 1..15`), and `Supports` (`key, mouse, media, macro, led`).
 The USB check requests Input report ID 3.
 Stock `1189:8890` write-only firmware returns a 1-byte `0xaa` status response to `GET_REPORT`. WonKey accepts that 1-byte `0xaa` status (exit 0) alongside 65-byte report ID 3 replies.
-When a CH57x Macropad (`1189:8890`) is selected for a write command, WonKey checks per-device capabilities first (rejecting `trigger`, keys outside `0x04..0x73`, `macro` options `--interval` or `--repeat`, sequences over 5 strokes, `rgb` with a hint to use `wonkey led`, and unsupported media usages) before refusing live writes on `1189:8890`.
+When a CH57x Macropad (`1189:8890`) is selected for a write command, WonKey checks per-device capabilities first (accepting optional `[CONTROL]` in `key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right` defaulting to `key1` and `--layer <1..15>` defaulting to `1` on `key`, `macro`, `mouse`, and `media`, and rejecting `trigger`, keys outside `0x04..0x73`, `macro` options `--interval` or `--repeat`, sequences over 5 strokes, `rgb` with a hint to use `wonkey led`, and unsupported media usages) before refusing live writes on `1189:8890`.
 
 `wonkey --help` and help for each command show help without device access. Running `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, or `led` without arguments returns usage guidance without device access.
 
@@ -42,13 +42,15 @@ These commands change stored key and trigger settings after confirmation:
 ./wonkey key f12
 ./wonkey key ctrl+left
 ./wonkey key mute
+./wonkey key key2 f13
 ./wonkey trigger release
 ./wonkey trigger press
 ```
 
 A key expression is the complete combination. `key f13` means **<kbd>F13</kbd> without modifiers**, not <kbd>F13</kbd> with the previous modifiers.
 
-Use `key <COMBINATION>` with one base key from the [supported key names](#supported-key-names).
+Use `wonkey key [CONTROL] <COMBINATION> [--layer N] [--device N]` with one base key from the [supported key names](#supported-key-names).
+On CH57x Macropad (`1189:8890`), `[CONTROL]` accepts `key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, or `knob1-left`..`knob3-right` (defaulting to `key1`), and `--layer` accepts `1..15` (defaulting to `1`). On single-key XFKEY One Key Max (`0112`), `[CONTROL]` and `--layer` are rejected (`XFKEY One Key Max (0112) has a single key and does not support ...` / `XFKEY One Key Max (0112) does not support --layer`).
 Names cover letters, digits, function keys, punctuation keys, navigation, keypad keys, and defined keyboard usages through `0x91` on `0112` (or `0x04..0x73` on `1189:8890`).
 Use names such as `semicolon` and `keypadplus`, not punctuation symbols or raw usage numbers.
 The `key` command does not accept mouse or consumer media names, or a `--on` flag. Multi-stroke sequences use `macro`, and right-hand modifiers remain unsupported.
@@ -75,9 +77,11 @@ Each command changes the complete action on an XFKEY One Key Max (`0112`) after 
 
 | Command | Example | Input and limits |
 |---|---|---|
-| `mouse` | `./wonkey mouse left+right --x=-20 --y 10 --wheel -1` | Use `left`, `right`, `middle`, or a `+` combination without repeats. Use `none` alone for no button, or `wheelup` or `wheeldown` alone for one tick. `--x`, `--y`, and `--wheel` take integers from `-127` to `127`; omitted values are zero. Do not combine a wheel name with `--wheel`. |
-| `media` | `./wonkey media playpause` | Use a name below or `0xHHHH` with exactly four hexadecimal digits. The usage must be `0x0001` to `0x023c` on `0112` (or one of the CH57x-supported media usages on `1189:8890`). |
-| `macro` | `./wonkey macro a,f13,enter --interval 50 --repeat 2` | Replaces `multi`. On `0112`, use 1 to 115 comma-separated base key names from [supported key names](#supported-key-names) without modifiers or raw usage numbers; `--interval` takes 1 to 65535 milliseconds (default 50) and `--repeat` takes 1 to 255 (default 1). On `1189:8890`, use 1 to 5 comma-separated strokes (`0x04..0x73`) including optional per-stroke modifiers such as `ctrl+c,ctrl+v`, without `--interval` or `--repeat`. |
+| `mouse` | `./wonkey mouse left+right --x=-20 --y 10 --wheel -1` | Syntax: `wonkey mouse [CONTROL] <BUTTONS> [--x N] [--y N] [--wheel N] [--layer N] [--device N]`. Use `left`, `right`, `middle`, or a `+` combination without repeats. Use `none` alone for no button, or `wheelup` or `wheeldown` alone for one tick. `--x`, `--y`, and `--wheel` take integers from `-127` to `127`; omitted values are zero. Do not combine a wheel name with `--wheel`. |
+| `media` | `./wonkey media playpause`, `./wonkey media knob-right volumeup` | Syntax: `wonkey media [CONTROL] <ACTION\|0xHHHH> [--layer N] [--device N]`. Use a name below or `0xHHHH` with exactly four hexadecimal digits. The usage must be `0x0001` to `0x023c` on `0112` (or one of the CH57x-supported media usages on `1189:8890`). |
+| `macro` | `./wonkey macro a,f13,enter --interval 50 --repeat 2`, `./wonkey macro key3 ctrl+c,ctrl+v --layer 2` | Syntax: `wonkey macro [CONTROL] <STROKE[,STROKE...]> [--interval MS] [--repeat COUNT] [--layer N] [--device N]`. Replaces `multi`. On `0112`, use 1 to 115 comma-separated base key names from [supported key names](#supported-key-names) without modifiers or raw usage numbers; `--interval` takes 1 to 65535 milliseconds (default 50) and `--repeat` takes 1 to 255 (default 1). On `1189:8890`, use 1 to 5 comma-separated strokes (`0x04..0x73`) including optional per-stroke modifiers such as `ctrl+c,ctrl+v`, without `--interval` or `--repeat`. |
+
+On `1189:8890`, `mouse`, `media`, and `macro` accept an optional `[CONTROL]` (`key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right`, defaulting to `key1`) before the action argument and `--layer <1..15>` (defaulting to `1`). On single-key `0112` devices, `[CONTROL]` and `--layer` are rejected (`XFKEY One Key Max (0112) has a single key and does not support ...` / `XFKEY One Key Max (0112) does not support --layer`).
 
 Media names ignore case: `play`, `pause`, `record`, `fastforward`, `rewind`, `next`, `prev`, `previous`, `stop`, `eject`, `playpause`, `mute`, `volumeup`, `volumedown`, `calculator`, `mycomputer`, `browser`, `email`, `search`, `home`, `back`, `forward`, `refresh`, and `bookmarks`.
 `prev` and `previous` select the same usage. A raw usage within the bound does not prove that the device or host supports its effect.
@@ -206,7 +210,7 @@ Human output is not a machine-readable contract. Redirected output, `TERM=dumb`,
 True-colour terminals also show a configured RGB swatch. The swatch does not prove the observed LED colour.
 Output escapes control characters in external text.
 
-Public flags are `-h`/`--help`, `--device`, `mouse --x`/`--y`/`--wheel`, and `macro --interval`/`--repeat`.
+Public flags are `-h`/`--help`, `--device`, `--layer`, `mouse --x`/`--y`/`--wheel`, and `macro --interval`/`--repeat`.
 Unknown or retired commands and flags, including `multi`, `show`, `set`, `advanced`, `apply`, `plan`, `--on`, `--report`, `--json`, `--yes`, and `--dry-run`, fail before hardware access.
 There is one executable, `wonkey`. The developer executable, protocol commands, and helper scripts are removed.
 WonKey has no arbitrary packet sender, firmware writer, reset, or bootloader command.

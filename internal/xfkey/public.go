@@ -21,32 +21,36 @@ Usage: wonkey [command] [options]
 Without a command, inspect all connected supported devices.
 
 Commands:
-  key <COMBINATION>   Change the key.
-  trigger <WHEN>      Change when the key fires.
-  macro <STROKE,...>  Change the macro key sequence.
-  mouse <BUTTONS>     Change the mouse action.
-  media <ACTION>      Change the media action.
-  rgb <MODE> [RGB]    Change the RGB lighting.
-  led <MODE>          Change the LED backlight mode.
+  key [CONTROL] <COMBINATION>   Change the key.
+  trigger <WHEN>                Change when the key fires.
+  macro [CONTROL] <STROKE,...>  Change the macro key sequence.
+  mouse [CONTROL] <BUTTONS>     Change the mouse action.
+  media [CONTROL] <ACTION>      Change the media action.
+  rgb <MODE> [RGB]              Change the RGB lighting.
+  led <MODE>                    Change the LED backlight mode.
 
 Options:
-  --device N          Select device N when multiple devices are connected.
-  -h, --help          Show help without device access.
+  --layer N                     Select layer 1..15 on multi-layer devices (default: 1).
+  --device N                    Select device N when multiple devices are connected.
+  -h, --help                    Show help without device access.
 
 Examples:
   wonkey
 ` + `  wonkey key f13
+  wonkey key key2 ctrl+shift+f13
   wonkey trigger release
   wonkey macro ctrl+c,ctrl+v
+  wonkey media knob-right volumeup
   wonkey rgb static 0000ff
   wonkey led on
 
 Run "wonkey <command> --help" for values and options.
 `
 
-const keyHelp = `Usage: wonkey key <COMBINATION> [--device N]
+const keyHelp = `Usage: wonkey key [CONTROL] <COMBINATION> [--layer N] [--device N]
 
 Run "wonkey" without arguments to inspect connected devices.
+Controls (multi-control devices, default: key1): key1-key12, knob-left, knob-press, knob-right, knob1-left..knob3-right
 A combination contains exactly one base key from the names below.
 Optional modifiers precede the key: ctrl+, shift+, alt+ or super+, each at most once.
 Key names ignore case. Uppercase letters do not add Shift.
@@ -75,12 +79,13 @@ Raw usage numbers, punctuation symbols and right modifiers are unsupported.
 Added keys fit the captured descriptor but remain hardware-unverified.
 
 Options:
+  --layer N     Layer 1..15 on multi-layer devices (default: 1).
   --device N    Select device N when multiple devices are connected.
   -h, --help    Show help without device access.
 
 Examples:
   wonkey key f13
-  wonkey key ctrl+shift+f13
+  wonkey key key2 ctrl+shift+f13
 
 At [Y/n], Enter accepts. No or EOF cancels.
 `
@@ -135,24 +140,31 @@ Examples:
 At [Y/n], Enter accepts. No or EOF cancels.
 `
 
-const mouseHelp = `Usage: wonkey mouse <BUTTONS> [--x N] [--y N] [--wheel N] [--device N]
+const mouseHelp = `Usage: wonkey mouse [CONTROL] <BUTTONS> [--x N] [--y N] [--wheel N] [--layer N] [--device N]
 
 Run "wonkey" without arguments to inspect connected devices.
+Controls (multi-control devices, default: key1): key1-key12, knob-left, knob-press, knob-right, knob1-left..knob3-right
 Buttons: left, right, middle, none. Join buttons with +, for example left+right.
 Use none alone for movement without a button, or a zero action.
 Use wheelup or wheeldown alone for one wheel tick. Do not combine with --wheel.
 X, Y and wheel accept -127..127. Omitted values are zero.
 
 Options:
+  --layer N     Layer 1..15 on multi-layer devices (default: 1).
   --device N    Select device N when multiple devices are connected.
   -h, --help    Show help without device access.
+
+Examples:
+  wonkey mouse left
+  wonkey mouse knob1-press middle
 
 At [Y/n], Enter accepts. No or EOF cancels.
 `
 
-const mediaHelp = `Usage: wonkey media <ACTION|0xHHHH> [--device N]
+const mediaHelp = `Usage: wonkey media [CONTROL] <ACTION|0xHHHH> [--layer N] [--device N]
 
 Run "wonkey" without arguments to inspect connected devices.
+Controls (multi-control devices, default: key1): key1-key12, knob-left, knob-press, knob-right, knob1-left..knob3-right
 Names ignore case:
   play, pause, record, fastforward, rewind, next, prev, previous, stop, eject
   playpause, mute, volumeup, volumedown, calculator, mycomputer, browser, email
@@ -160,27 +172,34 @@ Names ignore case:
 Raw usages need exactly four hexadecimal digits and must be 0x0001..0x023c.
 
 Options:
+  --layer N     Layer 1..15 on multi-layer devices (default: 1).
   --device N    Select device N when multiple devices are connected.
   -h, --help    Show help without device access.
+
+Examples:
+  wonkey media volumeup
+  wonkey media knob-right volumeup
 
 At [Y/n], Enter accepts. No or EOF cancels.
 `
 
-const macroHelp = `Usage: wonkey macro <STROKE[,STROKE...]> [--interval MS] [--repeat COUNT] [--device N]
+const macroHelp = `Usage: wonkey macro [CONTROL] <STROKE[,STROKE...]> [--interval MS] [--repeat COUNT] [--layer N] [--device N]
 
 Run "wonkey" without arguments to inspect connected devices.
+Controls (multi-control devices, default: key1): key1-key12, knob-left, knob-press, knob-right, knob1-left..knob3-right
 Use 1..115 comma-separated key strokes using base key names from "wonkey key --help".
 On devices that support per-stroke modifiers, prefix strokes with ctrl+, shift+, alt+ or super+.
 --interval accepts 1..65535 milliseconds (default: 50).
 --repeat accepts 1..255 repetitions (default: 1).
 
 Options:
+  --layer N     Layer 1..15 on multi-layer devices (default: 1).
   --device N    Select device N when multiple devices are connected.
   -h, --help    Show help without device access.
 
 Examples:
   wonkey macro a,b,c
-  wonkey macro ctrl+c,ctrl+v
+  wonkey macro key3 ctrl+c,ctrl+v
 
 At [Y/n], Enter accepts. No or EOF cancels.
 `
@@ -209,6 +228,10 @@ At [Y/n], Enter accepts. No or EOF cancels.
 
 type publicCommand struct {
 	name                       string
+	control                    ch57.Control
+	seenControl                bool
+	layer                      int
+	seenLayer                  bool
 	changes                    Changes
 	action                     Action
 	device                     int
@@ -221,8 +244,23 @@ type publicCommand struct {
 	help                       bool
 }
 
+func parseControlName(raw string) (ch57.Control, bool) {
+	c := ch57.Control(strings.ToLower(raw))
+	switch c {
+	case ch57.Key1, ch57.Key2, ch57.Key3, ch57.Key4, ch57.Key5, ch57.Key6,
+		ch57.Key7, ch57.Key8, ch57.Key9, ch57.Key10, ch57.Key11, ch57.Key12,
+		ch57.KnobLeft, ch57.KnobPress, ch57.KnobRight,
+		ch57.Knob1Left, ch57.Knob1Press, ch57.Knob1Right,
+		ch57.Knob2Left, ch57.Knob2Press, ch57.Knob2Right,
+		ch57.Knob3Left, ch57.Knob3Press, ch57.Knob3Right:
+		return c, true
+	default:
+		return "", false
+	}
+}
+
 func parsePublic(args []string) (publicCommand, error) {
-	c := publicCommand{}
+	c := publicCommand{control: ch57.Key1, layer: 1}
 	if len(args) == 0 {
 		return c, nil
 	}
@@ -232,6 +270,9 @@ func parsePublic(args []string) (publicCommand, error) {
 		}
 		c.help = true
 		return c, nil
+	}
+	if args[0] == "--layer" || strings.HasPrefix(args[0], "--layer=") {
+		return c, fmt.Errorf("--layer is supported on key, macro, mouse and media only")
 	}
 	c.name = args[0]
 	switch c.name {
@@ -248,6 +289,28 @@ func parsePublic(args []string) (publicCommand, error) {
 		switch {
 		case arg == "--help" || arg == "-h":
 			c.help = true
+		case arg == "--layer" || strings.HasPrefix(arg, "--layer="):
+			if c.name != "key" && c.name != "macro" && c.name != "mouse" && c.name != "media" {
+				return c, fmt.Errorf("--layer is supported on key, macro, mouse and media only")
+			}
+			if c.seenLayer {
+				return c, fmt.Errorf("--layer is accepted once")
+			}
+			var value string
+			if arg == "--layer" {
+				if len(args) == 0 {
+					return c, fmt.Errorf("--layer needs 1..15")
+				}
+				value, args = args[0], args[1:]
+			} else {
+				value = strings.TrimPrefix(arg, "--layer=")
+			}
+			layer, ok := parseBoundedInt(value, 1, 15)
+			if !ok {
+				return c, fmt.Errorf("--layer needs 1..15")
+			}
+			c.layer = layer
+			c.seenLayer = true
 		case arg == "--device" || strings.HasPrefix(arg, "--device="):
 			if c.device != 0 {
 				return c, fmt.Errorf("--device is accepted once")
@@ -311,10 +374,42 @@ func parseBoundedInt(value string, min, max int) (int, bool) {
 	return n, true
 }
 
+func missingCommandValueError(name string) error {
+	switch name {
+	case "key":
+		return fmt.Errorf("key requires a key combination, for example \"wonkey key f13\"; run \"wonkey key --help\" for supported keys")
+	case "trigger":
+		return fmt.Errorf("trigger requires press, release or both, for example \"wonkey trigger release\"; run \"wonkey trigger --help\" for values")
+	case "macro":
+		return fmt.Errorf("macro requires a comma-separated key list, for example \"wonkey macro ctrl+c,ctrl+v\" or \"wonkey macro a,b,c\"; run \"wonkey macro --help\" for options")
+	case "mouse":
+		return fmt.Errorf("mouse requires buttons or wheel direction, for example \"wonkey mouse left\"; run \"wonkey mouse --help\" for options")
+	case "media":
+		return fmt.Errorf("media requires a media action, for example \"wonkey media volumeup\"; run \"wonkey media --help\" for actions")
+	case "led":
+		return fmt.Errorf("led requires a mode, for example \"wonkey led on\" or \"wonkey led off\"; run \"wonkey led --help\" for modes")
+	default:
+		return fmt.Errorf("rgb requires a lighting mode, for example \"wonkey rgb static 0000ff\" or \"wonkey rgb off\"; run \"wonkey rgb --help\" for modes")
+	}
+}
+
 func (c publicCommand) parsePositionals(positional []string, options map[string]int) (publicCommand, error) {
+	if (c.name == "key" || c.name == "macro" || c.name == "mouse" || c.name == "media") && len(positional) > 0 {
+		if control, ok := parseControlName(positional[0]); ok {
+			c.control = control
+			c.seenControl = true
+			positional = positional[1:]
+			if len(positional) == 0 {
+				return c, missingCommandValueError(c.name)
+			}
+		}
+	}
 	if len(positional) == 0 {
 		if c.device > 0 {
 			return c, fmt.Errorf("--device requires a command value")
+		}
+		if c.seenLayer {
+			return c, fmt.Errorf("--layer requires a command value")
 		}
 		if len(options) > 0 {
 			return c, fmt.Errorf("%s options require an action", c.name)
@@ -322,22 +417,7 @@ func (c publicCommand) parsePositionals(positional []string, options map[string]
 		if c.help {
 			return c, nil
 		}
-		switch c.name {
-		case "key":
-			return c, fmt.Errorf("key requires a key combination, for example \"wonkey key f13\"; run \"wonkey key --help\" for supported keys")
-		case "trigger":
-			return c, fmt.Errorf("trigger requires press, release or both, for example \"wonkey trigger release\"; run \"wonkey trigger --help\" for values")
-		case "macro":
-			return c, fmt.Errorf("macro requires a comma-separated key list, for example \"wonkey macro ctrl+c,ctrl+v\" or \"wonkey macro a,b,c\"; run \"wonkey macro --help\" for options")
-		case "mouse":
-			return c, fmt.Errorf("mouse requires buttons or wheel direction, for example \"wonkey mouse left\"; run \"wonkey mouse --help\" for options")
-		case "media":
-			return c, fmt.Errorf("media requires a media action, for example \"wonkey media volumeup\"; run \"wonkey media --help\" for actions")
-		case "led":
-			return c, fmt.Errorf("led requires a mode, for example \"wonkey led on\" or \"wonkey led off\"; run \"wonkey led --help\" for modes")
-		default:
-			return c, fmt.Errorf("rgb requires a lighting mode, for example \"wonkey rgb static 0000ff\" or \"wonkey rgb off\"; run \"wonkey rgb --help\" for modes")
-		}
+		return c, missingCommandValueError(c.name)
 	}
 	if c.name == "mouse" || c.name == "media" || c.name == "macro" {
 		return c.parseAction(positional, options)
@@ -777,6 +857,12 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 }
 
 func (c publicCommand) checkXFKEYCapabilities() error {
+	if c.seenLayer {
+		return fmt.Errorf("XFKEY One Key Max (0112) does not support --layer")
+	}
+	if c.seenControl {
+		return fmt.Errorf("XFKEY One Key Max (0112) has a single key and does not support %s", c.control)
+	}
 	switch c.name {
 	case "led":
 		return fmt.Errorf("XFKEY One Key Max (0112) does not support led; use \"wonkey rgb\" instead")
@@ -789,6 +875,15 @@ func (c publicCommand) checkXFKEYCapabilities() error {
 }
 
 func (c publicCommand) checkCH57Capabilities() error {
+	switch c.name {
+	case "key", "macro", "mouse", "media":
+		if _, ok := parseControlName(string(c.control)); !ok {
+			return fmt.Errorf("CH57x Macropad (1189:8890) does not support control %q", c.control)
+		}
+		if c.layer < 1 || c.layer > 15 {
+			return fmt.Errorf("CH57x Macropad (1189:8890) supports layers 1..15 only")
+		}
+	}
 	switch c.name {
 	case "trigger":
 		return fmt.Errorf("CH57x Macropad (1189:8890) does not support trigger (key release triggers)")
@@ -865,6 +960,7 @@ func (c publicCommand) runCH57Selected(selected ch57.DiscoveredCandidate, device
 	h.heading(fmt.Sprintf("[%d] CH57x Macropad (1189:8890)", deviceID))
 	h.field("USB path", selected.PhysicalPath)
 	h.field("Layout", "3-key / 1-knob up to 12-key / 3-knob")
+	h.field("Controls", "key1..key12, knob-left/press/right, knob1..knob3, layers 1..15")
 	if h.out.err != nil {
 		return h.out.err
 	}
