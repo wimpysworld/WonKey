@@ -874,7 +874,7 @@ func (c publicCommand) checkXFKEYCapabilities() error {
 	if c.seenLayer {
 		return fmt.Errorf("XFKEY One Key Max (0112) does not support --layer")
 	}
-	if c.seenControl {
+	if c.seenControl && c.control != ch57.Key1 {
 		return fmt.Errorf("XFKEY One Key Max (0112) has a single key and does not support %s", c.control)
 	}
 	switch c.name {

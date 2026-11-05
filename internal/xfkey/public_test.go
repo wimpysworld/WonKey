@@ -1118,6 +1118,13 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 		}
 	})
 	t.Run("xfkey-capability-gating", func(t *testing.T) {
+		c, err := parsePublic([]string{"key", "key1", "f13"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := c.checkXFKEYCapabilities(); err != nil {
+			t.Fatal(err)
+		}
 		for _, tc := range []struct {
 			args []string
 			want string
@@ -1128,7 +1135,6 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 			{[]string{"macro", "ctrl+c,ctrl+v"}, "XFKEY One Key Max (0112) does not support modifiers in macro sequences; use base key names only"},
 			{[]string{"macro", "ctrl+a"}, "XFKEY One Key Max (0112) does not support modifiers in macro sequences; use base key names only"},
 			{[]string{"macro", "ctrl,shift"}, "XFKEY One Key Max (0112) does not support modifiers in macro sequences; use base key names only"},
-			{[]string{"key", "key1", "f13"}, "XFKEY One Key Max (0112) has a single key and does not support key1"},
 			{[]string{"key", "key2", "f13"}, "XFKEY One Key Max (0112) has a single key and does not support key2"},
 			{[]string{"key", "KEY12", "f13"}, "XFKEY One Key Max (0112) has a single key and does not support key12"},
 			{[]string{"media", "knob-right", "volumeup"}, "XFKEY One Key Max (0112) has a single key and does not support knob-right"},
