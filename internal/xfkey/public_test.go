@@ -1205,6 +1205,34 @@ func TestPublicCH57ProbeFailures(t *testing.T) {
 			}
 		})
 	}
+	t.Run("continues-after-failure", func(t *testing.T) {
+		access := ch57TestAccess(t)
+		access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
+			return []ch57.DiscoveredCandidate{
+				{Candidate: ch57.Candidate{PhysicalPath: "1-2"}},
+				{Candidate: ch57.Candidate{PhysicalPath: "1-3"}},
+			}, nil
+		}
+		failure := errors.New("synthetic probe failure")
+		probes := 0
+		access.probeCH57 = func(_ string, _ string, selected ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
+			probes++
+			if selected.PhysicalPath == "1-2" {
+				return ch57.ProbeResult{Status: ch57.ProbeRefused}, failure
+			}
+			return ch57.ProbeResult{Status: ch57.ProbeRawReport, Raw: []byte{0xaa}, Count: 1}, nil
+		}
+		var out, diagnostic bytes.Buffer
+		err := runPublic(nil, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
+		if !errors.Is(err, failure) || ExitCode(err) != 1 || probes != 2 {
+			t.Fatalf("err=%v probes=%d diag=%q", err, probes, diagnostic.String())
+		}
+		for _, text := range []string{"[1] CH57x Macropad (1189:8890)", "1-2", string(ch57.ProbeRefused), "[2] CH57x Macropad (1189:8890)", "1-3", "Settings   Write-only (not readable over USB)"} {
+			if !strings.Contains(out.String(), text) {
+				t.Fatalf("missing %q in %q", text, out.String())
+			}
+		}
+	})
 }
 
 func TestPublicCH57OutputFailure(t *testing.T) {

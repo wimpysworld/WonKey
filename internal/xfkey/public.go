@@ -1637,28 +1637,23 @@ func renderSayoProbeOutcome(probed sayo.ProbeResult, h human) {
 }
 
 func (c publicCommand) runReadAll(matches []Candidate, byCH57Path map[string]ch57.DiscoveredCandidate, bySayoPath map[string]sayo.DiscoveredCandidate, h human, access publicAccess) error {
+	var runErr error
 	for i, selected := range matches {
 		deviceID := i + 1
 		if i > 0 {
 			_, _ = io.WriteString(h.out, "\n")
 		}
 		if sayoCandidate, ok := bySayoPath[selected.PhysicalPath]; ok {
-			if err := c.runSayoSelected(sayoCandidate, deviceID, h, access); err != nil {
-				return err
-			}
+			runErr = errors.Join(runErr, c.runSayoSelected(sayoCandidate, deviceID, h, access))
 			continue
 		}
 		if chCandidate, ok := byCH57Path[selected.PhysicalPath]; ok {
-			if err := c.runCH57Selected(chCandidate, deviceID, h, access); err != nil {
-				return err
-			}
+			runErr = errors.Join(runErr, c.runCH57Selected(chCandidate, deviceID, h, access))
 			continue
 		}
-		if err := c.runXFKEYSelected(selected, deviceID, h, access); err != nil {
-			return err
-		}
+		runErr = errors.Join(runErr, c.runXFKEYSelected(selected, deviceID, h, access))
 	}
-	return h.out.err
+	return errors.Join(runErr, h.out.err)
 }
 
 func (c publicCommand) runXFKEYSelected(selected Candidate, deviceID int, h human, access publicAccess) error {
