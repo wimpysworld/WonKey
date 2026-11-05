@@ -74,19 +74,18 @@ Obtain explicit user authority before device access.
 - For protocol or apply changes, test framing, unspecified-byte preservation, guards, upload/commit failures, deadlines, and no-op behaviour.
 - Test supported, validated keyboard, mouse, media, and multi layouts offline, including action conversions and rejection of ambiguous layouts. Keep hardware effects and persistence unverified until user-authorised hardware tests.
 - Test exact post-write comparison separately from hardware effects and persistence. Query fixtures do not prove upload.
-- Test device selection, default-Yes confirmation, and cancellation without writes.
+- Test device selection and no-op behaviour without writes.
 
 ## Security and secrets
 
 - Obtain explicit user authority before device inspection, queries, writes, event streams, helper execution, or permission changes.
 - Do not treat README hardware examples as permission to execute them.
 - For public changes, acquire expected identity/version freshly and retain the shared guarded transaction.
-- Auto-select one compatible device. For multiple matches on a write command, require `--device <N>` using the deterministic USB-path-sorted device number shown by `wonkey`. Revalidate selected descriptors, node, path, identity, and version before the transaction. Share one buffered reader for confirmation.
+- Auto-select one compatible device. For multiple matches on a write command, require `--device <N>` using the deterministic USB-path-sorted device number shown by `wonkey`. Revalidate selected descriptors, node, path, identity, and version before the transaction.
 - Bare `wonkey` enumerates and inspects all compatible devices without terminal selection.
-- Refuse public changes without a terminal before device access. Read and show current-to-proposed values before confirmation.
-- Use `Save settings? [Y/n]:` followed by one space, with no bypass. Accept Enter, `y`, or `yes`, ignoring letter case. Cancel on EOF, `n`, `no`, or invalid input.
-- Reject settings drift after preview, including drift that makes the request a no-op.
-- Keep bare `wonkey` query-only. Keep help and rejected syntax (including bare `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, and `led`) free of hardware access. No-op and cancellation must send no settings upload or commit.
+- Read and show current-to-proposed values before writing settings.
+- Reject settings drift before upload, including drift that makes the request a no-op.
+- Keep bare `wonkey` query-only. Keep help and rejected syntax (including bare `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, and `led`) free of hardware access. A no-op must send no settings upload or commit.
 - A saved offline plan never authorises a live write.
 - Treat a public key expression as the complete combination, clearing unspecified modifiers. Preserve an existing keyboard trigger, or use press when replacing another action. Use `trigger` to change `press`, `release`, or `both` on devices that support key triggers. Preserve omitted RGB colour.
 - Accept only supported, validated keyboard, mouse, media, and multi layouts. Reject ambiguous action conversions. Change no unrelated bytes. Reject unsupported current layouts even for RGB-only changes.

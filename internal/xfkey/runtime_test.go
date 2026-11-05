@@ -43,16 +43,3 @@ func TestExitCode(t *testing.T) {
 		})
 	}
 }
-
-func TestSaveConfirmation(t *testing.T) {
-	for _, value := range []string{"n\n", "N\n", "no\n", "NO\n", "write\n", "Write\n", " y\n", "yes \n", " \n", "invalid\n"} {
-		if saveConfirmation(value) {
-			t.Fatalf("accepted %q", value)
-		}
-	}
-	for _, value := range []string{"\n", "\r\n", "y\n", "Y\n", "yes\n", "YES\n", "Yes\r\n"} {
-		if !saveConfirmation(value) {
-			t.Fatalf("rejected %q", value)
-		}
-	}
-}

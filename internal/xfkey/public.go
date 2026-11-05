@@ -1,7 +1,6 @@
 package xfkey
 
 import (
-	"bufio"
 	"cmp"
 	"encoding/hex"
 	"errors"
@@ -86,8 +85,6 @@ Options:
 Examples:
   wonkey key f13
   wonkey key key2 ctrl+shift+f13
-
-At [Y/n], Enter accepts. No or EOF cancels.
 `
 
 const triggerHelp = `Usage: wonkey trigger <press|release|both> [--device N]
@@ -108,8 +105,6 @@ Options:
 Examples:
   wonkey trigger press
   wonkey trigger release
-
-At [Y/n], Enter accepts. No or EOF cancels.
 `
 
 const rgbHelp = `Usage: wonkey rgb <MODE> [RGB] [--device N]
@@ -136,8 +131,6 @@ Examples:
   wonkey rgb static 0000ff
   wonkey rgb static
   wonkey rgb off
-
-At [Y/n], Enter accepts. No or EOF cancels.
 `
 
 const mouseHelp = `Usage: wonkey mouse [CONTROL] <BUTTONS> [--x N] [--y N] [--wheel N] [--layer N] [--device N]
@@ -157,8 +150,6 @@ Options:
 Examples:
   wonkey mouse left
   wonkey mouse knob1-press middle
-
-At [Y/n], Enter accepts. No or EOF cancels.
 `
 
 const mediaHelp = `Usage: wonkey media [CONTROL] <ACTION|0xHHHH> [--layer N] [--device N]
@@ -179,8 +170,6 @@ Options:
 Examples:
   wonkey media volumeup
   wonkey media knob-right volumeup
-
-At [Y/n], Enter accepts. No or EOF cancels.
 `
 
 const macroHelp = `Usage: wonkey macro [CONTROL] <STROKE[,STROKE...]> [--interval MS] [--repeat COUNT] [--layer N] [--device N]
@@ -200,8 +189,6 @@ Options:
 Examples:
   wonkey macro a,b,c
   wonkey macro key3 ctrl+c,ctrl+v
-
-At [Y/n], Enter accepts. No or EOF cancels.
 `
 
 const ledHelp = `Usage: wonkey led <MODE> [--device N]
@@ -222,8 +209,6 @@ Examples:
   wonkey led reactive
   wonkey led cycle
   wonkey led off
-
-At [Y/n], Enter accepts. No or EOF cancels.
 `
 
 type publicCommand struct {
@@ -650,7 +635,6 @@ type publicAccess struct {
 	discover     func() ([]Candidate, error)
 	query        func(Candidate) (CaptureResult, error)
 	apply        func(Candidate, ApplyTarget, configurationChanges, func(configuration, configuration) (bool, error)) (ApplyResult, error)
-	interactive  func(io.Reader) bool
 }
 
 func publicDeviceAccess() publicAccess {
@@ -668,7 +652,6 @@ func publicDeviceAccess() publicAccess {
 		apply: func(selected Candidate, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration) (bool, error)) (ApplyResult, error) {
 			return liveApplyBound(selected.PhysicalPath, target, changes, true, guard, &selected, true)
 		},
-		interactive: readerInteractive,
 	}
 }
 
@@ -803,11 +786,6 @@ func (c publicCommand) isReadOnly() bool {
 }
 
 func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
-	interactive := access.interactive(rt.in)
-	if !c.isReadOnly() && !interactive {
-		return fmt.Errorf("changes require an interactive terminal; no device access")
-	}
-	input := bufio.NewReader(rt.in)
 	h := newHuman(rt.out)
 	const sysRoot, devRoot = "/sys/bus/usb/devices", "/dev/bus/usb"
 	var candidates []Candidate
@@ -849,12 +827,12 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 		if err := c.checkCH57Capabilities(); err != nil {
 			return err
 		}
-		return c.runCH57Write(chSelected, deviceID, input, h, access)
+		return c.runCH57Write(chSelected, deviceID, h, access)
 	}
 	if err := c.checkXFKEYCapabilities(); err != nil {
 		return err
 	}
-	return c.runXFKEYSelected(selected, deviceID, input, h, access)
+	return c.runXFKEYSelected(selected, deviceID, h, access)
 }
 
 func (c publicCommand) checkXFKEYCapabilities() error {
@@ -1020,7 +998,7 @@ func (c publicCommand) encodeCH57Reports() ([]ch57.Report, []changeView, error) 
 	}
 }
 
-func (c publicCommand) runCH57Write(selected ch57.DiscoveredCandidate, deviceID int, input *bufio.Reader, h human, access publicAccess) error {
+func (c publicCommand) runCH57Write(selected ch57.DiscoveredCandidate, deviceID int, h human, access publicAccess) error {
 	const sysRoot, devRoot = "/sys/bus/usb/devices", "/dev/bus/usb"
 	reports, views, err := c.encodeCH57Reports()
 	if err != nil {
@@ -1031,18 +1009,6 @@ func (c publicCommand) runCH57Write(selected ch57.DiscoveredCandidate, deviceID 
 	}
 	h.changes(views)
 	if h.out.err != nil {
-		return h.out.err
-	}
-	fmt.Fprint(h.out, "Save settings? [Y/n]: ")
-	if h.out.err != nil {
-		return h.out.err
-	}
-	line, err := input.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return err
-	}
-	if errors.Is(err, io.EOF) || !saveConfirmation(line) {
-		h.line("", "Cancelled. No settings write sent.")
 		return h.out.err
 	}
 	result, err := access.applyCH57(sysRoot, devRoot, selected, reports)
@@ -1071,14 +1037,14 @@ func (c publicCommand) runReadAll(matches []Candidate, byCH57Path map[string]ch5
 			}
 			continue
 		}
-		if err := c.runXFKEYSelected(selected, deviceID, nil, h, access); err != nil {
+		if err := c.runXFKEYSelected(selected, deviceID, h, access); err != nil {
 			return err
 		}
 	}
 	return h.out.err
 }
 
-func (c publicCommand) runXFKEYSelected(selected Candidate, deviceID int, input *bufio.Reader, h human, access publicAccess) error {
+func (c publicCommand) runXFKEYSelected(selected Candidate, deviceID int, h human, access publicAccess) error {
 	observed, err := access.query(selected)
 	if err != nil {
 		return err
@@ -1093,7 +1059,7 @@ func (c publicCommand) runXFKEYSelected(selected Candidate, deviceID int, input 
 	if observed.Readback == nil {
 		return fmt.Errorf("device settings are missing")
 	}
-	return c.runObserved(observed, selected, deviceID, target, input, h, access)
+	return c.runObserved(observed, selected, deviceID, target, h, access)
 }
 
 func (c publicCommand) runCH57Selected(selected ch57.DiscoveredCandidate, deviceID int, h human, access publicAccess) error {
@@ -1185,7 +1151,7 @@ func (c publicCommand) configurationChanges(current configuration) configuration
 	return ActionChanges{RGB: c.changes}
 }
 
-func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, deviceID int, target ApplyTarget, input *bufio.Reader, h human, access publicAccess) error {
+func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, deviceID int, target ApplyTarget, h human, access publicAccess) error {
 	raw, err := hex.DecodeString(observed.Readback.Configuration)
 	if err != nil {
 		return err
@@ -1216,20 +1182,11 @@ func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, d
 	}
 	views := publicActionViews(current, intended)
 	h.changes(views)
-	if len(views) == 0 {
-		h.line("", "No settings write sent.")
-		return h.out.err
-	}
-	fmt.Fprint(h.out, "Save settings? [Y/n]: ")
 	if h.out.err != nil {
 		return h.out.err
 	}
-	line, err := input.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return err
-	}
-	if errors.Is(err, io.EOF) || !saveConfirmation(line) {
-		h.line("", "Cancelled. No settings write sent.")
+	if len(views) == 0 {
+		h.line("", "No settings write sent.")
 		return h.out.err
 	}
 	guard := func(fresh, proposed configuration) (bool, error) {

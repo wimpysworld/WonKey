@@ -1,7 +1,7 @@
 # WonKey documentation
 
-WonKey configures the XFKEY One Key Max (`0112`) and inspects CH57 (`1189:8890`) devices on Linux.
-For XFKEY One Key Max writes, it previews changes, asks for confirmation, and verifies all 128 configuration bytes in memory after each write.
+WonKey configures the XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices on Linux.
+For XFKEY One Key Max writes, it shows the current-to-proposed diff, checks for settings drift before writing, and verifies all 128 configuration bytes in memory after each write.
 
 [Build WonKey](https://github.com/wimpysworld/WonKey/blob/main/README.md#get-started), then [read the current settings](usage#read-settings).
 Read [device access requirements](hardware#device-selection-and-access) before a hardware command.
@@ -14,10 +14,10 @@ Read [device access requirements](hardware#device-selection-and-access) before a
 | Assign a key with modifiers and set its trigger | [Set the key](usage#set-the-key) |
 | Set a mouse, consumer media, or macro action | [Mouse, media, and macro actions](usage#mouse-media-and-macro-actions) |
 | Choose an RGB or LED lighting mode | [Lighting](usage#lighting) |
-| Select a device and confirm a change | [Selection and confirmation](usage#selection-and-confirmation) |
+| Select a device and verify a change | [Device selection and verification](usage#device-selection-and-verification) |
 
 The [usage guide](usage) covers command syntax, unified device discovery, and supported settings.
-Bare `wonkey` reads settings and inspects connected devices without modifying them. `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, and `led` validate device capabilities (including optional `[CONTROL]` and `--layer <1..15>` on `key`, `macro`, `mouse`, and `media`, and `led <off|reactive|cycle>` on CH57x devices) and configure supported devices (`0112` and `1189:8890`) after terminal confirmation.
+Bare `wonkey` reads settings and inspects connected devices without modifying them. `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, and `led` validate device capabilities (including optional `[CONTROL]` and `--layer <1..15>` on `key`, `macro`, `mouse`, and `media`, and `led <off|reactive|cycle>` on CH57x devices) and configure supported devices (`0112` and `1189:8890`).
 
 ## Hardware and development
 

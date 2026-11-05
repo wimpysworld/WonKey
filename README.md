@@ -10,7 +10,7 @@
 
 Set a keyboard, relative mouse, consumer media, or macro action, and choose RGB or LED lighting.
 
-WonKey previews changes, asks for confirmation, and writes settings to XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices.
+WonKey shows the proposed changes and writes settings to XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices.
 
 WonKey discovers compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices automatically. Bare `wonkey` inspects all connected XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices.
 Keyboard actions use one base key with optional <kbd>Ctrl</kbd>, <kbd>Shift</kbd>, <kbd>Alt</kbd>, and <kbd>Super</kbd> modifiers.
@@ -125,16 +125,15 @@ Omit the colour to preserve it. `cycle-slow`, `cycle-fast`, and `off` do not use
 `wonkey led` accepts `off`, `reactive`, or `cycle` on `1189:8890` (rejected on `0112` with a hint to use `wonkey rgb`).
 Lighting commands preserve key settings.
 
-## Before you save
+## Writing settings
 
-Changes require a terminal and a supported device (`0112` or `1189:8890`). When one compatible device is attached, WonKey selects it automatically; when multiple compatible devices are attached, pass `--device <N>` using the USB-path-sorted device number from `wonkey` (for example `wonkey key f13 --device 1`). WonKey shows the selected device heading (such as `[1] XFKEY One Key Max (0112)` or `[2] CH57x Macropad (1189:8890)`) and current-to-proposed settings before it asks `Save settings? [Y/n]:`.
-Press <kbd>Enter</kbd> to save, or enter `n` to cancel. Cancellation and unchanged settings send no settings writes.
+Changes require a supported device (`0112` or `1189:8890`). When one compatible device is attached, WonKey selects it automatically; when multiple compatible devices are attached, pass `--device <N>` using the USB-path-sorted device number from `wonkey` (for example `wonkey key f13 --device 1`). WonKey shows the selected device heading (such as `[1] XFKEY One Key Max (0112)` or `[2] CH57x Macropad (1189:8890)`) and current-to-proposed settings as it writes the change. Unchanged settings on `0112` send no settings writes.
 
-On `0112`, if the device state changes after the preview, WonKey stops before it writes settings, and after an `AF02` upload and `AF04` commit, it reads back and compares all 128 configuration bytes in memory. On `1189:8890`, WonKey revalidates the USB descriptors and interface 1 report descriptor before writing the 64-byte zero initialisation packet and encoded report sequence to interrupt OUT endpoint `0x02`. Errors stop the transaction without automatic retries or rollback.
+On `0112`, if the device state drifts before upload, WonKey stops before it writes settings, and after an `AF02` upload and `AF04` commit, it reads back and compares all 128 configuration bytes in memory. On `1189:8890`, WonKey probes the device, shows the proposed change, revalidates the USB descriptors and interface 1 report descriptor, and writes the 64-byte zero initialisation packet and encoded report sequence to interrupt OUT endpoint `0x02`. Errors stop the transaction without automatic retries or rollback.
 
 ## Compatibility
 
-WonKey checks exact device descriptors for XFKEY One Key Max (`af88:6688`, model `0112`) and CH57x Macropad (`1189:8890`). For `0112`, it rejects unsupported special, macro (`06`), touch, and unknown layouts, rejects `[CONTROL]` and `--layer` (`XFKEY One Key Max (0112) has a single key and does not support ...` / `XFKEY One Key Max (0112) does not support --layer`), and rejects `wonkey led` with a hint to use `wonkey rgb`. For CH57x Macropad (`1189:8890`), WonKey checks that the requested command and options fit CH57x hardware capabilities (optional `[CONTROL]` in `key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right` defaulting to `key1`, `--layer <1..15>` defaulting to `1`, `a-z`, `0-9`, and `f1-f24` usages `0x04..0x73`, no `trigger` command, `macro` up to 5 strokes with optional per-stroke modifiers and without `--interval` or `--repeat`, CH57x-supported consumer media usages, and `led` modes `off`, `reactive`, or `cycle` instead of `rgb`) before previewing and writing the settings.
+WonKey checks exact device descriptors for XFKEY One Key Max (`af88:6688`, model `0112`) and CH57x Macropad (`1189:8890`). For `0112`, it rejects unsupported special, macro (`06`), touch, and unknown layouts, rejects `[CONTROL]` and `--layer` (`XFKEY One Key Max (0112) has a single key and does not support ...` / `XFKEY One Key Max (0112) does not support --layer`), and rejects `wonkey led` with a hint to use `wonkey rgb`. For CH57x Macropad (`1189:8890`), WonKey checks that the requested command and options fit CH57x hardware capabilities (optional `[CONTROL]` in `key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right` defaulting to `key1`, `--layer <1..15>` defaulting to `1`, `a-z`, `0-9`, and `f1-f24` usages `0x04..0x73`, no `trigger` command, `macro` up to 5 strokes with optional per-stroke modifiers and without `--interval` or `--repeat`, CH57x-supported consumer media usages, and `led` modes `off`, `reactive`, or `cycle` instead of `rgb`) before showing and writing the settings.
 The `key` names `mute`, `volumeup`, and `volumedown` use keyboard-page usages. The `media` command uses consumer-page usages. Right-hand modifiers are unsupported.
 
 Hardware checks on one `0112` unit confirmed <kbd>F13</kbd> press/release events, steady-blue lighting, and persistence of both settings after reconnect.

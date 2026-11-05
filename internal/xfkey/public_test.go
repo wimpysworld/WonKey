@@ -33,8 +33,7 @@ func TestPublicHeaderOutputFailure(t *testing.T) {
 					out, diagnostic, code = &other, failed, 2
 				}
 				access := publicAccess{
-					interactive: func(io.Reader) bool { t.Fatal("header failure accessed runtime"); return false },
-					discover:    func() ([]Candidate, error) { t.Fatal("header failure accessed devices"); return nil, nil },
+					discover: func() ([]Candidate, error) { t.Fatal("header failure accessed devices"); return nil, nil },
 				}
 				err := runPublic(args, &cliRuntime{strings.NewReader(""), out, diagnostic}, access)
 				want := io.ErrClosedPipe
@@ -49,13 +48,12 @@ func TestPublicHeaderOutputFailure(t *testing.T) {
 	}
 }
 
-func checkPublicOutputFailure(t *testing.T, args []string, input, needle string, multiple, short bool) {
+func checkPublicOutputFailure(t *testing.T, args []string, needle string, multiple, short bool) {
 	t.Helper()
 	first, fresh := newSettingsTransport(), newSettingsTransport()
 	queried, applied := false, false
 	out := &failingHumanOutput{needle: needle, short: short}
 	access := publicAccess{
-		interactive: func(io.Reader) bool { return true },
 		discover: func() ([]Candidate, error) {
 			candidates := []Candidate{{PhysicalPath: "1-2", Compatible: true}}
 			if multiple {
@@ -74,11 +72,7 @@ func checkPublicOutputFailure(t *testing.T, args []string, input, needle string,
 			return applySettingsConfirmed(fresh, target, changes, true, time.Second, guard, true)
 		},
 	}
-	reader := strings.NewReader(input)
-	err := runPublic(args, &cliRuntime{reader, out, io.Discard}, access)
-	if reader.Len() != len(input) {
-		t.Fatal("input read after output failure")
-	}
+	err := runPublic(args, &cliRuntime{strings.NewReader(""), out, io.Discard}, access)
 	want := io.ErrClosedPipe
 	if short {
 		want = io.ErrShortWrite
@@ -105,10 +99,9 @@ func TestPublicOutputFailure(t *testing.T) {
 			{"preview-colour", "Colour", []string{"rgb", "off"}, false},
 			{"changes-heading", "Changes:", []string{"key", "f13"}, false},
 			{"changes-row", " -> ", []string{"key", "f13"}, false},
-			{"confirmation", "Save settings?", []string{"key", "f13"}, false},
 		} {
 			t.Run(fmt.Sprintf("%s/short=%v", tc.name, short), func(t *testing.T) {
-				checkPublicOutputFailure(t, tc.args, "\n", tc.needle, tc.multiple, short)
+				checkPublicOutputFailure(t, tc.args, tc.needle, tc.multiple, short)
 			})
 		}
 	}
@@ -225,8 +218,7 @@ func TestPublicRGBColourArguments(t *testing.T) {
 			for _, colour := range []string{"1234ab", "", "#1234ab", "12345", "gggggg"} {
 				t.Run(spelling+"/"+colour, func(t *testing.T) {
 					access := publicAccess{
-						interactive: func(io.Reader) bool { t.Fatal("invalid colour accessed runtime"); return false },
-						discover:    func() ([]Candidate, error) { t.Fatal("invalid colour accessed devices"); return nil, nil },
+						discover: func() ([]Candidate, error) { t.Fatal("invalid colour accessed devices"); return nil, nil },
 					}
 					var diagnostic bytes.Buffer
 					err := runPublic([]string{"rgb", spelling, colour}, &cliRuntime{strings.NewReader(""), io.Discard, &diagnostic}, access)
@@ -441,7 +433,7 @@ func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 	for _, flag := range []string{"--device", "--report", "--capture-root", "--json", "--yes", "--dry-run", "--write", "--target", "--path", "--key", "--modifiers", "--trigger", "--lighting", "--colour", "--rgb-mode", "--red", "--expect-identifier", "--expect-version", "--json=false", "--yes=false"} {
 		cases = append(cases, []string{"key", "f13", flag}, []string{"trigger", "release", flag}, []string{"rgb", "off", flag}, []string{"led", "off", flag}, []string{"key", "--help", flag})
 	}
-	access := publicAccess{discover: func() ([]Candidate, error) { t.Fatal("discovery on invalid input"); return nil, nil }, interactive: func(io.Reader) bool { t.Fatal("runtime on invalid input"); return false }}
+	access := publicAccess{discover: func() ([]Candidate, error) { t.Fatal("discovery on invalid input"); return nil, nil }}
 	for _, args := range cases {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var out, diagnostic bytes.Buffer
@@ -478,7 +470,7 @@ func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 }
 
 func TestPublicHelpNoAccess(t *testing.T) {
-	access := publicAccess{interactive: func(io.Reader) bool { t.Fatal("help accessed runtime"); return false }}
+	access := publicAccess{discover: func() ([]Candidate, error) { t.Fatal("help accessed devices"); return nil, nil }}
 	for _, args := range [][]string{{"--help"}, {"-h"}, {"key", "--help"}, {"trigger", "--help"}, {"macro", "--help"}, {"mouse", "--help"}, {"media", "--help"}, {"rgb", "--help"}, {"led", "--help"}, {"key", "f13", "--help"}, {"key", "key2", "f13", "--help"}, {"trigger", "release", "--help"}, {"rgb", "off", "-h"}, {"led", "reactive", "-h"}} {
 		var out bytes.Buffer
 		if err := runPublic(args, &cliRuntime{strings.NewReader(""), &out, io.Discard}, access); err != nil {
@@ -494,7 +486,7 @@ func TestPublicHelpNoAccess(t *testing.T) {
 		if (args[0] == "key" || args[0] == "macro" || args[0] == "mouse" || args[0] == "media") && (!strings.Contains(out.String(), "[CONTROL]") || !strings.Contains(out.String(), "[--layer N]") || !strings.Contains(out.String(), "Controls (multi-control devices, default: key1):")) {
 			t.Fatal(out.String())
 		}
-		for _, removed := range []string{"--on", "--report", "--json", "--yes", "--dry-run", "advanced", "wonkey set", "Apply result", "restore", "wonkey multi"} {
+		for _, removed := range []string{"--on", "--report", "--json", "--yes", "--dry-run", "advanced", "wonkey set", "Apply result", "restore", "wonkey multi", "At [Y/n]"} {
 			if strings.Contains(out.String(), removed) {
 				t.Fatal(removed, out.String())
 			}
@@ -506,7 +498,7 @@ func TestPublicHelpNoAccess(t *testing.T) {
 }
 
 func TestPublicWorkflow(t *testing.T) {
-	for _, name := range []string{"confirm", "confirm-blank", "confirm-upper", "confirm-yes", "confirm-yes-upper", "cancel-upper", "cancel-no", "cancel-no-upper", "old-confirm", "space-only", "trigger-write", "rgb-write", "rgb-mode-cycle-slow", "rgb-mode-cycle-fast", "rgb-mode-off", "clear-modifiers", "pasted-crlf", "first-device", "second-device", "multiple-missing-device", "query", "query-multiple", "zero", "incompatible", "cancel", "eof", "partial-write", "invalid-confirm", "space-confirm", "out-of-range", "no-op", "noninteractive", "identity-changed", "version-changed", "settings-changed", "became-no-op", "mismatch", "echo", "deadline", "unsupported", "query-failed", "discover-failed", "wrong-path", "wrong-model", "missing-settings", "short-settings", "bad-settings"} {
+	for _, name := range []string{"key-write", "trigger-write", "rgb-write", "rgb-mode-cycle-slow", "rgb-mode-cycle-fast", "rgb-mode-off", "clear-modifiers", "first-device", "second-device", "multiple-missing-device", "query", "query-multiple", "zero", "incompatible", "out-of-range", "no-op", "identity-changed", "version-changed", "settings-changed", "became-no-op", "mismatch", "echo", "deadline", "unsupported", "query-failed", "discover-failed", "wrong-path", "wrong-model", "missing-settings", "short-settings", "bad-settings"} {
 		t.Run(name, func(t *testing.T) {
 			args := []string{"key", "f13"}
 			if name == "trigger-write" {
@@ -533,41 +525,6 @@ func TestPublicWorkflow(t *testing.T) {
 			case "out-of-range":
 				args = append(args, "--device", "3")
 			}
-			input := "y\n"
-			switch name {
-			case "pasted-crlf":
-				input = "y\r\n"
-			case "confirm-blank":
-				input = "\n"
-			case "confirm-upper":
-				input = "Y\n"
-			case "confirm-yes":
-				input = "yes\n"
-			case "confirm-yes-upper":
-				input = "YES\n"
-			case "cancel":
-				input = "n\n"
-			case "cancel-upper":
-				input = "N\n"
-			case "cancel-no":
-				input = "no\n"
-			case "cancel-no-upper":
-				input = "NO\n"
-			case "old-confirm":
-				input = "WRITE\n"
-			case "space-only":
-				input = " \n"
-			case "eof":
-				input = ""
-			case "partial-write":
-				input = "yes"
-			case "invalid-confirm":
-				input = "invalid\ny\n"
-			case "space-confirm":
-				input = " y\n"
-			case "query-multiple":
-				input = ""
-			}
 			first := newSettingsTransport()
 			if strings.HasPrefix(name, "rgb-mode-") {
 				first.current[124] = 2
@@ -583,18 +540,14 @@ func TestPublicWorkflow(t *testing.T) {
 				first.current[2], fresh.current[2] = 15, 15
 			}
 			var out, diagnostic bytes.Buffer
-			queried, applied, discovered := false, false, false
+			queried, applied := false, false
 			var queriedPaths []string
 			wantPath := "1-1.2"
 			if name == "second-device" {
 				wantPath = "1-1.3"
 			}
 			access := publicAccess{
-				interactive: func(io.Reader) bool {
-					return name != "noninteractive" && name != "query" && name != "query-multiple"
-				},
 				discover: func() ([]Candidate, error) {
-					discovered = true
 					if name == "discover-failed" {
 						return nil, fmt.Errorf("discovery failed")
 					}
@@ -634,7 +587,7 @@ func TestPublicWorkflow(t *testing.T) {
 				},
 				apply: func(c Candidate, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration) (bool, error)) (ApplyResult, error) {
 					applied = true
-					if c.PhysicalPath != wantPath || target != settingsTarget() || !strings.Contains(out.String(), " -> ") || !strings.Contains(out.String(), "Save settings? [Y/n]: ") {
+					if c.PhysicalPath != wantPath || target != settingsTarget() || !strings.Contains(out.String(), " -> ") {
 						t.Fatal(c, target, out.String())
 					}
 					switch name {
@@ -656,21 +609,21 @@ func TestPublicWorkflow(t *testing.T) {
 					return applySettingsConfirmed(fresh, target, changes, true, time.Second, guard, true)
 				},
 			}
-			err := runPublic(args, &cliRuntime{strings.NewReader(input), &out, &diagnostic}, access)
+			err := runPublic(args, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
 			checkPublicHeader(t, out.String())
 			if strings.Contains(diagnostic.String(), "WonKey") {
 				t.Fatal("runtime error repeated the header", diagnostic.String())
 			}
-			failure := name == "zero" || name == "incompatible" || name == "multiple-missing-device" || name == "out-of-range" || strings.HasPrefix(name, "noninteractive") || strings.HasSuffix(name, "changed") || name == "became-no-op" || name == "mismatch" || name == "echo" || name == "deadline" || name == "unsupported" || strings.HasSuffix(name, "failed") || strings.HasPrefix(name, "wrong-") || strings.HasSuffix(name, "settings")
+			failure := name == "zero" || name == "incompatible" || name == "multiple-missing-device" || name == "out-of-range" || strings.HasSuffix(name, "changed") || name == "became-no-op" || name == "mismatch" || name == "echo" || name == "deadline" || name == "unsupported" || strings.HasSuffix(name, "failed") || strings.HasPrefix(name, "wrong-") || strings.HasSuffix(name, "settings")
 			if (err != nil) != failure {
 				t.Fatal(err, out.String(), diagnostic.String())
 			}
-			success := name == "trigger-write" || name == "rgb-write" || strings.HasPrefix(name, "rgb-mode-") || name == "clear-modifiers" || name == "pasted-crlf" || strings.HasPrefix(name, "confirm") || name == "first-device" || name == "second-device"
+			success := name == "key-write" || name == "trigger-write" || name == "rgb-write" || strings.HasPrefix(name, "rgb-mode-") || name == "clear-modifiers" || name == "first-device" || name == "second-device"
 			wantApply := success || strings.HasSuffix(name, "changed") || name == "became-no-op" || name == "mismatch" || name == "echo" || name == "deadline"
 			if applied != wantApply {
 				t.Fatal("apply", applied, err)
 			}
-			noQuery := name == "zero" || name == "incompatible" || name == "multiple-missing-device" || name == "out-of-range" || strings.HasPrefix(name, "noninteractive") || name == "discover-failed"
+			noQuery := name == "zero" || name == "incompatible" || name == "multiple-missing-device" || name == "out-of-range" || name == "discover-failed"
 			if queried == noQuery {
 				t.Fatal("query", queried, err)
 			}
@@ -692,21 +645,15 @@ func TestPublicWorkflow(t *testing.T) {
 					t.Fatal("query-multiple did not enumerate all compatible devices", queriedPaths, out.String())
 				}
 			}
-			if strings.HasPrefix(name, "noninteractive") && discovered {
-				t.Fatal("noninteractive write discovered devices")
-			}
 			checkNoUpload(t, first)
 			if !wantApply || strings.HasSuffix(name, "changed") || name == "became-no-op" {
 				checkNoUpload(t, fresh.settingsTransport)
 			}
 			if success {
-				if !strings.Contains(out.String(), "Save settings? [Y/n]: ") {
-					t.Fatal("confirmation prompt missing", out.String())
-				}
 				if !fresh.checked || len(fresh.packets) != 11 {
 					t.Fatal("fresh query/write missing")
 				}
-				if !strings.HasSuffix(out.String(), "Settings saved. All 128 readback bytes match.\n") || strings.Contains(out.String(), "Records") {
+				if !strings.HasSuffix(out.String(), "Settings saved. All 128 readback bytes match.\n") || strings.Contains(out.String(), "Records") || strings.Contains(out.String(), "Save settings?") {
 					t.Fatal(out.String())
 				}
 			}
@@ -753,8 +700,7 @@ func TestPublicWorkflow(t *testing.T) {
 func ch57TestAccess(t *testing.T) publicAccess {
 	t.Helper()
 	return publicAccess{
-		interactive: func(io.Reader) bool { return true },
-		discover:    func() ([]Candidate, error) { return nil, nil },
+		discover: func() ([]Candidate, error) { return nil, nil },
 		query: func(Candidate) (CaptureResult, error) {
 			t.Fatal("CH57 probe reached XFKEY query")
 			return CaptureResult{}, nil
@@ -788,7 +734,6 @@ func TestPublicCH57Selection(t *testing.T) {
 			root := filepath.Join(t.TempDir(), "absent")
 			t.Setenv("XDG_STATE_HOME", root)
 			access := ch57TestAccess(t)
-			access.interactive = func(io.Reader) bool { return false }
 			candidates := []ch57.DiscoveredCandidate{
 				{Candidate: ch57.Candidate{PhysicalPath: "1-2"}, BusNumber: 1, DeviceNumber: 19},
 				{Candidate: ch57.Candidate{PhysicalPath: "1-3"}, BusNumber: 1, DeviceNumber: 20},
@@ -879,7 +824,6 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 		queried, probed := 0, 0
 		transport := newSettingsTransport()
 		access := publicAccess{
-			interactive: func(io.Reader) bool { return false },
 			discover: func() ([]Candidate, error) {
 				return []Candidate{{PhysicalPath: "1-1", Compatible: true, VendorNode: NodeMetadata{Path: "/dev/hidraw0"}}}, nil
 			},
@@ -941,7 +885,6 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 			first := newSettingsTransport()
 			fresh := &backupCheckingTransport{settingsTransport: newSettingsTransport()}
 			access := publicAccess{
-				interactive: func(io.Reader) bool { return true },
 				discover: func() ([]Candidate, error) {
 					return []Candidate{{PhysicalPath: "1-1", Compatible: true, VendorNode: NodeMetadata{Path: "/dev/hidraw0"}}}, nil
 				},
@@ -984,7 +927,6 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 		var queriedPaths []string
 		transport := newSettingsTransport()
 		access := publicAccess{
-			interactive: func(io.Reader) bool { return true },
 			discover: func() ([]Candidate, error) {
 				return []Candidate{
 					{PhysicalPath: "7-1.4.3.1", Compatible: true},
@@ -1057,7 +999,7 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 			{[]string{"led", "reactive"}, "  led: write-only -> reactive\n", 3},
 			{[]string{"led", "cycle"}, "  led: write-only -> cycle\n", 3},
 		} {
-			for _, mode := range []string{"confirm", "cancel", "eof", "refused", "uncertain"} {
+			for _, mode := range []string{"save", "refused", "uncertain"} {
 				t.Run(strings.Join(tc.args, " ")+"/"+mode, func(t *testing.T) {
 					access := ch57TestAccess(t)
 					target := ch57.DiscoveredCandidate{Candidate: ch57.Candidate{PhysicalPath: "7-1.4.3.1"}, BusNumber: 7, DeviceNumber: 8}
@@ -1086,31 +1028,19 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 							return ch57.ApplyResult{WriteAttempted: true, ReportsWritten: len(reports)}, nil
 						}
 					}
-					input := "\n"
-					switch mode {
-					case "cancel":
-						input = "n\n"
-					case "eof":
-						input = ""
-					}
 					var out, diagnostic bytes.Buffer
-					err := runPublic(tc.args, &cliRuntime{strings.NewReader(input), &out, &diagnostic}, access)
-					wantApply := mode != "cancel" && mode != "eof"
+					err := runPublic(tc.args, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
 					wantErr := mode == "refused" || mode == "uncertain"
-					if (err != nil) != wantErr || !probed || applied != wantApply {
+					if (err != nil) != wantErr || !probed || !applied {
 						t.Fatalf("mode=%s err=%v probed=%v applied=%v out=%q diag=%q", mode, err, probed, applied, out.String(), diagnostic.String())
 					}
-					if !strings.Contains(out.String(), tc.wantChange) || !strings.Contains(out.String(), "Save settings? [Y/n]: ") {
-						t.Fatalf("missing preview or prompt in %q", out.String())
+					if !strings.Contains(out.String(), tc.wantChange) || strings.Contains(out.String(), "Save settings?") {
+						t.Fatalf("missing preview or unexpected prompt in %q", out.String())
 					}
 					switch mode {
-					case "confirm":
+					case "save":
 						if !strings.Contains(out.String(), "Settings saved to CH57x Macropad.\n") {
 							t.Fatalf("missing save confirmation in %q", out.String())
-						}
-					case "cancel", "eof":
-						if !strings.Contains(out.String(), "Cancelled. No settings write sent.\n") {
-							t.Fatalf("missing cancellation message in %q", out.String())
 						}
 					case "refused":
 						if !strings.Contains(out.String(), "Stopped before settings upload.\nStop. No automatic retry or rollback.\n") {
@@ -1209,7 +1139,6 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 			{[]string{"media", "volumeup", "--layer", "15"}, "XFKEY One Key Max (0112) does not support --layer"},
 		} {
 			access := publicAccess{
-				interactive: func(io.Reader) bool { return true },
 				discover: func() ([]Candidate, error) {
 					return []Candidate{{PhysicalPath: "1-1", Compatible: true}}, nil
 				},
@@ -1321,7 +1250,7 @@ func TestSelectedCandidatePin(t *testing.T) {
 func TestPublicRGBReadDoesNotCreateBackupRoot(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "absent")
 	t.Setenv("XDG_STATE_HOME", root)
-	access := publicAccess{interactive: func(io.Reader) bool { return false }, discover: func() ([]Candidate, error) { return []Candidate{{PhysicalPath: "1-1.2", Compatible: true}}, nil }, query: func(c Candidate) (CaptureResult, error) {
+	access := publicAccess{discover: func() ([]Candidate, error) { return []Candidate{{PhysicalPath: "1-1.2", Compatible: true}}, nil }, query: func(c Candidate) (CaptureResult, error) {
 		q, err := queryCapture(newSettingsTransport(), true)
 		q.result.PhysicalPath = c.PhysicalPath
 		return q.result, err
@@ -1356,7 +1285,6 @@ func TestPublicUnknownConfiguration(t *testing.T) {
 				original := transport.current
 				query := len(args) == 0
 				access := publicAccess{
-					interactive: func(io.Reader) bool { return !query },
 					discover: func() ([]Candidate, error) {
 						return []Candidate{{PhysicalPath: "synthetic", Compatible: true}}, nil
 					},
@@ -1413,7 +1341,6 @@ func TestPublicSupportedQueryOutput(t *testing.T) {
 	transport := newSettingsTransport()
 	transport.current[2] = 3
 	access := publicAccess{
-		interactive: func(io.Reader) bool { return false },
 		discover: func() ([]Candidate, error) {
 			return []Candidate{{PhysicalPath: "synthetic", Compatible: true}}, nil
 		},
@@ -1488,9 +1415,8 @@ func TestPublicLiveBoundaryOffline(t *testing.T) {
 				return fresh, &closeRecorder{}, nil
 			}
 			access := publicDeviceAccess()
-			access.interactive = func(io.Reader) bool { return true }
 			var out bytes.Buffer
-			err := runPublic([]string{"key", "f13", "--device", "1"}, &cliRuntime{strings.NewReader("y\n"), &out, io.Discard}, access)
+			err := runPublic([]string{"key", "f13", "--device", "1"}, &cliRuntime{strings.NewReader(""), &out, io.Discard}, access)
 			success := name == "write" || name == "reordered"
 			if (err == nil) != success {
 				t.Fatal(err, out.String())

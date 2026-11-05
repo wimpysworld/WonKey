@@ -5,10 +5,10 @@
 Build WonKey as described in the [project overview](https://github.com/wimpysworld/WonKey/blob/main/README.md#get-started).
 Run command examples from the project root. Device examples are instructions, not permission to access hardware.
 
-[Read settings](#read-settings) · [Set the key](#set-the-key) · [Mouse, media, and macro actions](#mouse-media-and-macro-actions) · [Lighting](#lighting) · [Confirmation](#selection-and-confirmation)
+[Read settings](#read-settings) · [Set the key](#set-the-key) · [Mouse, media, and macro actions](#mouse-media-and-macro-actions) · [Lighting](#lighting) · [Device selection](#device-selection-and-verification)
 
-Changes require a supported device (`0112` or `1189:8890`), a terminal, a preview, and [confirmation](#selection-and-confirmation).
-On `0112`, WonKey verifies all 128 configuration bytes in memory after each settings upload.
+Changes require a supported device (`0112` or `1189:8890`).
+On `0112`, WonKey shows the current-to-proposed diff, skips no-op writes, checks for settings drift before writing, and verifies all 128 configuration bytes in memory after each settings upload.
 
 ## Read settings
 
@@ -26,13 +26,13 @@ This read-only display does not enable changes. Live writes remain blocked for u
 On each CH57x Macropad (`1189:8890`) device, the section heading is `[N] CH57x Macropad (1189:8890)` and bare `wonkey` shows the USB path, `Supports` (`key, mouse, media, macro, led`), and `Settings   Write-only (not readable over USB)` (plus `Input hex` when a 65-byte report ID 3 reply is returned).
 The USB check requests Input report ID 3.
 Stock `1189:8890` write-only firmware returns a 1-byte `0xaa` status response to `GET_REPORT`. WonKey accepts that 1-byte `0xaa` status (exit 0) alongside 65-byte report ID 3 replies.
-When a CH57x Macropad (`1189:8890`) is selected for a write command, WonKey checks per-device capabilities first (accepting optional `[CONTROL]` in `key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right` defaulting to `key1` and `--layer <1..15>` defaulting to `1` on `key`, `macro`, `mouse`, and `media`, and rejecting `trigger`, keys outside `0x04..0x73`, `macro` options `--interval` or `--repeat`, sequences over 5 strokes, `rgb` with a hint to use `wonkey led`, and unsupported media usages), shows the preview, and asks for confirmation before writing settings to endpoint `0x02`.
+When a CH57x Macropad (`1189:8890`) is selected for a write command, WonKey checks per-device capabilities first (accepting optional `[CONTROL]` in `key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right` defaulting to `key1` and `--layer <1..15>` defaulting to `1` on `key`, `macro`, `mouse`, and `media`, and rejecting `trigger`, keys outside `0x04..0x73`, `macro` options `--interval` or `--repeat`, sequences over 5 strokes, `rgb` with a hint to use `wonkey led`, and unsupported media usages), shows the proposed change, revalidates the USB and HID report descriptors, and writes the 64-byte report sequence to endpoint `0x02`.
 
 `wonkey --help` and help for each command show help without device access. Running `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, or `led` without arguments returns usage guidance without device access.
 
 ## Set the key
 
-These commands change stored key and trigger settings after confirmation:
+These commands change stored key and trigger settings:
 
 ```sh
 ./wonkey key f13
@@ -73,7 +73,7 @@ Desktop keymaps can show different symbols for function keys. Check the key name
 
 ## Mouse, media, and macro actions
 
-Each command changes the complete action on a supported device (`0112` or `1189:8890`) after confirmation. Run `./wonkey` without arguments to read the current action and lighting.
+Each command changes the complete action on a supported device (`0112` or `1189:8890`). Run `./wonkey` without arguments to read the current action and lighting.
 
 | Command | Example | Input and limits |
 |---|---|---|
@@ -128,25 +128,19 @@ RGB commands preserve the current typed action and unrelated bytes.
 Descriptions reflect user observations, not automated hardware verification. See [protocol evidence](protocol#evidence) for the original vendor labels.
 Old public names are not accepted. WonKey has no brightness or speed option.
 
-## Selection and confirmation
+## Device selection and verification
 
 WonKey enumerates compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices together and sorts them deterministically by USB physical path (`1-1.2` before `1-1.10` before `2-1`), assigning `1..N` device IDs shown as `[1]`, `[2]`, and so on.
-Bare `wonkey` inspects all compatible devices without a terminal prompt.
+Bare `wonkey` inspects all compatible devices without modifying them.
 For changes (`key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, and `led`), one compatible device is selected automatically as `[1]`.
 When multiple compatible devices are connected, pass `--device <N>` (or `--device=<N>`) to select the target device; omitting `--device` or passing an out-of-range number fails before opening any device node.
-Without a terminal, all changes are refused before device access.
 
-Before a change, WonKey inspects the selected device, shows its `[N]` heading, and prints the proposed change (`write-only -> <value>` on `1189:8890`, or current-to-proposed values on `0112`).
-<!-- markdownlint-disable-next-line MD038 -->
-At `Save settings? [Y/n]: `, press <kbd>Enter</kbd> to accept the default Yes.
-You can also enter `y` or `yes`, ignoring letter case.
-`n`, `no`, any other answer, or EOF cancels without writing settings.
-There is no bypass flag. A no-op sends no settings upload or commit.
+When applying a change, WonKey inspects the selected device, shows its `[N]` heading, and prints the proposed change (`write-only -> <value>` on `1189:8890`, or current-to-proposed values on `0112`).
+On `0112`, if the requested setting already matches the current configuration, WonKey skips the write without sending a settings upload or commit.
 
-After confirmation, WonKey revalidates the selected descriptors, node, physical path, identifier, and version.
-It performs a fresh readback to check for settings drift before upload. Any settings drift after preview stops the transaction, including drift in unrelated bytes or drift that makes the request a no-op.
+Before writing to `0112`, WonKey revalidates the selected descriptors, node, physical path, identifier, and version, and performs a fresh readback to check for settings drift before upload. Any settings drift stops the transaction, including drift in unrelated bytes or drift that makes the request a no-op.
 
-After `AF02` upload and `AF04` commit, WonKey reads back and compares all 128 configuration bytes in memory. A failure stops without retry or rollback.
+After `AF02` upload and `AF04` commit on `0112`, WonKey reads back and compares all 128 configuration bytes in memory. On `1189:8890`, WonKey probes the device, shows the proposed change, revalidates the USB descriptors and interface 1 report descriptor, and writes the 64-byte report sequence to endpoint `0x02`. A failure stops without retry or rollback.
 A submitted write can still complete after timeout. Stop when the tool reports uncertain state.
 Persistence after reconnect and observed key/lighting effects require separate hardware checks.
 
@@ -168,7 +162,7 @@ For exact offsets, see [action layouts](protocol#action-layouts).
 ### Supported key names
 
 Each row lists names in usage order. Ranges include both ends.
-Help and previews use these canonical names.
+Help and output use these canonical names.
 
 | Base key names | HID usage at byte 4 |
 |---|---|

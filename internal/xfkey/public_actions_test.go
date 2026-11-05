@@ -155,7 +155,7 @@ func TestPublicActionInvalidBeforeAccess(t *testing.T) {
 	for _, badLED := range []string{"on", "pulse", "static", "2", "256"} {
 		cases = append(cases, []string{"led", badLED})
 	}
-	access := publicAccess{interactive: func(io.Reader) bool { t.Fatal("invalid input accessed runtime"); return false }}
+	access := publicAccess{discover: func() ([]Candidate, error) { t.Fatal("invalid input accessed devices"); return nil, nil }}
 	for _, args := range cases {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var out, diagnostic bytes.Buffer
@@ -181,7 +181,6 @@ func TestPublicActionQueries(t *testing.T) {
 			transport := newSettingsTransport()
 			transport.current = actionConfiguration(t, action)
 			access := publicActionTestAccess(t, transport, nil)
-			access.interactive = func(io.Reader) bool { return false }
 			var out bytes.Buffer
 			if err := runPublic(nil, &cliRuntime{strings.NewReader(""), &out, io.Discard}, access); err != nil {
 				t.Fatal(err)
@@ -216,8 +215,7 @@ func publicActionTestAccess(t *testing.T, first *settingsTransport, apply func(C
 		}
 	}
 	return publicAccess{
-		interactive: func(io.Reader) bool { return true },
-		discover:    func() ([]Candidate, error) { return []Candidate{{PhysicalPath: "synthetic", Compatible: true}}, nil },
+		discover: func() ([]Candidate, error) { return []Candidate{{PhysicalPath: "synthetic", Compatible: true}}, nil },
 		query: func(c Candidate) (CaptureResult, error) {
 			q, err := queryCapture(first, true)
 			q.result.PhysicalPath = c.PhysicalPath
@@ -229,7 +227,7 @@ func publicActionTestAccess(t *testing.T, first *settingsTransport, apply func(C
 
 func TestPublicActionWorkflow(t *testing.T) {
 	for _, args := range [][]string{{"mouse", "none"}, {"mouse", "left+right", "--x=-127", "--y=127", "--wheel=-1"}, {"media", "bookmarks"}, {"macro", "lang2,f13,a", "--interval=65535", "--repeat=255"}} {
-		for _, state := range []string{"save", "cancel", "eof", "nonterminal", "no-op", "drift", "became-no-op", "upload-echo", "commit-echo", "deadline", "readback"} {
+		for _, state := range []string{"save", "no-op", "drift", "became-no-op", "upload-echo", "commit-echo", "deadline", "readback"} {
 			t.Run(strings.Join(args, " ")+"/"+state, func(t *testing.T) {
 				first := newSettingsTransport()
 				c, err := parsePublic(args)
@@ -246,7 +244,7 @@ func TestPublicActionWorkflow(t *testing.T) {
 				var out bytes.Buffer
 				access := publicActionTestAccess(t, first, func(candidate Candidate, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration) (bool, error)) (ApplyResult, error) {
 					applied = true
-					if candidate.PhysicalPath != "synthetic" || target != settingsTarget() || !strings.Contains(out.String(), " -> ") || !strings.Contains(out.String(), "Save settings? [Y/n]: ") {
+					if candidate.PhysicalPath != "synthetic" || target != settingsTarget() || !strings.Contains(out.String(), " -> ") {
 						t.Fatal("missing preview or wrong transaction target", out.String())
 					}
 					switch state {
@@ -265,20 +263,9 @@ func TestPublicActionWorkflow(t *testing.T) {
 					}
 					return applySettingsConfirmed(fresh, target, changes, true, time.Second, guard, true)
 				})
-				input := "\n"
-				if state == "cancel" {
-					input = "n\n"
-				}
-				if state == "eof" {
-					input = ""
-				}
-				if state == "nonterminal" {
-					access.interactive = func(io.Reader) bool { return false }
-					access.discover = func() ([]Candidate, error) { t.Fatal("nonterminal discovered devices"); return nil, nil }
-				}
-				err = runPublic(args, &cliRuntime{strings.NewReader(input), &out, io.Discard}, access)
-				noApply := state == "cancel" || state == "eof" || state == "nonterminal" || state == "no-op"
-				wantError := !noApply && state != "save" || state == "nonterminal"
+				err = runPublic(args, &cliRuntime{strings.NewReader(""), &out, io.Discard}, access)
+				noApply := state == "no-op"
+				wantError := !noApply && state != "save"
 				if (err != nil) != wantError || applied == noApply {
 					t.Fatalf("error=%v applied=%t output=%s", err, applied, out.String())
 				}
@@ -344,13 +331,13 @@ func TestPublicActionOutput(t *testing.T) {
 		if got := actionDescription(tc.action); got != tc.want {
 			t.Fatalf("got %q, want %q", got, tc.want)
 		}
-		for _, needle := range []string{"[1] XFKEY One Key Max (0112)", "  Action", " -> ", "Save settings?"} {
+		for _, needle := range []string{"[1] XFKEY One Key Max (0112)", "  Action", " -> "} {
 			t.Run(tc.want+"/"+needle, func(t *testing.T) {
 				first := newSettingsTransport()
 				first.current = actionConfiguration(t, tc.action)
 				access := publicActionTestAccess(t, first, nil)
 				out := &failingHumanOutput{needle: needle}
-				err := runPublic([]string{"key", "f13"}, &cliRuntime{strings.NewReader("yes\n"), out, io.Discard}, access)
+				err := runPublic([]string{"key", "f13"}, &cliRuntime{strings.NewReader(""), out, io.Discard}, access)
 				if err == nil || !out.failed {
 					t.Fatal("output failure was not returned", err)
 				}

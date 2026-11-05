@@ -57,7 +57,7 @@
             <a href="#install" class="primary-action">Get WonKey <span class="octicon inline-icon arrow-down" aria-hidden="true"></span></a>
             <a class="text-link" href="https://github.com/wimpysworld/WonKey?tab=readme-ov-file#get-started">Quick start <span class="octicon inline-icon link-external" aria-hidden="true"></span></a>
           </div>
-          <p class="hero-note">Open source. Linux only. XFKEY One Key Max model <code>0112</code> and CH57x Macropad <code>1189:8890</code> read-only inspection.</p>
+          <p class="hero-note">Open source. Linux only. XFKEY One Key Max model <code>0112</code> and CH57x Macropad <code>1189:8890</code>.</p>
         </div>
         <figure class="terminal" aria-label="WonKey command examples">
           <figcaption><span class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></span>wonkey · Linux</figcaption>
@@ -78,7 +78,7 @@
         <div>
           <p class="eyebrow">Features</p>
           <h2 id="features-title">Make it yours</h2>
-          <p>Control your key and lighting from the terminal. WonKey previews each change and asks before it saves.</p>
+          <p>Control your key and lighting from the command line. WonKey shows each change and verifies device state as it saves.</p>
           <a class="text-link" href="https://github.com/wimpysworld/WonKey/wiki">Explore the Wiki <span class="octicon inline-icon link-external" aria-hidden="true"></span></a>
         </div>
         <dl class="feature-list">
@@ -122,16 +122,16 @@
       <section class="section-rule" aria-labelledby="workflow-title">
         <div class="section-heading">
           <p class="eyebrow">How it works</p>
-          <h2 id="workflow-title">See the change before you save</h2>
-          <p>Read settings at any time. Changes require a terminal, your confirmation, and a 128-byte post-write readback check.</p>
+          <h2 id="workflow-title">Guarded writes from inspection to readback</h2>
+          <p>Read settings at any time. Write commands show the current-to-proposed diff, revalidate the device, and verify all 128 configuration bytes on <code>0112</code>.</p>
         </div>
         <ol class="steps">
           <li><code>wonkey</code><h3>Read your settings</h3><p>Run <code>wonkey</code> without arguments to inspect all connected devices without changing them.</p></li>
           <li><code>wonkey trigger release</code><h3>Choose your change</h3><p>Set a complete key combination with <code>wonkey key</code>, change the key trigger with <code>wonkey trigger</code>, or omit an RGB colour in <code>wonkey rgb</code> to keep it.</p></li>
-          <li><code>Save settings? [Y/n]:</code><h3>Check and confirm</h3><p>Review the selected device and current-to-proposed settings. Press Enter to save, or enter <code>n</code> to cancel.</p></li>
-          <li><code>128-byte readback</code><h3>Verify in memory</h3><p>WonKey checks for settings drift before upload, then reads back and compares all 128 configuration bytes after commit.</p></li>
+          <li><code>AF02 / AF04</code><h3>Show and write</h3><p>WonKey shows the selected device and current-to-proposed settings, checks for drift, and writes the update directly.</p></li>
+          <li><code>128-byte readback</code><h3>Verify in memory</h3><p>On <code>0112</code>, WonKey reads back and compares all 128 configuration bytes after commit. On <code>1189:8890</code>, it revalidates descriptors before writing to endpoint <code>0x02</code>.</p></li>
         </ol>
-        <p class="workflow-note">Cancellation and unchanged settings send no settings writes. Live writes apply only to XFKEY One Key Max model <code>0112</code>.</p>
+        <p class="workflow-note">Unchanged settings on <code>0112</code> send no settings writes. Supports XFKEY One Key Max model <code>0112</code> and CH57x Macropad <code>1189:8890</code>.</p>
       </section>
       <section id="install" class="install section-rule" aria-labelledby="install-title">
         <div>

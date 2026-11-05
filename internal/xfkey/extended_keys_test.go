@@ -91,8 +91,7 @@ func TestUnsupportedKeysRemainRejected(t *testing.T) {
 		"rightshift", "rightalt", "rightsuper", "leftctrl", "playpause", "return", " space", "space ",
 	} {
 		access := publicAccess{
-			interactive: func(io.Reader) bool { t.Fatal("invalid key accessed runtime"); return false },
-			discover:    func() ([]Candidate, error) { t.Fatal("invalid key accessed devices"); return nil, nil },
+			discover: func() ([]Candidate, error) { t.Fatal("invalid key accessed devices"); return nil, nil },
 		}
 		err := runPublic([]string{"key", name}, &cliRuntime{strings.NewReader(""), io.Discard, io.Discard}, access)
 		if err == nil || ExitCode(err) != 2 {
