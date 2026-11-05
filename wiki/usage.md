@@ -8,7 +8,7 @@ Run command examples from the project root. Device examples are instructions, no
 [Read settings](#read-settings) · [Set the key](#set-the-key) · [Mouse, media, and macro actions](#mouse-media-and-macro-actions) · [Lighting](#lighting) · [Device selection](#device-selection-and-verification)
 
 WonKey configures supported USB macropads and mini-keyboards on Linux.
-Changes require a supported device (`0112` or `1189:8890`). WonKey validates device capabilities and descriptors before writing, shows the proposed change, and verifies all 128 configuration bytes in memory after each settings upload on devices that support readback (`0112`).
+Changes require a supported device from the table below (`0112`, CH57x `1189`/`514c`, or SayoDevice `8089`). WonKey validates device capabilities and descriptors before writing, shows the proposed change, and verifies all 128 configuration bytes in memory after each settings upload on `0112` (or verifies per-packet acknowledgements on SayoDevice `8089`).
 
 ## Supported devices
 
@@ -144,12 +144,12 @@ Bare `wonkey` inspects all compatible devices without modifying them.
 For changes (`key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, and `led`), one compatible device is selected automatically as `[1]`.
 When multiple compatible devices are connected, pass `--device <N>` (or `--device=<N>`) to select the target device; omitting `--device` or passing an out-of-range number fails before opening any device node.
 
-When applying a change, WonKey inspects the selected device, shows its `[N]` heading, and prints the proposed change (`write-only -> <value>` on `1189:8890`, or current-to-proposed values on `0112`).
+When applying a change, WonKey inspects the selected device, shows its `[N]` heading, and prints the proposed change (current-to-proposed values where readable on `0112`, CH57x Gen 2 `1189`/`514c`, and SayoDevice `8089`, or `write-only -> <value>` on write-only firmware and unpopulated slots).
 On `0112`, if the requested setting already matches the current configuration, WonKey skips the write without sending a settings upload or commit.
 
 Before writing to `0112`, WonKey revalidates the selected descriptors, node, physical path, identifier, and version, and performs a fresh readback to check for settings drift before upload. Any settings drift stops the transaction, including drift in unrelated bytes or drift that makes the request a no-op.
 
-After `AF02` upload and `AF04` commit on `0112`, WonKey reads back and compares all 128 configuration bytes in memory. On `1189:8890`, WonKey probes the device, shows the proposed change, revalidates the USB descriptors and interface 1 report descriptor, and writes the 64-byte report sequence to endpoint `0x02`. A failure stops without retry or rollback.
+After `AF02` upload and `AF04` commit on `0112`, WonKey reads back and compares all 128 configuration bytes in memory. On CH57x Gen 1 (`1189:8890`, `514c:8890`), WonKey probes the device, shows the proposed change, revalidates the USB descriptors and interface 1 report descriptor, and writes the 64-byte report sequence to endpoint `0x02`. On CH57x Gen 2 (`1189`/`514c`: `8830..8851`), WonKey probes the layout and Layer 1 bindings, shows the proposed change, revalidates the USB descriptors and vendor hidraw node, and writes the 65-byte report ID 3 sequence. On SayoDevice (`8089`), WonKey probes the layout and bindings, shows the proposed change, revalidates the USB descriptors and vendor hidraw node, and runs a read-modify-write-ACK and save transaction over 64-byte hidraw reports. A failure stops without retry or rollback.
 A submitted write can still complete after timeout. Stop when the tool reports uncertain state.
 Persistence after reconnect and observed key/lighting effects require separate hardware checks.
 
