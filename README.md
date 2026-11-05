@@ -114,14 +114,15 @@ Choose RGB lighting on `0112` or LED backlight mode on `1189:8890`:
 ```sh
 wonkey rgb static 0000ff
 wonkey rgb off
-wonkey led static
+wonkey led reactive
+wonkey led cycle
 wonkey led off
 ```
 
 `static`, `breathe`, `flash`, `held`, and `toggle` accept an optional colour on `0112`: six hexadecimal digits without `#`.
 Omit the colour to preserve it. `cycle-slow`, `cycle-fast`, and `off` do not use a colour and reject supplied colours.
 `wonkey rgb` is supported on `0112` only (rejected on `1189:8890` with a hint to use `wonkey led`).
-`wonkey led` accepts `off`, `on`, `static`, or `0..255` on `1189:8890` (rejected on `0112` with a hint to use `wonkey rgb`).
+`wonkey led` accepts `off`, `reactive`, or `cycle` on `1189:8890` (rejected on `0112` with a hint to use `wonkey rgb`).
 Lighting commands preserve key settings.
 
 ## Before you save
@@ -133,7 +134,7 @@ On `0112`, if the device state changes after the preview, WonKey stops before it
 
 ## Compatibility
 
-WonKey checks exact device descriptors for XFKEY One Key Max (`af88:6688`, model `0112`) and CH57x Macropad (`1189:8890`). For `0112`, it rejects unsupported special, macro (`06`), touch, and unknown layouts, rejects `[CONTROL]` and `--layer` (`XFKEY One Key Max (0112) has a single key and does not support ...` / `XFKEY One Key Max (0112) does not support --layer`), and rejects `wonkey led` with a hint to use `wonkey rgb`. For CH57x Macropad (`1189:8890`), WonKey checks that the requested command and options fit CH57x hardware capabilities (optional `[CONTROL]` in `key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right` defaulting to `key1`, `--layer <1..15>` defaulting to `1`, `a-z`, `0-9`, and `f1-f24` usages `0x04..0x73`, no `trigger` command, `macro` up to 5 strokes with optional per-stroke modifiers and without `--interval` or `--repeat`, CH57x-supported consumer media usages, and `led` modes `off`, `on`, `static`, or `0..255` instead of `rgb`) before previewing and writing the settings.
+WonKey checks exact device descriptors for XFKEY One Key Max (`af88:6688`, model `0112`) and CH57x Macropad (`1189:8890`). For `0112`, it rejects unsupported special, macro (`06`), touch, and unknown layouts, rejects `[CONTROL]` and `--layer` (`XFKEY One Key Max (0112) has a single key and does not support ...` / `XFKEY One Key Max (0112) does not support --layer`), and rejects `wonkey led` with a hint to use `wonkey rgb`. For CH57x Macropad (`1189:8890`), WonKey checks that the requested command and options fit CH57x hardware capabilities (optional `[CONTROL]` in `key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right` defaulting to `key1`, `--layer <1..15>` defaulting to `1`, `a-z`, `0-9`, and `f1-f24` usages `0x04..0x73`, no `trigger` command, `macro` up to 5 strokes with optional per-stroke modifiers and without `--interval` or `--repeat`, CH57x-supported consumer media usages, and `led` modes `off`, `reactive`, or `cycle` instead of `rgb`) before previewing and writing the settings.
 The `key` names `mute`, `volumeup`, and `volumedown` use keyboard-page usages. The `media` command uses consumer-page usages. Right-hand modifiers are unsupported.
 
 Hardware checks on one `0112` unit confirmed <kbd>F13</kbd> press/release events, steady-blue lighting, and persistence of both settings after reconnect.

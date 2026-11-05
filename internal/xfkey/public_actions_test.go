@@ -147,10 +147,13 @@ func TestPublicActionInvalidBeforeAccess(t *testing.T) {
 		}
 	}
 	cases = append(cases, []string{"macro", "a", "--repeat=256"})
-	for _, command := range []string{"mouse", "media", "macro"} {
+	for _, command := range []string{"mouse", "media", "macro", "led"} {
 		for _, flag := range []string{"--yes", "--write", "--capture-root=/tmp", "--on=press", "--device=1"} {
 			cases = append(cases, []string{command, "--help", flag})
 		}
+	}
+	for _, badLED := range []string{"on", "pulse", "static", "2", "256"} {
+		cases = append(cases, []string{"led", badLED})
 	}
 	access := publicAccess{interactive: func(io.Reader) bool { t.Fatal("invalid input accessed runtime"); return false }}
 	for _, args := range cases {
@@ -162,7 +165,7 @@ func TestPublicActionInvalidBeforeAccess(t *testing.T) {
 			}
 		})
 	}
-	for _, command := range []string{"mouse", "media", "macro"} {
+	for _, command := range []string{"mouse", "media", "macro", "led"} {
 		var out bytes.Buffer
 		if err := runPublic([]string{command, "--help"}, &cliRuntime{strings.NewReader(""), &out, io.Discard}, access); err != nil || !strings.Contains(out.String(), "Usage: wonkey "+command) {
 			t.Fatal(out.String(), err)

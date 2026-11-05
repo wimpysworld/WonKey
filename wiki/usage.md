@@ -101,7 +101,8 @@ These commands change or validate lighting settings:
 ./wonkey rgb static 0000ff
 ./wonkey rgb static
 ./wonkey rgb off
-./wonkey led static
+./wonkey led reactive
+./wonkey led cycle
 ./wonkey led off
 ```
 
@@ -111,7 +112,7 @@ These commands change or validate lighting settings:
 `cycle-slow`, `cycle-fast`, and `off` do not use a colour. They reject supplied colours before device access and preserve the stored colour.
 RGB commands preserve the current typed action and unrelated bytes.
 
-`wonkey led <MODE> [--device N]` configures LED backlight mode (`off`, `on`, `static`, or `0..255`) on CH57x Macropad (`1189:8890`) and is rejected on `0112` with a hint to use `wonkey rgb`.
+`wonkey led <MODE> [--device N]` configures LED backlight mode (`off`, `reactive`, or `cycle`) on CH57x Macropad (`1189:8890`) and is rejected on `0112` with a hint to use `wonkey rgb`.
 
 | Mode | Description | Stored byte |
 |---|---|---|

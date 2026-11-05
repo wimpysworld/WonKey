@@ -42,7 +42,7 @@ Examples:
   wonkey macro ctrl+c,ctrl+v
   wonkey media knob-right volumeup
   wonkey rgb static 0000ff
-  wonkey led on
+  wonkey led reactive
 
 Run "wonkey <command> --help" for values and options.
 `
@@ -210,18 +210,18 @@ Run "wonkey" without arguments to inspect connected devices.
 Configure the LED backlight mode on devices that support LED modes.
 
 Modes:
-  off            Backlight off (mode 0)
-  on, static     Steady backlight (mode 1)
-  0..255         Raw LED mode number
+  off        Backlight off
+  reactive   Pulse the last pressed key
+  cycle      Cycle all key LEDs
 
 Options:
   --device N   Select device N when multiple devices are connected.
   -h, --help   Show help without device access.
 
 Examples:
-  wonkey led on
+  wonkey led reactive
+  wonkey led cycle
   wonkey led off
-  wonkey led 2
 
 At [Y/n], Enter accepts. No or EOF cancels.
 `
@@ -388,7 +388,7 @@ func missingCommandValueError(name string) error {
 	case "media":
 		return fmt.Errorf("media requires a media action, for example \"wonkey media volumeup\"; run \"wonkey media --help\" for actions")
 	case "led":
-		return fmt.Errorf("led requires a mode, for example \"wonkey led on\" or \"wonkey led off\"; run \"wonkey led --help\" for modes")
+		return fmt.Errorf("led requires a mode, for example \"wonkey led reactive\" or \"wonkey led off\"; run \"wonkey led --help\" for modes")
 	default:
 		return fmt.Errorf("rgb requires a lighting mode, for example \"wonkey rgb static 0000ff\" or \"wonkey rgb off\"; run \"wonkey rgb --help\" for modes")
 	}
@@ -605,18 +605,15 @@ func (c publicCommand) parseValues(positional []string, options map[string]int) 
 		if len(positional) != 1 {
 			return c, fmt.Errorf("led accepts one mode argument, not RGB colours; use \"wonkey rgb\" on RGB devices")
 		}
-		mode := strings.ToLower(positional[0])
-		switch mode {
+		switch strings.ToLower(positional[0]) {
 		case "off":
 			c.ledMode = 0
-		case "on", "static":
+		case "reactive":
 			c.ledMode = 1
+		case "cycle":
+			c.ledMode = 2
 		default:
-			n, ok := parseBoundedInt(mode, 0, 255)
-			if !ok {
-				return c, fmt.Errorf("invalid led mode %q; use off, on, static or 0..255", positional[0])
-			}
-			c.ledMode = n
+			return c, fmt.Errorf("invalid led mode %q; use off, reactive or cycle", positional[0])
 		}
 		c.hasLED = true
 		return c, nil
@@ -1010,12 +1007,12 @@ func (c publicCommand) encodeCH57Reports() ([]ch57.Report, []changeView, error) 
 		if err != nil {
 			return nil, nil, err
 		}
-		after := fmt.Sprintf("mode %d", c.ledMode)
+		after := "off"
 		switch c.ledMode {
-		case 0:
-			after = "off"
 		case 1:
-			after = "on"
+			after = "reactive"
+		case 2:
+			after = "cycle"
 		}
 		return reports, []changeView{{Setting: "led", Before: "write-only", After: after}}, nil
 	default:

@@ -172,11 +172,10 @@ func TestPublicParser(t *testing.T) {
 	}{
 		{[]string{"led", "off"}, 0, 0},
 		{[]string{"led", "OFF"}, 0, 0},
-		{[]string{"led", "on"}, 1, 0},
-		{[]string{"led", "STATIC"}, 1, 0},
-		{[]string{"led", "0"}, 0, 0},
-		{[]string{"led", "2", "--device", "1"}, 2, 1},
-		{[]string{"led", "255", "--device=2"}, 255, 2},
+		{[]string{"led", "reactive"}, 1, 0},
+		{[]string{"led", "REACTIVE", "--device", "1"}, 1, 1},
+		{[]string{"led", "cycle"}, 2, 0},
+		{[]string{"led", "CYCLE", "--device=2"}, 2, 2},
 	} {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
 			got, err := parsePublic(tc.args)
@@ -284,12 +283,18 @@ func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 		{"trigger", "click"},
 		{"trigger", "press", "release"},
 		{"led", ""},
+		{"led", "on"},
+		{"led", "pulse"},
+		{"led", "static"},
+		{"led", "0"},
+		{"led", "1"},
+		{"led", "2"},
 		{"led", "-1"},
 		{"led", "+1"},
 		{"led", "01"},
 		{"led", "256"},
 		{"led", "0000ff"},
-		{"led", "static", "0000ff"},
+		{"led", "reactive", "0000ff"},
 		{"rgb", "steady"},
 		{"rgb", "flowing"},
 		{"rgb", "gradient"},
@@ -429,8 +434,8 @@ func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 		{"trigger", "release", "--layer=1"},
 		{"rgb", "off", "--layer", "1"},
 		{"rgb", "off", "--layer=1"},
-		{"led", "on", "--layer", "1"},
-		{"led", "on", "--layer=1"},
+		{"led", "reactive", "--layer", "1"},
+		{"led", "reactive", "--layer=1"},
 		{"key", "--help", "--layer=1"},
 	}
 	for _, flag := range []string{"--device", "--report", "--capture-root", "--json", "--yes", "--dry-run", "--write", "--target", "--path", "--key", "--modifiers", "--trigger", "--lighting", "--colour", "--rgb-mode", "--red", "--expect-identifier", "--expect-version", "--json=false", "--yes=false"} {
@@ -454,7 +459,7 @@ func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 		"mouse":   `mouse requires buttons or wheel direction, for example "wonkey mouse left"; run "wonkey mouse --help" for options`,
 		"media":   `media requires a media action, for example "wonkey media volumeup"; run "wonkey media --help" for actions`,
 		"rgb":     `rgb requires a lighting mode, for example "wonkey rgb static 0000ff" or "wonkey rgb off"; run "wonkey rgb --help" for modes`,
-		"led":     `led requires a mode, for example "wonkey led on" or "wonkey led off"; run "wonkey led --help" for modes`,
+		"led":     `led requires a mode, for example "wonkey led reactive" or "wonkey led off"; run "wonkey led --help" for modes`,
 	} {
 		var out, diagnostic bytes.Buffer
 		err := runPublic([]string{command}, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
@@ -462,11 +467,19 @@ func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 			t.Fatalf("%s: err=%v diagnostic=%q", command, err, diagnostic.String())
 		}
 	}
+	for _, badLED := range []string{"on", "pulse", "static", "2", "256"} {
+		want := fmt.Sprintf("invalid led mode %q; use off, reactive or cycle", badLED)
+		var out, diagnostic bytes.Buffer
+		err := runPublic([]string{"led", badLED}, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
+		if err == nil || ExitCode(err) != 2 || out.Len() != 0 || err.Error() != want || !strings.Contains(strings.ReplaceAll(diagnostic.String(), "\n", " "), want) {
+			t.Fatalf("led %s: err=%v diagnostic=%q", badLED, err, diagnostic.String())
+		}
+	}
 }
 
 func TestPublicHelpNoAccess(t *testing.T) {
 	access := publicAccess{interactive: func(io.Reader) bool { t.Fatal("help accessed runtime"); return false }}
-	for _, args := range [][]string{{"--help"}, {"-h"}, {"key", "--help"}, {"trigger", "--help"}, {"macro", "--help"}, {"mouse", "--help"}, {"media", "--help"}, {"rgb", "--help"}, {"led", "--help"}, {"key", "f13", "--help"}, {"key", "key2", "f13", "--help"}, {"trigger", "release", "--help"}, {"rgb", "off", "-h"}, {"led", "on", "-h"}} {
+	for _, args := range [][]string{{"--help"}, {"-h"}, {"key", "--help"}, {"trigger", "--help"}, {"macro", "--help"}, {"mouse", "--help"}, {"media", "--help"}, {"rgb", "--help"}, {"led", "--help"}, {"key", "f13", "--help"}, {"key", "key2", "f13", "--help"}, {"trigger", "release", "--help"}, {"rgb", "off", "-h"}, {"led", "reactive", "-h"}} {
 		var out bytes.Buffer
 		if err := runPublic(args, &cliRuntime{strings.NewReader(""), &out, io.Discard}, access); err != nil {
 			t.Fatal(err)
@@ -1041,10 +1054,8 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 			{[]string{"macro", "a,b,c,d,e"}, "  key1: write-only -> a,b,c,d,e\n", 8},
 			{[]string{"macro", "key3", "ctrl+c,ctrl+v", "--layer=4"}, "  key3 (layer 4): write-only -> ctrl+c,ctrl+v\n", 5},
 			{[]string{"led", "off"}, "  led: write-only -> off\n", 3},
-			{[]string{"led", "on"}, "  led: write-only -> on\n", 3},
-			{[]string{"led", "static"}, "  led: write-only -> on\n", 3},
-			{[]string{"led", "2"}, "  led: write-only -> mode 2\n", 3},
-			{[]string{"led", "255"}, "  led: write-only -> mode 255\n", 3},
+			{[]string{"led", "reactive"}, "  led: write-only -> reactive\n", 3},
+			{[]string{"led", "cycle"}, "  led: write-only -> cycle\n", 3},
 		} {
 			for _, mode := range []string{"confirm", "cancel", "eof", "refused", "uncertain"} {
 				t.Run(strings.Join(tc.args, " ")+"/"+mode, func(t *testing.T) {
@@ -1180,9 +1191,8 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 			want string
 		}{
 			{[]string{"led", "off"}, `XFKEY One Key Max (0112) does not support led; use "wonkey rgb" instead`},
-			{[]string{"led", "on"}, `XFKEY One Key Max (0112) does not support led; use "wonkey rgb" instead`},
-			{[]string{"led", "static"}, `XFKEY One Key Max (0112) does not support led; use "wonkey rgb" instead`},
-			{[]string{"led", "2"}, `XFKEY One Key Max (0112) does not support led; use "wonkey rgb" instead`},
+			{[]string{"led", "reactive"}, `XFKEY One Key Max (0112) does not support led; use "wonkey rgb" instead`},
+			{[]string{"led", "cycle"}, `XFKEY One Key Max (0112) does not support led; use "wonkey rgb" instead`},
 			{[]string{"macro", "ctrl+c,ctrl+v"}, "XFKEY One Key Max (0112) does not support modifiers in macro sequences; use base key names only"},
 			{[]string{"macro", "ctrl+a"}, "XFKEY One Key Max (0112) does not support modifiers in macro sequences; use base key names only"},
 			{[]string{"macro", "ctrl,shift"}, "XFKEY One Key Max (0112) does not support modifiers in macro sequences; use base key names only"},
