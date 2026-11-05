@@ -3,7 +3,7 @@
 WonKey is a macropad configuration tool for Linux. One key, to rule them all.
 
 Configure supported USB macropads and mini-keyboards from one CLI: inspect connected pads with `wonkey`, bind keys, rotary knobs, multi-stroke macros, consumer media controls, and relative mouse actions, and set RGB or LED lighting.
-WonKey validates device capabilities and descriptors before every write, and verifies all 128 configuration bytes in memory after each write on devices that support readback.
+WonKey validates device capabilities and descriptors before every write, and verifies all 128 configuration bytes in memory after each write on XFKEY One Key Max (0112).
 
 [Build WonKey](https://github.com/wimpysworld/WonKey/blob/main/README.md#get-started), then [read the current settings](usage#read-settings).
 Read [device access requirements](hardware#device-selection-and-access) before a hardware command.
