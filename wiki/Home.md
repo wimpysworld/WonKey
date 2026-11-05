@@ -28,7 +28,7 @@ Read [device access requirements](hardware#device-selection-and-access) before a
 | Select a device and verify a change | [Device selection and verification](usage#device-selection-and-verification) |
 
 The [usage guide](usage) covers command syntax, unified device discovery, and supported settings.
-Bare `wonkey` reads settings and inspects connected devices without modifying them. `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, and `led` validate device capabilities (including optional `[CONTROL]` and `--layer` on `key`, `macro`, `mouse`, and `media`, `rgb` on `0112` and `8089:000c`, and `led <off|reactive|cycle>` on CH57x devices) and configure supported devices (`0112`, `1189:8890`, `514c:8851`, `514c:8850`, and `8089:000c`).
+Bare `wonkey` reads settings and inspects connected devices without modifying them. `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, and `led` validate device capabilities (including optional `[CONTROL]` and `--layer` on `key`, `macro`, `mouse`, and `media`, `rgb` on `0112` and SayoDevice macropads, and `led <off|reactive|cycle>` on CH57x devices) and configure all supported devices in the table above.
 
 ## Hardware and development
 
