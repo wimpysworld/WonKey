@@ -54,6 +54,12 @@ type ProbeResult struct {
 	Warning                  string
 }
 
+// ApplyResult records whether a write sequence was started and how many encoded reports completed.
+type ApplyResult struct {
+	WriteAttempted bool
+	ReportsWritten int
+}
+
 // usbControlTransfer follows struct usbdevfs_ctrltransfer in Linux UAPI.
 // Go supplies the native pointer alignment, including padding after Timeout.
 type usbControlTransfer struct {
@@ -66,20 +72,48 @@ type usbControlTransfer struct {
 	Data        unsafe.Pointer
 }
 
+// usbBulkTransfer follows struct usbdevfs_bulktransfer in Linux UAPI.
+type usbBulkTransfer struct {
+	Ep      uint32
+	Len     uint32
+	Timeout uint32
+	Data    unsafe.Pointer
+}
+
+// usbIoctl follows struct usbdevfs_ioctl in Linux UAPI.
+type usbIoctl struct {
+	Ifno      int32
+	IoctlCode int32
+	Data      unsafe.Pointer
+}
+
 // _IOWR('U', 0, sizeof(struct usbdevfs_ctrltransfer)). The combined direction
 // bits are 0xc0000000 on Linux, including MIPS and PowerPC ioctl encodings.
-const usbdevfsControl = uintptr(0xc0005500) | unsafe.Sizeof(usbControlTransfer{})<<16
+const (
+	usbdevfsControl          = uintptr(0xc0005500) | unsafe.Sizeof(usbControlTransfer{})<<16
+	usbdevfsBulk             = uintptr(0xc0005502) | unsafe.Sizeof(usbBulkTransfer{})<<16
+	usbdevfsClaimInterface   = uintptr(0x8004550f)
+	usbdevfsReleaseInterface = uintptr(0x80045510)
+	usbdevfsIoctl            = uintptr(0xc0005512) | unsafe.Sizeof(usbIoctl{})<<16
+	usbdevfsDisconnect       = int32(0x00005516)
+	usbdevfsConnect          = int32(0x00005517)
+)
 
 type probeOps struct {
-	readDir      func(string) ([]os.DirEntry, error)
-	readFile     func(string, int) ([]byte, error)
-	evalSymlinks func(string) (string, error)
-	stat         func(string) (os.FileInfo, error)
-	lstat        func(string, *unix.Stat_t) error
-	open         func(string, int, uint32) (int, error)
-	fstat        func(int, *unix.Stat_t) error
-	close        func(int) error
-	ioctl        func(int, uintptr, *usbControlTransfer) (int, error)
+	readDir          func(string) ([]os.DirEntry, error)
+	readFile         func(string, int) ([]byte, error)
+	evalSymlinks     func(string) (string, error)
+	stat             func(string) (os.FileInfo, error)
+	lstat            func(string, *unix.Stat_t) error
+	open             func(string, int, uint32) (int, error)
+	fstat            func(int, *unix.Stat_t) error
+	close            func(int) error
+	ioctl            func(int, uintptr, *usbControlTransfer) (int, error)
+	claimInterface   func(int, uint32) error
+	releaseInterface func(int, uint32) error
+	detachDriver     func(int, int32) error
+	attachDriver     func(int, int32) error
+	bulkOut          func(int, *usbBulkTransfer) (int, error)
 }
 
 func systemProbeOps() probeOps {
@@ -87,6 +121,8 @@ func systemProbeOps() probeOps {
 		readDir: os.ReadDir, readFile: readProbeFile, evalSymlinks: filepath.EvalSymlinks,
 		stat: os.Stat, lstat: unix.Lstat, open: unix.Open, fstat: unix.Fstat,
 		close: unix.Close, ioctl: controlIN,
+		claimInterface: claimUSBInterface, releaseInterface: releaseUSBInterface,
+		detachDriver: detachUSBDriver, attachDriver: attachUSBDriver, bulkOut: writeBulkOut,
 	}
 }
 
@@ -240,6 +276,13 @@ func ProbeOutputCandidate(sysRoot, devRoot string, candidate DiscoveredCandidate
 	return systemProbeOps().probeReport(sysRoot, devRoot, candidate, true)
 }
 
+// ApplyCandidate revalidates candidate, verifies interface 1 report descriptor,
+// claims interface 1, and writes the 64-byte zero initialisation packet followed
+// by reports to endpoint 0x02 with a 1000 ms timeout per transfer.
+func ApplyCandidate(sysRoot, devRoot string, candidate DiscoveredCandidate, reports []Report) (ApplyResult, error) {
+	return systemProbeOps().apply(sysRoot, devRoot, candidate, reports)
+}
+
 func (ops probeOps) revalidate(sysRoot string, candidate DiscoveredCandidate) error {
 	fresh, err := ops.inspect(sysRoot, candidate.PhysicalPath)
 	if err != nil {
@@ -390,6 +433,157 @@ func controlIN(fd int, request uintptr, transfer *usbControlTransfer) (int, erro
 		return 0, fmt.Errorf("refused control request outside the read-only probe")
 	}
 	n, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), request, uintptr(unsafe.Pointer(transfer)))
+	runtime.KeepAlive(transfer)
+	if errno != 0 {
+		return 0, errno
+	}
+	return int(n), nil
+}
+
+func (ops probeOps) apply(sysRoot, devRoot string, candidate DiscoveredCandidate, reports []Report) (result ApplyResult, err error) {
+	if len(reports) < 1 || len(reports) > 16 {
+		return result, fmt.Errorf("apply requires 1..16 reports")
+	}
+	for i, r := range reports {
+		if r[0] != 0x03 {
+			return result, fmt.Errorf("report %d requires report ID 3", i+1)
+		}
+	}
+	if !filepath.IsAbs(devRoot) {
+		return result, fmt.Errorf("USB device root must be absolute")
+	}
+	if err := ops.revalidate(sysRoot, candidate); err != nil {
+		return result, err
+	}
+	node := filepath.Join(devRoot, fmt.Sprintf("%03d", candidate.BusNumber), fmt.Sprintf("%03d", candidate.DeviceNumber))
+	var named unix.Stat_t
+	if err := ops.lstat(node, &named); err != nil {
+		return result, err
+	}
+	if err := checkUSBNode(named, candidate); err != nil {
+		return result, err
+	}
+	fd, err := ops.open(node, unix.O_RDWR|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return result, err
+	}
+	defer func() {
+		if closeErr := ops.close(fd); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+	}()
+	if err := ops.validateOpen(sysRoot, node, fd, candidate, named); err != nil {
+		return result, err
+	}
+	descriptor := make([]byte, len(candidateReportDescriptor))
+	count, err := ops.readControl(fd, 0x81, 0x06, 0x2200, descriptor)
+	if err != nil {
+		return result, fmt.Errorf("GET_DESCRIPTOR: %w", err)
+	}
+	if count != len(descriptor) || string(descriptor) != candidateReportDescriptor {
+		return result, fmt.Errorf("interface 1 report descriptor differs from published report ID 3 layout")
+	}
+	if err := ops.validateOpen(sysRoot, node, fd, candidate, named); err != nil {
+		return result, err
+	}
+	if err := ops.detachDriver(fd, 1); err != nil {
+		return result, fmt.Errorf("detach interface 1 driver: %w", err)
+	}
+	if err := ops.claimInterface(fd, 1); err != nil {
+		_ = ops.attachDriver(fd, 1)
+		return result, fmt.Errorf("claim interface 1: %w", err)
+	}
+	defer func() {
+		err = errors.Join(err, ops.releaseInterface(fd, 1), ops.attachDriver(fd, 1))
+	}()
+	result.WriteAttempted = true
+	var initPacket Report
+	if err := ops.writeReport(fd, initPacket); err != nil {
+		return result, fmt.Errorf("write initialisation packet: %w", err)
+	}
+	for i, report := range reports {
+		if err := ops.writeReport(fd, report); err != nil {
+			return result, fmt.Errorf("write report %d: %w", i+1, err)
+		}
+		result.ReportsWritten++
+	}
+	return result, nil
+}
+
+func (ops probeOps) writeReport(fd int, report Report) error {
+	data := report
+	transfer := usbBulkTransfer{
+		Ep:      0x02,
+		Len:     uint32(len(data)),
+		Timeout: 1000,
+		Data:    unsafe.Pointer(&data[0]),
+	}
+	count, err := ops.bulkOut(fd, &transfer)
+	runtime.KeepAlive(&data)
+	if err != nil {
+		return err
+	}
+	if count != len(data) {
+		return fmt.Errorf("wrote %d bytes, want %d", count, len(data))
+	}
+	return nil
+}
+
+func claimUSBInterface(fd int, ifno uint32) error {
+	if ifno != 1 {
+		return fmt.Errorf("refused USB interface claim for interface %d", ifno)
+	}
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), usbdevfsClaimInterface, uintptr(unsafe.Pointer(&ifno)))
+	runtime.KeepAlive(&ifno)
+	if errno != 0 {
+		return errno
+	}
+	return nil
+}
+
+func releaseUSBInterface(fd int, ifno uint32) error {
+	if ifno != 1 {
+		return fmt.Errorf("refused USB interface release for interface %d", ifno)
+	}
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), usbdevfsReleaseInterface, uintptr(unsafe.Pointer(&ifno)))
+	runtime.KeepAlive(&ifno)
+	if errno != 0 {
+		return errno
+	}
+	return nil
+}
+
+func detachUSBDriver(fd int, ifno int32) error {
+	if ifno != 1 {
+		return fmt.Errorf("refused USB driver detach for interface %d", ifno)
+	}
+	command := usbIoctl{Ifno: ifno, IoctlCode: usbdevfsDisconnect}
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), usbdevfsIoctl, uintptr(unsafe.Pointer(&command)))
+	runtime.KeepAlive(&command)
+	if errno != 0 && errno != unix.ENODATA {
+		return errno
+	}
+	return nil
+}
+
+func attachUSBDriver(fd int, ifno int32) error {
+	if ifno != 1 {
+		return fmt.Errorf("refused USB driver attach for interface %d", ifno)
+	}
+	command := usbIoctl{Ifno: ifno, IoctlCode: usbdevfsConnect}
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), usbdevfsIoctl, uintptr(unsafe.Pointer(&command)))
+	runtime.KeepAlive(&command)
+	if errno != 0 && errno != unix.ENODATA && errno != unix.EBUSY {
+		return errno
+	}
+	return nil
+}
+
+func writeBulkOut(fd int, transfer *usbBulkTransfer) (int, error) {
+	if transfer == nil || transfer.Ep != 0x02 || transfer.Len != 64 || transfer.Timeout != 1000 || transfer.Data == nil {
+		return 0, fmt.Errorf("refused bulk transfer outside interface 1 endpoint 0x02 report write")
+	}
+	n, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), usbdevfsBulk, uintptr(unsafe.Pointer(transfer)))
 	runtime.KeepAlive(transfer)
 	if errno != 0 {
 		return 0, errno

@@ -241,6 +241,7 @@ type publicCommand struct {
 	hasMacroModifiers          bool
 	hasUnsupportedCH57MacroKey bool
 	macroCount                 int
+	macroStrokes               []ch57.Stroke
 	help                       bool
 }
 
@@ -539,6 +540,7 @@ func (c publicCommand) parseAction(positional []string, options map[string]int) 
 			if err != nil {
 				return c, err
 			}
+			c.macroStrokes = append(c.macroStrokes, stroke)
 			if stroke.Modifiers != 0 || stroke.Usage == 0 {
 				c.hasMacroModifiers = true
 			}
@@ -647,6 +649,7 @@ func (c publicCommand) parseValues(positional []string, options map[string]int) 
 type publicAccess struct {
 	discoverCH57 func(string) ([]ch57.DiscoveredCandidate, error)
 	probeCH57    func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error)
+	applyCH57    func(string, string, ch57.DiscoveredCandidate, []ch57.Report) (ch57.ApplyResult, error)
 	discover     func() ([]Candidate, error)
 	query        func(Candidate) (CaptureResult, error)
 	apply        func(Candidate, ApplyTarget, configurationChanges, func(configuration, configuration) (bool, error)) (ApplyResult, error)
@@ -662,6 +665,7 @@ func publicDeviceAccess() publicAccess {
 			return ch57.DiscoverCandidates(sysRoot)
 		},
 		probeCH57: ch57.ProbeCandidate,
+		applyCH57: ch57.ApplyCandidate,
 		discover:  func() ([]Candidate, error) { return liveDiscover("/sys/bus/usb/devices", "/dev") },
 		query:     func(selected Candidate) (CaptureResult, error) { return querySelected(selected, true) },
 		apply: func(selected Candidate, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration) (bool, error)) (ApplyResult, error) {
@@ -844,11 +848,11 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 	if err != nil {
 		return err
 	}
-	if _, ok := byCH57Path[selected.PhysicalPath]; ok {
+	if chSelected, ok := byCH57Path[selected.PhysicalPath]; ok {
 		if err := c.checkCH57Capabilities(); err != nil {
 			return err
 		}
-		return fmt.Errorf("live writes are not supported for 1189:8890; no settings write sent")
+		return c.runCH57Write(chSelected, deviceID, input, h, access)
 	}
 	if err := c.checkXFKEYCapabilities(); err != nil {
 		return err
@@ -903,6 +907,12 @@ func (c publicCommand) checkCH57Capabilities() error {
 		if c.hasUnsupportedCH57MacroKey {
 			return fmt.Errorf("CH57x Macropad (1189:8890) supports keys a-z, 0-9, and f1-f24 (usages 0x04..0x73) only")
 		}
+	case "mouse":
+		if mouse, ok := c.action.(MouseAction); ok {
+			if _, err := ch57MouseEvent(mouse); err != nil {
+				return err
+			}
+		}
 	case "media":
 		if media, ok := c.action.(MediaAction); ok {
 			switch ch57.MediaUsage(media.Usage) {
@@ -916,6 +926,140 @@ func (c publicCommand) checkCH57Capabilities() error {
 		}
 	}
 	return nil
+}
+
+func ch57MouseEvent(a MouseAction) (ch57.MouseEvent, error) {
+	switch {
+	case a.Wheel != 0 && a.Buttons == 0 && a.X == 0 && a.Y == 0:
+		return ch57.MouseEvent{Action: ch57.MouseWheel, Wheel: a.Wheel}, nil
+	case a.Wheel != 0:
+		return ch57.MouseEvent{}, fmt.Errorf("CH57x Macropad (1189:8890) does not combine mouse wheel with buttons or movement")
+	case a.Buttons != 0 && (a.X != 0 || a.Y != 0):
+		return ch57.MouseEvent{Action: ch57.MouseDrag, Buttons: ch57.MouseButtons(a.Buttons), DX: a.X, DY: a.Y}, nil
+	case a.Buttons != 0:
+		return ch57.MouseEvent{Action: ch57.MouseClick, Buttons: ch57.MouseButtons(a.Buttons)}, nil
+	case a.X != 0 || a.Y != 0:
+		return ch57.MouseEvent{Action: ch57.MouseMove, DX: a.X, DY: a.Y}, nil
+	default:
+		return ch57.MouseEvent{}, fmt.Errorf("CH57x Macropad (1189:8890) mouse action requires buttons, movement or wheel")
+	}
+}
+
+func formatCH57Stroke(stroke ch57.Stroke) string {
+	mods := strings.ReplaceAll(modifierName(byte(stroke.Modifiers&255)), ",", "+")
+	if stroke.Usage == 0 {
+		return mods
+	}
+	key := settingName(keyValues, stroke.Usage)
+	if stroke.Modifiers != 0 {
+		return mods + "+" + key
+	}
+	return key
+}
+
+func (c publicCommand) encodeCH57Reports() ([]ch57.Report, []changeView, error) {
+	profile := ch57.TwelveKeyThreeKnob(c.layer)
+	setting := string(c.control)
+	if c.layer > 1 {
+		setting = fmt.Sprintf("%s (layer %d)", c.control, c.layer)
+	}
+	switch c.name {
+	case "key":
+		stroke := ch57.Stroke{Modifiers: c.changes["modifiers"], Usage: c.changes["key"]}
+		reports, err := ch57.EncodeKeyboard(profile, c.control, []ch57.Stroke{stroke})
+		if err != nil {
+			return nil, nil, err
+		}
+		return reports, []changeView{{Setting: setting, Before: "write-only", After: formatCH57Stroke(stroke)}}, nil
+	case "macro":
+		reports, err := ch57.EncodeKeyboard(profile, c.control, c.macroStrokes)
+		if err != nil {
+			return nil, nil, err
+		}
+		formatted := make([]string, len(c.macroStrokes))
+		for i, stroke := range c.macroStrokes {
+			formatted[i] = formatCH57Stroke(stroke)
+		}
+		return reports, []changeView{{Setting: setting, Before: "write-only", After: strings.Join(formatted, ",")}}, nil
+	case "mouse":
+		mouse, ok := c.action.(MouseAction)
+		if !ok {
+			return nil, nil, fmt.Errorf("invalid mouse action")
+		}
+		event, err := ch57MouseEvent(mouse)
+		if err != nil {
+			return nil, nil, err
+		}
+		reports, err := ch57.EncodeMouse(profile, c.control, event)
+		if err != nil {
+			return nil, nil, err
+		}
+		return reports, []changeView{{Setting: setting, Before: "write-only", After: actionDescription(c.action)}}, nil
+	case "media":
+		media, ok := c.action.(MediaAction)
+		if !ok {
+			return nil, nil, fmt.Errorf("invalid media action")
+		}
+		reports, err := ch57.EncodeMedia(profile, c.control, ch57.MediaUsage(media.Usage))
+		if err != nil {
+			return nil, nil, err
+		}
+		return reports, []changeView{{Setting: setting, Before: "write-only", After: actionDescription(c.action)}}, nil
+	case "led":
+		reports, err := ch57.EncodeLED(profile, c.ledMode)
+		if err != nil {
+			return nil, nil, err
+		}
+		after := fmt.Sprintf("mode %d", c.ledMode)
+		switch c.ledMode {
+		case 0:
+			after = "off"
+		case 1:
+			after = "on"
+		}
+		return reports, []changeView{{Setting: "led", Before: "write-only", After: after}}, nil
+	default:
+		return nil, nil, fmt.Errorf("unsupported CH57 command %q", c.name)
+	}
+}
+
+func (c publicCommand) runCH57Write(selected ch57.DiscoveredCandidate, deviceID int, input *bufio.Reader, h human, access publicAccess) error {
+	const sysRoot, devRoot = "/sys/bus/usb/devices", "/dev/bus/usb"
+	reports, views, err := c.encodeCH57Reports()
+	if err != nil {
+		return err
+	}
+	if err := c.runCH57Selected(selected, deviceID, h, access); err != nil {
+		return err
+	}
+	h.changes(views)
+	if h.out.err != nil {
+		return h.out.err
+	}
+	fmt.Fprint(h.out, "Save settings? [Y/n]: ")
+	if h.out.err != nil {
+		return h.out.err
+	}
+	line, err := input.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	if errors.Is(err, io.EOF) || !saveConfirmation(line) {
+		h.line("", "Cancelled. No settings write sent.")
+		return h.out.err
+	}
+	result, err := access.applyCH57(sysRoot, devRoot, selected, reports)
+	if err != nil {
+		if result.WriteAttempted {
+			h.line("31", "Device state uncertain. A submitted write can still complete.")
+		} else {
+			h.line("", "Stopped before settings upload.")
+		}
+		h.line("33", "Stop. No automatic retry or rollback.")
+		return err
+	}
+	h.line("32", "Settings saved to CH57x Macropad.")
+	return h.out.err
 }
 
 func (c publicCommand) runReadAll(matches []Candidate, byCH57Path map[string]ch57.DiscoveredCandidate, h human, access publicAccess) error {

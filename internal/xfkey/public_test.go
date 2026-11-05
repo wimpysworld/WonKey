@@ -750,6 +750,10 @@ func ch57TestAccess(t *testing.T) publicAccess {
 			t.Fatal("CH57 probe reached apply")
 			return ApplyResult{}, nil
 		},
+		applyCH57: func(string, string, ch57.DiscoveredCandidate, []ch57.Report) (ch57.ApplyResult, error) {
+			t.Fatal("unexpected CH57 apply")
+			return ch57.ApplyResult{}, nil
+		},
 	}
 }
 
@@ -910,16 +914,17 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 		for _, tc := range []struct {
 			args          []string
 			wantXFKEY     bool
+			wantCH57      bool
 			wantErr       bool
 			wantDiag      string
 			wantOutSubstr string
 		}{
-			{[]string{"key", "f13", "--device", "1"}, true, false, "", "[1] XFKEY One Key Max (0112)"},
-			{[]string{"key", "f13", "--device", "2"}, false, true, "live writes are not supported for 1189:8890", ""},
-			{[]string{"key", "f13"}, false, true, "--device 1  XFKEY One Key Max (0112) (USB path 1-1)\n  --device 2  CH57x Macropad (1189:8890) (USB path 1-2)", ""},
-			{[]string{"key", "f13", "--device", "3"}, false, true, "device 3 not found (2 compatible device(s) connected)", ""},
+			{[]string{"key", "f13", "--device", "1"}, true, false, false, "", "[1] XFKEY One Key Max (0112)"},
+			{[]string{"key", "f13", "--device", "2"}, false, true, false, "", "[2] CH57x Macropad (1189:8890)"},
+			{[]string{"key", "f13"}, false, false, true, "--device 1  XFKEY One Key Max (0112) (USB path 1-1)\n  --device 2  CH57x Macropad (1189:8890) (USB path 1-2)", ""},
+			{[]string{"key", "f13", "--device", "3"}, false, false, true, "device 3 not found (2 compatible device(s) connected)", ""},
 		} {
-			queried, applied := false, false
+			queried, applied, probedCH57, appliedCH57 := false, false, false, false
 			first := newSettingsTransport()
 			fresh := &backupCheckingTransport{settingsTransport: newSettingsTransport()}
 			access := publicAccess{
@@ -941,14 +946,18 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 					return applySettingsConfirmed(fresh, target, changes, true, time.Second, guard, true)
 				},
 				probeCH57: func(_ string, _ string, _ ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
-					t.Fatal("write command probed CH57")
-					return ch57.ProbeResult{}, nil
+					probedCH57 = true
+					return ch57.ProbeResult{Status: ch57.ProbeRawReport, Raw: []byte{0xaa}, Count: 1}, nil
+				},
+				applyCH57: func(_ string, _ string, _ ch57.DiscoveredCandidate, _ []ch57.Report) (ch57.ApplyResult, error) {
+					appliedCH57 = true
+					return ch57.ApplyResult{WriteAttempted: true, ReportsWritten: 4}, nil
 				},
 			}
 			var out, diagnostic bytes.Buffer
 			err := runPublic(tc.args, &cliRuntime{strings.NewReader("y\n"), &out, &diagnostic}, access)
-			if (err != nil) != tc.wantErr || queried != tc.wantXFKEY || applied != tc.wantXFKEY {
-				t.Fatalf("args=%v err=%v queried=%v applied=%v out=%q diag=%q", tc.args, err, queried, applied, out.String(), diagnostic.String())
+			if (err != nil) != tc.wantErr || queried != tc.wantXFKEY || applied != tc.wantXFKEY || probedCH57 != tc.wantCH57 || appliedCH57 != tc.wantCH57 {
+				t.Fatalf("args=%v err=%v queried=%v applied=%v probedCH57=%v appliedCH57=%v out=%q diag=%q", tc.args, err, queried, applied, probedCH57, appliedCH57, out.String(), diagnostic.String())
 			}
 			if tc.wantDiag != "" && !strings.Contains(diagnostic.String(), tc.wantDiag) {
 				t.Fatalf("args=%v missing %q in diagnostic %q", tc.args, tc.wantDiag, diagnostic.String())
@@ -1017,20 +1026,91 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 			t.Fatalf("err=%v diagnostic=%q want=%q", err, diagnostic.String(), wantErr)
 		}
 	})
-	t.Run("rejects-writes-on-ch57", func(t *testing.T) {
-		for _, args := range [][]string{{"key", "f13"}, {"mouse", "left"}, {"media", "playpause"}, {"macro", "a"}, {"macro", "ctrl+c,ctrl+v"}, {"led", "off"}, {"led", "on"}, {"led", "2"}} {
-			access := ch57TestAccess(t)
-			access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
-				return []ch57.DiscoveredCandidate{{Candidate: ch57.Candidate{PhysicalPath: "1-2"}, BusNumber: 1, DeviceNumber: 19}}, nil
-			}
-			access.probeCH57 = func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
-				t.Fatal("write command probed CH57")
-				return ch57.ProbeResult{}, nil
-			}
-			var diagnostic bytes.Buffer
-			err := runPublic(args, &cliRuntime{strings.NewReader("y\n"), io.Discard, &diagnostic}, access)
-			if err == nil || ExitCode(err) != 1 || !strings.Contains(diagnostic.String(), "live writes are not supported for 1189:8890") {
-				t.Fatalf("args=%v err=%v diagnostic=%q", args, err, diagnostic.String())
+	t.Run("ch57-live-writes", func(t *testing.T) {
+		for _, tc := range []struct {
+			args       []string
+			wantChange string
+			wantCount  int
+		}{
+			{[]string{"key", "f13"}, "  key1: write-only -> f13\n", 4},
+			{[]string{"key", "key2", "ctrl+shift+f13", "--layer", "2"}, "  key2 (layer 2): write-only -> ctrl+shift+f13\n", 4},
+			{[]string{"mouse", "left"}, "  key1: write-only -> mouse left (x=0, y=0, wheel=0)\n", 3},
+			{[]string{"mouse", "knob1-press", "middle", "--layer=15"}, "  knob1-press (layer 15): write-only -> mouse middle (x=0, y=0, wheel=0)\n", 3},
+			{[]string{"media", "volumeup"}, "  key1: write-only -> media volumeup (0x00e9)\n", 3},
+			{[]string{"media", "knob-right", "volumeup", "--layer", "3"}, "  knob-right (layer 3): write-only -> media volumeup (0x00e9)\n", 3},
+			{[]string{"macro", "a,b,c,d,e"}, "  key1: write-only -> a,b,c,d,e\n", 8},
+			{[]string{"macro", "key3", "ctrl+c,ctrl+v", "--layer=4"}, "  key3 (layer 4): write-only -> ctrl+c,ctrl+v\n", 5},
+			{[]string{"led", "off"}, "  led: write-only -> off\n", 3},
+			{[]string{"led", "on"}, "  led: write-only -> on\n", 3},
+			{[]string{"led", "static"}, "  led: write-only -> on\n", 3},
+			{[]string{"led", "2"}, "  led: write-only -> mode 2\n", 3},
+			{[]string{"led", "255"}, "  led: write-only -> mode 255\n", 3},
+		} {
+			for _, mode := range []string{"confirm", "cancel", "eof", "refused", "uncertain"} {
+				t.Run(strings.Join(tc.args, " ")+"/"+mode, func(t *testing.T) {
+					access := ch57TestAccess(t)
+					target := ch57.DiscoveredCandidate{Candidate: ch57.Candidate{PhysicalPath: "7-1.4.3.1"}, BusNumber: 7, DeviceNumber: 8}
+					access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
+						return []ch57.DiscoveredCandidate{target}, nil
+					}
+					probed, applied := false, false
+					access.probeCH57 = func(sysRoot, devRoot string, selected ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
+						probed = true
+						if sysRoot != "/sys/bus/usb/devices" || devRoot != "/dev/bus/usb" || selected != target {
+							t.Fatal(sysRoot, devRoot, selected)
+						}
+						return ch57.ProbeResult{Status: ch57.ProbeRawReport, Raw: []byte{0xaa}, Count: 1}, nil
+					}
+					access.applyCH57 = func(sysRoot, devRoot string, selected ch57.DiscoveredCandidate, reports []ch57.Report) (ch57.ApplyResult, error) {
+						applied = true
+						if sysRoot != "/sys/bus/usb/devices" || devRoot != "/dev/bus/usb" || selected != target || len(reports) != tc.wantCount {
+							t.Fatalf("sys=%s dev=%s selected=%+v reports=%d want=%d", sysRoot, devRoot, selected, len(reports), tc.wantCount)
+						}
+						switch mode {
+						case "refused":
+							return ch57.ApplyResult{WriteAttempted: false}, errors.New("synthetic refused error")
+						case "uncertain":
+							return ch57.ApplyResult{WriteAttempted: true, ReportsWritten: 1}, errors.New("synthetic write error")
+						default:
+							return ch57.ApplyResult{WriteAttempted: true, ReportsWritten: len(reports)}, nil
+						}
+					}
+					input := "\n"
+					switch mode {
+					case "cancel":
+						input = "n\n"
+					case "eof":
+						input = ""
+					}
+					var out, diagnostic bytes.Buffer
+					err := runPublic(tc.args, &cliRuntime{strings.NewReader(input), &out, &diagnostic}, access)
+					wantApply := mode != "cancel" && mode != "eof"
+					wantErr := mode == "refused" || mode == "uncertain"
+					if (err != nil) != wantErr || !probed || applied != wantApply {
+						t.Fatalf("mode=%s err=%v probed=%v applied=%v out=%q diag=%q", mode, err, probed, applied, out.String(), diagnostic.String())
+					}
+					if !strings.Contains(out.String(), tc.wantChange) || !strings.Contains(out.String(), "Save settings? [Y/n]: ") {
+						t.Fatalf("missing preview or prompt in %q", out.String())
+					}
+					switch mode {
+					case "confirm":
+						if !strings.Contains(out.String(), "Settings saved to CH57x Macropad.\n") {
+							t.Fatalf("missing save confirmation in %q", out.String())
+						}
+					case "cancel", "eof":
+						if !strings.Contains(out.String(), "Cancelled. No settings write sent.\n") {
+							t.Fatalf("missing cancellation message in %q", out.String())
+						}
+					case "refused":
+						if !strings.Contains(out.String(), "Stopped before settings upload.\nStop. No automatic retry or rollback.\n") {
+							t.Fatalf("missing refused stop message in %q", out.String())
+						}
+					case "uncertain":
+						if !strings.Contains(out.String(), "Device state uncertain. A submitted write can still complete.\nStop. No automatic retry or rollback.\n") {
+							t.Fatalf("missing uncertain state message in %q", out.String())
+						}
+					}
+				})
 			}
 		}
 	})
@@ -1059,24 +1139,16 @@ func TestPublicUnifiedDiscoveryAndGuards(t *testing.T) {
 			{[]string{"media", "eject"}, "CH57x Macropad (1189:8890) does not support that media action"},
 			{[]string{"media", "bookmarks"}, "CH57x Macropad (1189:8890) does not support that media action"},
 			{[]string{"media", "0x0001"}, "CH57x Macropad (1189:8890) does not support that media action"},
-			{[]string{"key", "f13"}, "live writes are not supported for 1189:8890; no settings write sent"},
-			{[]string{"key", "key2", "ctrl+shift+f13", "--layer", "2"}, "live writes are not supported for 1189:8890; no settings write sent"},
-			{[]string{"mouse", "knob1-press", "middle", "--layer=15"}, "live writes are not supported for 1189:8890; no settings write sent"},
-			{[]string{"media", "volumeup"}, "live writes are not supported for 1189:8890; no settings write sent"},
-			{[]string{"media", "knob-right", "volumeup", "--layer", "3"}, "live writes are not supported for 1189:8890; no settings write sent"},
-			{[]string{"macro", "a,b,c,d,e"}, "live writes are not supported for 1189:8890; no settings write sent"},
-			{[]string{"macro", "key3", "ctrl+c,ctrl+v", "--layer=4"}, "live writes are not supported for 1189:8890; no settings write sent"},
-			{[]string{"led", "off"}, "live writes are not supported for 1189:8890; no settings write sent"},
-			{[]string{"led", "on"}, "live writes are not supported for 1189:8890; no settings write sent"},
-			{[]string{"led", "static"}, "live writes are not supported for 1189:8890; no settings write sent"},
-			{[]string{"led", "255"}, "live writes are not supported for 1189:8890; no settings write sent"},
+			{[]string{"mouse", "none"}, "CH57x Macropad (1189:8890) mouse action requires buttons, movement or wheel"},
+			{[]string{"mouse", "left", "--wheel", "1"}, "CH57x Macropad (1189:8890) does not combine mouse wheel with buttons or movement"},
+			{[]string{"mouse", "wheelup", "--x", "5"}, "CH57x Macropad (1189:8890) does not combine mouse wheel with buttons or movement"},
 		} {
 			access := ch57TestAccess(t)
 			access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
 				return []ch57.DiscoveredCandidate{{Candidate: ch57.Candidate{PhysicalPath: "1-2"}, BusNumber: 1, DeviceNumber: 19}}, nil
 			}
 			access.probeCH57 = func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
-				t.Fatal("write command probed CH57")
+				t.Fatal("unsupported CH57 capability probed device")
 				return ch57.ProbeResult{}, nil
 			}
 			var diagnostic bytes.Buffer

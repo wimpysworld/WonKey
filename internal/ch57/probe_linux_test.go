@@ -205,7 +205,12 @@ type fakeProbe struct {
 	target       DiscoveredCandidate
 	opened       int
 	closed       int
+	detached     int
+	claimed      int
+	released     int
+	attached     int
 	calls        []usbControlTransfer
+	written      []Report
 	node         unix.Stat_t
 	openErr      error
 	closeErr     error
@@ -276,7 +281,49 @@ func newFakeProbe(t *testing.T) *fakeProbe {
 		}
 		return len(data), nil
 	}
+	fake.ops.detachDriver = func(fd int, ifno int32) error {
+		if fd != 77 || ifno != 1 || fake.closed != 0 {
+			t.Fatalf("unsafe detachDriver: fd=%d ifno=%d closed=%d", fd, ifno, fake.closed)
+		}
+		fake.detached++
+		return nil
+	}
+	fake.ops.claimInterface = func(fd int, ifno uint32) error {
+		if fd != 77 || ifno != 1 || fake.detached != 1 || fake.closed != 0 {
+			t.Fatalf("unsafe claimInterface: fd=%d ifno=%d detached=%d closed=%d", fd, ifno, fake.detached, fake.closed)
+		}
+		fake.claimed++
+		return nil
+	}
+	fake.ops.releaseInterface = func(fd int, ifno uint32) error {
+		if fd != 77 || ifno != 1 || fake.claimed != 1 || fake.closed != 0 {
+			t.Fatalf("unsafe releaseInterface: fd=%d ifno=%d claimed=%d closed=%d", fd, ifno, fake.claimed, fake.closed)
+		}
+		fake.released++
+		return nil
+	}
+	fake.ops.attachDriver = func(fd int, ifno int32) error {
+		if fd != 77 || ifno != 1 || fake.closed != 0 {
+			t.Fatalf("unsafe attachDriver: fd=%d ifno=%d closed=%d", fd, ifno, fake.closed)
+		}
+		fake.attached++
+		return nil
+	}
+	fake.ops.bulkOut = func(fd int, transfer *usbBulkTransfer) (int, error) {
+		if fd != 77 || fake.claimed != 1 || fake.released != 0 || fake.closed != 0 ||
+			transfer == nil || transfer.Ep != 0x02 || transfer.Len != 64 || transfer.Timeout != 1000 || transfer.Data == nil {
+			t.Fatalf("unsafe bulkOut: fd=%d claimed=%d released=%d closed=%d transfer=%+v", fd, fake.claimed, fake.released, fake.closed, transfer)
+		}
+		var report Report
+		copy(report[:], unsafe.Slice((*byte)(transfer.Data), transfer.Len))
+		fake.written = append(fake.written, report)
+		return int(transfer.Len), nil
+	}
 	return fake
+}
+
+func (fake *fakeProbe) apply(reports []Report) (ApplyResult, error) {
+	return fake.ops.apply(fake.root, "/synthetic-usb", fake.target, reports)
 }
 
 func (fake *fakeProbe) run() (ProbeResult, error) {
@@ -761,5 +808,177 @@ func TestControlINRejectsOtherRequestsWithoutSyscall(t *testing.T) {
 	}
 	if !bytes.Equal(data, make([]byte, 65)) {
 		t.Fatal("refused request changed its data")
+	}
+}
+
+func TestApplyCandidateWritesInitAndReports(t *testing.T) {
+	fake := newFakeProbe(t)
+	reports, err := EncodeKeyboard(TwelveKeyThreeKnob(2), Key3, []Stroke{
+		{Modifiers: 0x01, Usage: 0x06},
+		{Modifiers: 0x01, Usage: 0x19},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := fake.apply(reports)
+	if err != nil || !result.WriteAttempted || result.ReportsWritten != len(reports) {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if fake.opened != 1 || fake.closed != 1 || len(fake.calls) != 1 ||
+		fake.detached != 1 || fake.claimed != 1 || fake.released != 1 || fake.attached != 1 {
+		t.Fatalf("unexpected operation counts: %+v", fake)
+	}
+	want := append([]Report{{}}, reports...)
+	if len(fake.written) != len(want) {
+		t.Fatalf("got %d written packets, want %d", len(fake.written), len(want))
+	}
+	for i := range want {
+		if fake.written[i] != want[i] {
+			t.Fatalf("packet %d: got %x, want %x", i, fake.written[i], want[i])
+		}
+	}
+}
+
+func TestApplyCandidateRefusesBeforeWrite(t *testing.T) {
+	validReports, err := EncodeLED(TwelveKeyThreeKnob(1), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name    string
+		reports []Report
+	}{
+		{"empty-reports", nil},
+		{"too-many-reports", make([]Report, 17)},
+		{"wrong-report-id", []Report{{0x02, 0xfe, 0x01}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := newFakeProbe(t)
+			result, err := fake.apply(tc.reports)
+			if err == nil || result.WriteAttempted || fake.opened != 0 || len(fake.written) != 0 {
+				t.Fatalf("result=%+v err=%v fake=%+v", result, err, fake)
+			}
+		})
+	}
+	if result, err := ApplyCandidate("relative", "relative", DiscoveredCandidate{}, validReports); err == nil || result.WriteAttempted {
+		t.Fatalf("accepted relative roots: %+v, %v", result, err)
+	}
+	for _, stage := range []string{"descriptor-mismatch", "drift-after-descriptor", "detach-error", "claim-error"} {
+		t.Run(stage, func(t *testing.T) {
+			fake := newFakeProbe(t)
+			switch stage {
+			case "descriptor-mismatch":
+				ioctl := fake.ops.ioctl
+				fake.ops.ioctl = func(fd int, request uintptr, transfer *usbControlTransfer) (int, error) {
+					n, err := ioctl(fd, request, transfer)
+					*(*byte)(transfer.Data) ^= 1
+					return n, err
+				}
+			case "drift-after-descriptor":
+				ioctl := fake.ops.ioctl
+				fake.ops.ioctl = func(fd int, request uintptr, transfer *usbControlTransfer) (int, error) {
+					n, err := ioctl(fd, request, transfer)
+					fake.node.Ino++
+					return n, err
+				}
+			case "detach-error":
+				fake.ops.detachDriver = func(int, int32) error { return unix.EPERM }
+			case "claim-error":
+				fake.ops.claimInterface = func(int, uint32) error { return unix.EBUSY }
+			}
+			result, err := fake.apply(validReports)
+			if err == nil || result.WriteAttempted || result.ReportsWritten != 0 || len(fake.written) != 0 || fake.closed != 1 {
+				t.Fatalf("stage=%s result=%+v err=%v fake=%+v", stage, result, err, fake)
+			}
+			if stage == "claim-error" && fake.attached != 1 {
+				t.Fatalf("claim failure did not reattach driver: %+v", fake)
+			}
+		})
+	}
+}
+
+func TestApplyCandidateWriteFailures(t *testing.T) {
+	reports, err := EncodeLED(TwelveKeyThreeKnob(1), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name           string
+		failCall       int
+		count          int
+		err            error
+		wantWritten    int
+		wantErrContain string
+	}{
+		{"init-error", 1, 0, unix.EIO, 0, "write initialisation packet"},
+		{"init-short", 1, 63, nil, 0, "wrote 63 bytes, want 64"},
+		{"report-1-error", 2, 0, unix.ETIMEDOUT, 0, "write report 1"},
+		{"report-2-short", 3, 32, nil, 1, "write report 2"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := newFakeProbe(t)
+			calls := 0
+			bulkOut := fake.ops.bulkOut
+			fake.ops.bulkOut = func(fd int, transfer *usbBulkTransfer) (int, error) {
+				calls++
+				if calls == tc.failCall {
+					return tc.count, tc.err
+				}
+				return bulkOut(fd, transfer)
+			}
+			result, err := fake.apply(reports)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErrContain) || !result.WriteAttempted || result.ReportsWritten != tc.wantWritten {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+			if fake.released != 1 || fake.attached != 1 || fake.closed != 1 {
+				t.Fatalf("cleanup missed on write failure: %+v", fake)
+			}
+		})
+	}
+}
+
+func TestUSBBulkAndIoctlGuards(t *testing.T) {
+	var bulk usbBulkTransfer
+	pointerSize := unsafe.Sizeof(bulk.Data)
+	wantBulkSize := uintptr(24)
+	if pointerSize == 4 {
+		wantBulkSize = 16
+	}
+	if unsafe.Sizeof(bulk) != wantBulkSize || unsafe.Offsetof(bulk.Ep) != 0 || unsafe.Offsetof(bulk.Len) != 4 || unsafe.Offsetof(bulk.Timeout) != 8 {
+		t.Fatalf("unexpected usbBulkTransfer ABI: size=%d", unsafe.Sizeof(bulk))
+	}
+	var report Report
+	valid := usbBulkTransfer{Ep: 0x02, Len: 64, Timeout: 1000, Data: unsafe.Pointer(&report[0])}
+	if _, err := writeBulkOut(-1, &valid); !errors.Is(err, syscall.EBADF) {
+		t.Fatalf("valid bulk transfer did not reach syscall: %v", err)
+	}
+	for _, change := range []func(*usbBulkTransfer){
+		func(b *usbBulkTransfer) { b.Ep = 0x01 },
+		func(b *usbBulkTransfer) { b.Ep = 0x82 },
+		func(b *usbBulkTransfer) { b.Len = 63 },
+		func(b *usbBulkTransfer) { b.Len = 65 },
+		func(b *usbBulkTransfer) { b.Timeout = 0 },
+		func(b *usbBulkTransfer) { b.Data = nil },
+	} {
+		invalid := valid
+		change(&invalid)
+		if _, err := writeBulkOut(-1, &invalid); err == nil || errors.Is(err, syscall.EBADF) {
+			t.Fatalf("invalid bulk transfer reached syscall: %+v, %v", invalid, err)
+		}
+	}
+	if _, err := writeBulkOut(-1, nil); err == nil {
+		t.Fatal("accepted nil bulk transfer")
+	}
+	if err := claimUSBInterface(-1, 0); err == nil || errors.Is(err, syscall.EBADF) {
+		t.Fatalf("interface 0 claim reached syscall: %v", err)
+	}
+	if err := releaseUSBInterface(-1, 0); err == nil || errors.Is(err, syscall.EBADF) {
+		t.Fatalf("interface 0 release reached syscall: %v", err)
+	}
+	if err := detachUSBDriver(-1, 0); err == nil || errors.Is(err, syscall.EBADF) {
+		t.Fatalf("interface 0 detach reached syscall: %v", err)
+	}
+	if err := attachUSBDriver(-1, 0); err == nil || errors.Is(err, syscall.EBADF) {
+		t.Fatalf("interface 0 attach reached syscall: %v", err)
 	}
 }

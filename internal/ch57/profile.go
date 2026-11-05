@@ -1,6 +1,5 @@
-// Package ch57 encodes offline reports for an explicitly selected device profile.
+// Package ch57 encodes reports and performs guarded USB operations for an explicitly selected device profile.
 // CH57 is a working family label, not a verified USB manufacturer identity.
-// The reports have no hardware validation and do not authorise live writes.
 package ch57
 
 import "fmt"
@@ -88,6 +87,39 @@ func ThreeKeyOneKnob() Profile {
 			KnobLeft:  13,
 			KnobPress: 14,
 			KnobRight: 15,
+		},
+	}
+}
+
+// TwelveKeyThreeKnob returns a full 1189:8890 profile for the given layer.
+func TwelveKeyThreeKnob(layer int) Profile {
+	return Profile{
+		VID:     0x1189,
+		PID:     0x8890,
+		Variant: KriomantFE,
+		Layer:   layer,
+		ControlSlots: map[Control]byte{
+			Key1:       1,
+			Key2:       2,
+			Key3:       3,
+			Key4:       4,
+			Key5:       5,
+			Key6:       6,
+			Key7:       7,
+			Key8:       8,
+			Key9:       9,
+			Key10:      10,
+			Key11:      11,
+			Key12:      12,
+			KnobLeft:   13,
+			KnobPress:  14,
+			KnobRight:  15,
+			Knob2Left:  16,
+			Knob2Press: 17,
+			Knob2Right: 18,
+			Knob3Left:  19,
+			Knob3Press: 20,
+			Knob3Right: 21,
 		},
 	}
 }

@@ -7,8 +7,8 @@ Run command examples from the project root. Device examples are instructions, no
 
 [Read settings](#read-settings) · [Set the key](#set-the-key) · [Mouse, media, and macro actions](#mouse-media-and-macro-actions) · [Lighting](#lighting) · [Confirmation](#selection-and-confirmation)
 
-Changes require an XFKEY One Key Max (`0112`), a terminal, a preview, and [confirmation](#selection-and-confirmation).
-WonKey verifies all 128 configuration bytes in memory after each settings upload.
+Changes require a supported device (`0112` or `1189:8890`), a terminal, a preview, and [confirmation](#selection-and-confirmation).
+On `0112`, WonKey verifies all 128 configuration bytes in memory after each settings upload.
 
 ## Read settings
 
@@ -26,7 +26,7 @@ This read-only display does not enable changes. Live writes remain blocked for u
 On each CH57x Macropad (`1189:8890`) device, the section heading is `[N] CH57x Macropad (1189:8890)` and bare `wonkey` shows the USB path, `Supports` (`key, mouse, media, macro, led`), and `Settings   Write-only (not readable over USB)` (plus `Input hex` when a 65-byte report ID 3 reply is returned).
 The USB check requests Input report ID 3.
 Stock `1189:8890` write-only firmware returns a 1-byte `0xaa` status response to `GET_REPORT`. WonKey accepts that 1-byte `0xaa` status (exit 0) alongside 65-byte report ID 3 replies.
-When a CH57x Macropad (`1189:8890`) is selected for a write command, WonKey checks per-device capabilities first (accepting optional `[CONTROL]` in `key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right` defaulting to `key1` and `--layer <1..15>` defaulting to `1` on `key`, `macro`, `mouse`, and `media`, and rejecting `trigger`, keys outside `0x04..0x73`, `macro` options `--interval` or `--repeat`, sequences over 5 strokes, `rgb` with a hint to use `wonkey led`, and unsupported media usages) before refusing live writes on `1189:8890`.
+When a CH57x Macropad (`1189:8890`) is selected for a write command, WonKey checks per-device capabilities first (accepting optional `[CONTROL]` in `key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right` defaulting to `key1` and `--layer <1..15>` defaulting to `1` on `key`, `macro`, `mouse`, and `media`, and rejecting `trigger`, keys outside `0x04..0x73`, `macro` options `--interval` or `--repeat`, sequences over 5 strokes, `rgb` with a hint to use `wonkey led`, and unsupported media usages), shows the preview, and asks for confirmation before writing settings to endpoint `0x02`.
 
 `wonkey --help` and help for each command show help without device access. Running `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, or `led` without arguments returns usage guidance without device access.
 
@@ -73,7 +73,7 @@ Desktop keymaps can show different symbols for function keys. Check the key name
 
 ## Mouse, media, and macro actions
 
-Each command changes the complete action on an XFKEY One Key Max (`0112`) after confirmation. Run `./wonkey` without arguments to read the current action and lighting.
+Each command changes the complete action on a supported device (`0112` or `1189:8890`) after confirmation. Run `./wonkey` without arguments to read the current action and lighting.
 
 | Command | Example | Input and limits |
 |---|---|---|
@@ -135,7 +135,7 @@ For changes (`key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, and `led`), one
 When multiple compatible devices are connected, pass `--device <N>` (or `--device=<N>`) to select the target device; omitting `--device` or passing an out-of-range number fails before opening any device node.
 Without a terminal, all changes are refused before device access.
 
-Live writes are restricted to XFKEY One Key Max (`0112`). Before a change, WonKey reads current settings in memory and shows the `[N] XFKEY One Key Max (0112)` heading and current-to-proposed values.
+Before a change, WonKey inspects the selected device, shows its `[N]` heading, and prints the proposed change (`write-only -> <value>` on `1189:8890`, or current-to-proposed values on `0112`).
 <!-- markdownlint-disable-next-line MD038 -->
 At `Save settings? [Y/n]: `, press <kbd>Enter</kbd> to accept the default Yes.
 You can also enter `y` or `yes`, ignoring letter case.
