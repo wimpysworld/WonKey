@@ -10,7 +10,7 @@ Bare `wonkey` reads all compatible macropads without modifying them.
 
 ## Device selection and access
 
-Your user needs access to the selected macropad's vendor hidraw node (`0112`) or USB device node under `/dev/bus/usb` (`1189:8890`).
+Your user needs access to the selected macropad's vendor `hidraw` node (`XFKEY One Key Max (0112)`, CH57x Gen 2 `1189` / `514c` : `8830..8833`, `8840`, `8842`, `8850`, `8851`, and SayoDevice `8089:0002..0005`, `0009..000c`, `000e`) or USB device node under `/dev/bus/usb` (CH57x Gen 1 `1189:8890` and `514c:8890`).
 WonKey does not grant permissions or install permission rules.
 Ask an administrator to configure access for the verified device.
 Do not guess a device from its hidraw or USB bus number.
