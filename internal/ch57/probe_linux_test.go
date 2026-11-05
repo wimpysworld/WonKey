@@ -1405,3 +1405,86 @@ func TestDecodeSayoSlotAndLight(t *testing.T) {
 		}
 	}
 }
+
+func TestDiscoverCandidatesRejectsLCKEY(t *testing.T) {
+	for _, product := range []string{"LCKEY\n", "lckey\n", "  LcKeY \n"} {
+		root := makeProbeSysfs(t)
+		if err := os.WriteFile(filepath.Join(root, "1-2.3", "product"), []byte(product), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := systemProbeOps().inspect(root, "1-2.3"); err == nil {
+			t.Fatalf("inspect accepted %q", product)
+		}
+		candidates, err := DiscoverCandidates(root)
+		if err != nil || len(candidates) != 0 {
+			t.Fatalf("DiscoverCandidates(%q): got %+v, %v", product, candidates, err)
+		}
+	}
+}
+
+func TestProbe514CWriteOnlyKindGe10FATimeout(t *testing.T) {
+	root := make514CSysfs(t, 0x8850, "hidraw7")
+	candidates, err := DiscoverCandidates(root)
+	if err != nil || len(candidates) != 1 {
+		t.Fatalf("discover: %+v, %v", candidates, err)
+	}
+	candidate := candidates[0]
+	ops := systemProbeOps()
+	node := unix.Stat_t{Mode: unix.S_IFCHR | 0o600, Dev: 3, Ino: 200, Rdev: unix.Mkdev(241, 7)}
+	ops.lstat = func(_ string, st *unix.Stat_t) error { *st = node; return nil }
+	ops.open = func(string, int, uint32) (int, error) { return 88, nil }
+	ops.fstat = func(_ int, st *unix.Stat_t) error { *st = node; return nil }
+	ops.close = func(int) error { return nil }
+	ops.writeHidraw = func(_ int, data []byte) (int, error) { return len(data), nil }
+
+	readCall := 0
+	ops.readHidraw = func(_ int, data []byte, _ int) (int, error) {
+		readCall++
+		if readCall == 1 {
+			clear(data)
+			data[0], data[1], data[2], data[3], data[4] = 0x03, 0xfb, 12, 4, 11
+			return 65, nil
+		}
+		return 0, unix.ETIMEDOUT
+	}
+	probed, err := ops.probe(root, "/dev/bus/usb", candidate)
+	if err != nil || probed.Status != ProbeRawReport || probed.Layout == nil {
+		t.Fatalf("expected fallback layout on first 0xFA timeout: %+v, %v", probed, err)
+	}
+	if probed.Layout.Keys != 12 || probed.Layout.Knobs != 4 || probed.Layout.Kind != 11 || len(probed.Layout.Bindings) != 0 {
+		t.Fatalf("unexpected fallback layout: %+v", probed.Layout)
+	}
+	if len(probed.Raw) != 65 || probed.Raw[0] != 0x03 || probed.Raw[1] != 0xfb {
+		t.Fatalf("expected rawFB preserved, got %x", probed.Raw)
+	}
+}
+
+func TestSayoProductNameAndFlexibleDescriptor(t *testing.T) {
+	root := makeSayoSysfs(t, "hidraw9")
+	dir := filepath.Join(root, "7-1.4.3.4")
+	d0009 := []byte(candidateSayo000CUSBDescriptor)
+	d0009[10], d0009[11] = 0x09, 0x00
+	if err := os.WriteFile(filepath.Join(dir, "descriptors"), d0009, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "product"), []byte("SayoDevice O3C\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hidDir := filepath.Join(dir, "7-1.4.3.4:1.1", "0003:8089:000C.0002")
+	customDesc := append([]byte(sayoV2ReportSignature), bytes.Repeat([]byte{0xc0}, 40)...)
+	if err := os.WriteFile(filepath.Join(hidDir, "report_descriptor"), customDesc, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := DiscoverCandidates(root)
+	if err != nil || len(candidates) != 1 {
+		t.Fatalf("discover: %+v, %v", candidates, err)
+	}
+	if candidates[0].PID != 0x0009 || candidates[0].ProductName != "SayoDevice O3C" {
+		t.Fatalf("unexpected candidate: %+v", candidates[0])
+	}
+	ops := systemProbeOps()
+	_, gotDesc, _, _, err := ops.locateSayoHidraw(candidates[0])
+	if err != nil || !bytes.Equal(gotDesc, customDesc) {
+		t.Fatalf("locateSayoHidraw: %x, %v", gotDesc, err)
+	}
+}

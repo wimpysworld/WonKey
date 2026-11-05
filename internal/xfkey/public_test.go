@@ -1693,3 +1693,96 @@ func TestPublicSayo000CReadValidationAndWrite(t *testing.T) {
 		}
 	})
 }
+
+func TestPublicExpandedCH57AndSayoFamilies(t *testing.T) {
+	t.Run("k8890-514c", func(t *testing.T) {
+		c := ch57.DiscoveredCandidate{
+			Candidate:    ch57.Candidate{PhysicalPath: "1-2", VID: 0x514c, PID: 0x8890},
+			BusNumber:    1,
+			DeviceNumber: 10,
+		}
+		access := ch57TestAccess(t)
+		access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) { return []ch57.DiscoveredCandidate{c}, nil }
+		access.probeCH57 = func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
+			return ch57.ProbeResult{Status: ch57.ProbeRawReport, Raw: []byte{0xaa}, Count: 1}, nil
+		}
+		var out, diag bytes.Buffer
+		if err := runPublic(nil, &cliRuntime{strings.NewReader(""), &out, &diag}, access); err != nil {
+			t.Fatalf("err=%v diag=%q", err, diag.String())
+		}
+		if !strings.Contains(out.String(), "[1] CH57x Macropad (514c:8890)\n") {
+			t.Fatalf("missing 514c:8890 heading in:\n%s", out.String())
+		}
+	})
+
+	t.Run("k884x-16-vid-pid-pairs-and-write-only-kind-ge10", func(t *testing.T) {
+		for _, vid := range []uint16{0x1189, 0x514c} {
+			for _, pid := range []uint16{0x8830, 0x8831, 0x8832, 0x8833, 0x8840, 0x8842, 0x8850, 0x8851} {
+				c := ch57.DiscoveredCandidate{
+					Candidate:    ch57.Candidate{PhysicalPath: "1-4.1", VID: vid, PID: pid},
+					BusNumber:    1,
+					DeviceNumber: 11,
+				}
+				access := ch57TestAccess(t)
+				access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) { return []ch57.DiscoveredCandidate{c}, nil }
+				access.probeCH57 = func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
+					return ch57.ProbeResult{
+						Status: ch57.ProbeRawReport,
+						Layout: &ch57.LayoutInfo{Keys: 3, Knobs: 1, Kind: 10},
+					}, nil
+				}
+				var out, diag bytes.Buffer
+				if err := runPublic(nil, &cliRuntime{strings.NewReader(""), &out, &diag}, access); err != nil {
+					t.Fatalf("%04x:%04x err=%v diag=%q", vid, pid, err, diag.String())
+				}
+				want := fmt.Sprintf("[1] CH57x Macropad (%04x:%04x)\n  USB path   1-4.1\n  Layout     3 keys, 1 knob\n  Supports   key, mouse, media, macro, led\n  Settings   Write-only (not readable over USB)\n", vid, pid)
+				if !strings.Contains(out.String(), want) {
+					t.Fatalf("%04x:%04x got:\n%s\nwant:\n%s", vid, pid, out.String(), want)
+				}
+			}
+		}
+	})
+
+	t.Run("sayo-dynamic-product-names", func(t *testing.T) {
+		for _, tc := range []struct {
+			pid         uint16
+			productName string
+			wantHeading string
+			wantSaved   string
+		}{
+			{0x0009, "SayoDevice O3C", "[1] SayoDevice O3C (8089:0009)\n", "Settings saved to SayoDevice O3C.\n"},
+			{0x000b, "SayoDevice 2x4V", "[1] SayoDevice 2x4V (8089:000b)\n", "Settings saved to SayoDevice 2x4V.\n"},
+			{0x000c, "SayoDevice 2x3P", "[1] SayoDevice 2x3P (8089:000c)\n", "Settings saved to SayoDevice 2x3P.\n"},
+		} {
+			c := ch57.DiscoveredCandidate{
+				Candidate:    ch57.Candidate{PhysicalPath: "7-1.4", VID: 0x8089, PID: tc.pid},
+				ProductName:  tc.productName,
+				BusNumber:    7,
+				DeviceNumber: 12,
+			}
+			access := ch57TestAccess(t)
+			access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) { return []ch57.DiscoveredCandidate{c}, nil }
+			access.probeCH57 = func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
+				return ch57.ProbeResult{
+					Status: ch57.ProbeRawReport,
+					Layout: &ch57.LayoutInfo{
+						Keys:      3,
+						Bindings:  map[byte]ch57.SlotBinding{1: {Slot: 1, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x04}}}},
+						RGBMode:   "static",
+						RGBColour: "#0000FF",
+					},
+				}, nil
+			}
+			access.applyCH57 = func(_ string, _ string, _ ch57.DiscoveredCandidate, reports []ch57.Report) (ch57.ApplyResult, error) {
+				return ch57.ApplyResult{WriteAttempted: true, ReportsWritten: len(reports)}, nil
+			}
+			var out, diag bytes.Buffer
+			if err := runPublic([]string{"key", "key1", "f13"}, &cliRuntime{strings.NewReader(""), &out, &diag}, access); err != nil {
+				t.Fatalf("pid=%04x err=%v diag=%q", tc.pid, err, diag.String())
+			}
+			if !strings.Contains(out.String(), tc.wantHeading) || !strings.Contains(out.String(), tc.wantSaved) {
+				t.Fatalf("pid=%04x got:\n%s", tc.pid, out.String())
+			}
+		}
+	})
+}

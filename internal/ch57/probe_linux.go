@@ -1,6 +1,7 @@
 package ch57
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,8 @@ import (
 // Report ID 3 has 64 eight-bit Input fields and 64 eight-bit Output fields.
 const candidateReportDescriptor = "\x06\x00\xff\x09\x01\xa1\x01\x85\x03\x09\x02\x15\x00\x26\x00\xff\x75\x08\x95\x40\x81\x06\x09\x02\x15\x00\x26\x00\xff\x75\x08\x95\x40\x91\x06\xc0"
 
+const sayoV2ReportSignature = "\x06\x11\xff\x09\x02\xa1\x01\x85\x21"
+
 const candidateSayoReportDescriptor = "\x06\x00\xff\x09\x01\xa1\x01\x85\x02\x15\x00\x26\xff\x00\x75\x08\x95\x3f\x09\x01\x81\x00\x09\x01\x91\x00\xc0" +
 	"\x06\x11\xff\x09\x02\xa1\x01\x85\x21\x15\x00\x26\xff\x00\x75\x08\x95\x3f\x09\x02\x81\x00\x09\x02\x91\x00\xc0" +
 	"\x05\x01\x09\x06\xa1\x01\x85\x01\x05\x07\x19\x00\x29\xe7\x15\x00\x25\x01\x75\x01\x95\xe8\x81\x02\xc0" +
@@ -30,6 +33,7 @@ const candidateSayoReportDescriptor = "\x06\x00\xff\x09\x01\xa1\x01\x85\x02\x15\
 // Obtain this value through DiscoverCandidates. Do not persist it across runs.
 type DiscoveredCandidate struct {
 	Candidate
+	ProductName  string
 	SysfsPath    string
 	BusNumber    int
 	DeviceNumber int
@@ -219,7 +223,7 @@ func (ops probeOps) inspect(sysRoot, physicalPath string) (DiscoveredCandidate, 
 	if !ok || !before.IsDir() {
 		return result, fmt.Errorf("sysfs device is not a directory with Linux identity")
 	}
-	descriptors, err := ops.readFile(filepath.Join(path, "descriptors"), len(candidateUSBDescriptor))
+	descriptors, err := ops.readFile(filepath.Join(path, "descriptors"), 512)
 	if err != nil {
 		return result, err
 	}
@@ -227,7 +231,15 @@ func (ops probeOps) inspect(sysRoot, physicalPath string) (DiscoveredCandidate, 
 	if err != nil {
 		return result, err
 	}
+	var productName string
+	if rawProduct, err := ops.readFile(filepath.Join(path, "product"), 128); err == nil {
+		productName = strings.TrimSpace(string(rawProduct))
+	}
+	if strings.EqualFold(productName, "LCKEY") {
+		return result, fmt.Errorf("LCKEY LCD device is not a supported CH57x macropad")
+	}
 	result.Candidate = candidate
+	result.ProductName = productName
 	bus, err := ops.number(path, "busnum", 65535)
 	if err != nil {
 		return result, err
@@ -254,7 +266,7 @@ func (ops probeOps) inspect(sysRoot, physicalPath string) (DiscoveredCandidate, 
 		return result, fmt.Errorf("sysfs device changed during inspection")
 	}
 	return DiscoveredCandidate{
-		Candidate: candidate, SysfsPath: path, BusNumber: bus, DeviceNumber: device,
+		Candidate: candidate, ProductName: productName, SysfsPath: path, BusNumber: bus, DeviceNumber: device,
 		identity: [2]uint64{st.Dev, st.Ino},
 	}, nil
 }
@@ -334,10 +346,10 @@ func (ops probeOps) revalidate(sysRoot string, candidate DiscoveredCandidate) er
 }
 
 func (ops probeOps) probe(sysRoot, devRoot string, candidate DiscoveredCandidate) (ProbeResult, error) {
-	if candidate.VID == 0x8089 && candidate.PID == 0x000c {
+	if IsSayoFamily(candidate.VID, candidate.PID) {
 		return ops.probeSayo(sysRoot, devRoot, candidate)
 	}
-	if candidate.VID == 0x514c && (candidate.PID == 0x8851 || candidate.PID == 0x8850) {
+	if IsK884xFamily(candidate.VID, candidate.PID) {
 		return ops.probe514C(sysRoot, devRoot, candidate)
 	}
 	return ops.probeReport(sysRoot, devRoot, candidate, false)
@@ -492,7 +504,7 @@ func (ops probeOps) apply(sysRoot, devRoot string, candidate DiscoveredCandidate
 	if !filepath.IsAbs(devRoot) {
 		return result, fmt.Errorf("USB device root must be absolute")
 	}
-	if candidate.VID == 0x8089 && candidate.PID == 0x000c {
+	if IsSayoFamily(candidate.VID, candidate.PID) {
 		for i, r := range reports {
 			if r[0] != 0x21 {
 				return result, fmt.Errorf("report %d requires report ID 0x21", i+1)
@@ -505,7 +517,7 @@ func (ops probeOps) apply(sysRoot, devRoot string, candidate DiscoveredCandidate
 			return result, fmt.Errorf("report %d requires report ID 3", i+1)
 		}
 	}
-	if candidate.VID == 0x514c && (candidate.PID == 0x8851 || candidate.PID == 0x8850) {
+	if IsK884xFamily(candidate.VID, candidate.PID) {
 		return ops.apply514C(sysRoot, devRoot, candidate, reports)
 	}
 	if err := ops.revalidate(sysRoot, candidate); err != nil {
@@ -717,14 +729,18 @@ func checkHidrawNode(st unix.Stat_t, wantMajor, wantMinor uint32) error {
 }
 
 func (ops probeOps) locate514CHidraw(candidate DiscoveredCandidate) (string, []byte, uint32, uint32, error) {
-	return ops.locateCandidateHidraw(candidate, 0, candidateReportDescriptor)
+	return ops.locateCandidateHidraw(candidate, 0, len(candidateReportDescriptor), func(d []byte) bool {
+		return string(d) == candidateReportDescriptor
+	})
 }
 
 func (ops probeOps) locateSayoHidraw(candidate DiscoveredCandidate) (string, []byte, uint32, uint32, error) {
-	return ops.locateCandidateHidraw(candidate, 1, candidateSayoReportDescriptor)
+	return ops.locateCandidateHidraw(candidate, 1, 512, func(d []byte) bool {
+		return bytes.Contains(d, []byte(sayoV2ReportSignature))
+	})
 }
 
-func (ops probeOps) locateCandidateHidraw(candidate DiscoveredCandidate, iface int, wantDescriptor string) (string, []byte, uint32, uint32, error) {
+func (ops probeOps) locateCandidateHidraw(candidate DiscoveredCandidate, iface, maxDescriptor int, checkDescriptor func([]byte) bool) (string, []byte, uint32, uint32, error) {
 	ifaceDir := filepath.Join(candidate.SysfsPath, fmt.Sprintf("%s:1.%d", candidate.PhysicalPath, iface))
 	entries, err := ops.readDir(ifaceDir)
 	if err != nil {
@@ -745,11 +761,11 @@ func (ops probeOps) locateCandidateHidraw(candidate DiscoveredCandidate, iface i
 		return "", nil, 0, 0, fmt.Errorf("interface %d requires exactly one HID device", iface)
 	}
 	hidDir := hidDirs[0]
-	descriptor, err := ops.readFile(filepath.Join(hidDir, "report_descriptor"), len(wantDescriptor))
+	descriptor, err := ops.readFile(filepath.Join(hidDir, "report_descriptor"), maxDescriptor)
 	if err != nil {
 		return "", descriptor, 0, 0, fmt.Errorf("read interface %d report descriptor: %w", iface, err)
 	}
-	if len(descriptor) != len(wantDescriptor) || string(descriptor) != wantDescriptor {
+	if !checkDescriptor(descriptor) {
 		return "", descriptor, 0, 0, fmt.Errorf("interface %d report descriptor differs from expected layout", iface)
 	}
 	hidrawEntries, err := ops.readDir(filepath.Join(hidDir, "hidraw"))
@@ -877,6 +893,11 @@ func (ops probeOps) exchange514CLayoutAndSettings(fd int, result ProbeResult) (P
 		var r [65]byte
 		n, err := ops.readHidraw(fd, r[:], 1000)
 		if err != nil {
+			if i == 0 && errors.Is(err, unix.ETIMEDOUT) {
+				result.Status = ProbeRawReport
+				result.Layout = &LayoutInfo{Keys: keys, Knobs: knobs, Kind: kind}
+				return result, nil
+			}
 			return result, fmt.Errorf("read 0xFA report %d: %w", i+1, err)
 		}
 		if n != 65 || r[0] != 0x03 || r[1] != 0xfa {

@@ -305,18 +305,49 @@ func (p Profile) hasLimitedMultiStrokeModifiers() bool {
 	return true
 }
 
+// IsK8890Family reports whether vid:pid is a CH57x Gen 1 (k8890) USB ID.
+func IsK8890Family(vid, pid uint16) bool {
+	return (vid == 0x1189 || vid == 0x514c) && pid == 0x8890
+}
+
+// IsK884xFamily reports whether vid:pid is a CH57x Gen 2 (k884x / PHY2) USB ID.
+func IsK884xFamily(vid, pid uint16) bool {
+	if vid != 0x1189 && vid != 0x514c {
+		return false
+	}
+	switch pid {
+	case 0x8830, 0x8831, 0x8832, 0x8833, 0x8840, 0x8842, 0x8850, 0x8851:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsSayoFamily reports whether vid:pid is a SayoDevice HID v2 USB ID.
+func IsSayoFamily(vid, pid uint16) bool {
+	if vid != 0x8089 {
+		return false
+	}
+	switch pid {
+	case 0x0009, 0x000b, 0x000c:
+		return true
+	default:
+		return false
+	}
+}
+
 func (p Profile) validate() error {
 	switch p.Variant {
 	case KriomantFE:
-		if p.VID != 0x1189 || p.PID != 0x8890 || !validK8890ControlSlots(p.ControlSlots) {
+		if !IsK8890Family(p.VID, p.PID) || !validK8890ControlSlots(p.ControlSlots) {
 			return fmt.Errorf("unsupported CH57 profile %04x:%04x or control slots", p.VID, p.PID)
 		}
 	case K884xFE, K884xFD:
-		if p.VID != 0x514c || (p.PID != 0x8851 && p.PID != 0x8850) || !validK884xControlSlots(p.ControlSlots) {
+		if !IsK884xFamily(p.VID, p.PID) || !validK884xControlSlots(p.ControlSlots) {
 			return fmt.Errorf("unsupported CH57 profile %04x:%04x or control slots", p.VID, p.PID)
 		}
 	case SayoV2:
-		if p.VID != 0x8089 || p.PID != 0x000c || !validSayoControlSlots(p.ControlSlots) {
+		if !IsSayoFamily(p.VID, p.PID) || !validSayoControlSlots(p.ControlSlots) {
 			return fmt.Errorf("unsupported CH57 profile %04x:%04x or control slots", p.VID, p.PID)
 		}
 		if p.Layer < 0 || p.Layer > 5 {

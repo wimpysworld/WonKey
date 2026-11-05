@@ -32,15 +32,15 @@ Hardware checks on a 3-key, 1-knob CH57x Macropad (`1189:8890`) unit confirmed:
 
 Other controls (`key4`..`key12`, `knob2`..`knob3`), higher layers (`2..15`), mouse actions, multi-stroke macros, and unverified keyboard/media usages on `1189:8890` remain hardware-unverified.
 
-### CH57x Macropad (`514c:8851` and `514c:8850`)
+### CH57x Macropad (`1189` / `514c` : `8830`, `8831`, `8832`, `8833`, `8840`, `8842`, `8850`, `8851`)
 
 Hardware checks on a 4-key, 1-knob (`514c:8851`, `kind = 0`) unit and a 12-key, 4-knob (`514c:8850`, `kind = 11`) unit confirmed:
 
 - Layout discovery via 65-byte report ID `0x03` command `0xFB` (`03 fb fb fb`) on interface 0 `hidraw` returning `[0x03, 0xfb, keys, knobs, kind, ...]`.
-- Layer 1 slot binding readback via `0xFA` (`03 fa 0f 03 01` returning 24 reports on `kind < 10`, and `03 fa 19 00 01` returning 25 reports on `kind >= 10`).
+- Layer 1 slot binding readback via `0xFA` (`03 fa 0f 03 01` returning 24 reports on `kind < 10`, and `03 fa 19 00 01` returning 25 reports on `kind >= 10`, with a write-only layout fallback when `0xFA` times out).
 - Live programming of `key`, `macro`, `mouse`, `media`, and `led` via `0xFE` (`kind < 10`) and `0xFD` (`kind >= 10`) report sequences.
 
-### SayoDevice 2x3P (`8089:000c`)
+### SayoDevice Macropads (`8089:0009`, `8089:000b`, `8089:000c`)
 
 Hardware checks on a 6-key SayoDevice 2x3P (`8089:000c`, `bcdDevice = 0x089a`) unit confirmed:
 

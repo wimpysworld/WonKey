@@ -861,16 +861,27 @@ func ch57VIDPID(candidate ch57.DiscoveredCandidate) (uint16, uint16) {
 	return candidate.VID, candidate.PID
 }
 
+func sayoBaseProductName(candidate ch57.DiscoveredCandidate) string {
+	if candidate.ProductName != "" {
+		return candidate.ProductName
+	}
+	if candidate.PID == 0x000c {
+		return "SayoDevice 2x3P"
+	}
+	return "SayoDevice"
+}
+
 func ch57ProductName(candidate ch57.DiscoveredCandidate) string {
 	vid, pid := ch57VIDPID(candidate)
-	if vid == 0x8089 && pid == 0x000c {
-		return "SayoDevice 2x3P (8089:000c)"
+	if ch57.IsSayoFamily(vid, pid) {
+		return fmt.Sprintf("%s (%04x:%04x)", sayoBaseProductName(candidate), vid, pid)
 	}
 	return fmt.Sprintf("CH57x Macropad (%04x:%04x)", vid, pid)
 }
 
 func ch57SupportsSummary(candidate ch57.DiscoveredCandidate) string {
-	if candidate.VID == 0x8089 && candidate.PID == 0x000c {
+	vid, pid := ch57VIDPID(candidate)
+	if ch57.IsSayoFamily(vid, pid) {
 		return "key, mouse, media, macro, rgb"
 	}
 	return "key, mouse, media, macro, led"
@@ -936,7 +947,7 @@ func (c publicCommand) checkCH57Capabilities() error {
 func (c publicCommand) checkCH57CapabilitiesFor(selected ch57.DiscoveredCandidate) error {
 	vid, pid := ch57VIDPID(selected)
 	product := ch57ProductName(selected)
-	if vid == 0x8089 && pid == 0x000c {
+	if ch57.IsSayoFamily(vid, pid) {
 		return c.checkSayoCapabilities(product)
 	}
 	switch c.name {
@@ -944,7 +955,7 @@ func (c publicCommand) checkCH57CapabilitiesFor(selected ch57.DiscoveredCandidat
 		if _, ok := parseControlName(string(c.control)); !ok {
 			return fmt.Errorf("%s does not support control %q", product, c.control)
 		}
-		if vid == 0x1189 && pid == 0x8890 {
+		if ch57.IsK8890Family(vid, pid) {
 			if err := validateCH57Control(product, 12, 3, c.control); err != nil {
 				return err
 			}
@@ -1139,10 +1150,6 @@ func k884xLEDModeByte(ledMode int) int {
 	}
 }
 
-func (c publicCommand) encodeCH57Reports() ([]ch57.Report, []changeView, error) {
-	return c.encodeCH57ReportsWithProfile(ch57.TwelveKeyThreeKnob(c.layer), "write-only")
-}
-
 func (c publicCommand) encodeCH57ReportsWithProfile(profile ch57.Profile, before string) ([]ch57.Report, []changeView, error) {
 	setting := string(c.control)
 	if c.layer > 1 {
@@ -1192,7 +1199,7 @@ func (c publicCommand) encodeCH57ReportsWithProfile(profile ch57.Profile, before
 		return reports, []changeView{{Setting: setting, Before: before, After: actionDescription(c.action)}}, nil
 	case "led":
 		wireMode := c.ledMode
-		if profile.VID == 0x514c {
+		if ch57.IsK884xFamily(profile.VID, profile.PID) {
 			wireMode = k884xLEDModeByte(c.ledMode)
 		}
 		reports, err := ch57.EncodeLED(profile, wireMode)
@@ -1221,16 +1228,19 @@ func default514CLayout(pid uint16) (int, int, int) {
 
 func (c publicCommand) runCH57Write(selected ch57.DiscoveredCandidate, deviceID int, h human, access publicAccess) error {
 	const sysRoot, devRoot = "/sys/bus/usb/devices", "/dev/bus/usb"
+	vid, pid := ch57VIDPID(selected)
 	var reports []ch57.Report
 	var views []changeView
 	var err error
-	switch selected.VID {
-	case 0x8089:
+	switch {
+	case ch57.IsSayoFamily(vid, pid):
 		reports, views, err = c.prepareSayoWrite(sysRoot, devRoot, selected, deviceID, h, access)
-	case 0x514c:
+	case ch57.IsK884xFamily(vid, pid):
 		reports, views, err = c.prepare514CWrite(sysRoot, devRoot, selected, deviceID, h, access)
 	default:
-		reports, views, err = c.encodeCH57Reports()
+		profile := ch57.TwelveKeyThreeKnob(c.layer)
+		profile.VID, profile.PID = vid, pid
+		reports, views, err = c.encodeCH57ReportsWithProfile(profile, "write-only")
 		if err == nil {
 			err = c.runCH57Selected(selected, deviceID, h, access)
 		}
@@ -1252,8 +1262,8 @@ func (c publicCommand) runCH57Write(selected ch57.DiscoveredCandidate, deviceID 
 		h.line("33", "Stop. No automatic retry or rollback.")
 		return err
 	}
-	if selected.VID == 0x8089 {
-		h.line("32", "Settings saved to SayoDevice 2x3P.")
+	if ch57.IsSayoFamily(vid, pid) {
+		h.line("32", fmt.Sprintf("Settings saved to %s.", sayoBaseProductName(selected)))
 	} else {
 		h.line("32", "Settings saved to CH57x Macropad.")
 	}
@@ -1276,7 +1286,7 @@ func (c publicCommand) prepareSayoWrite(sysRoot, devRoot string, selected ch57.D
 	var views []changeView
 	if c.name == "rgb" {
 		var err error
-		reports, views, err = c.encodeSayoRGBReports(keys, probed.Layout)
+		reports, views, err = c.encodeSayoRGBReports(selected.PID, keys, probed.Layout)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1285,8 +1295,10 @@ func (c publicCommand) prepareSayoWrite(sysRoot, devRoot string, selected ch57.D
 			return nil, nil, err
 		}
 		before := sayoBeforeBinding(probed.Layout, c.control, c.layer)
+		profile := ch57.SayoProfile(keys, c.layer, !c.seenLayer)
+		profile.PID = selected.PID
 		var err error
-		reports, views, err = c.encodeCH57ReportsWithProfile(ch57.SayoProfile(keys, c.layer, !c.seenLayer), before)
+		reports, views, err = c.encodeCH57ReportsWithProfile(profile, before)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1296,7 +1308,7 @@ func (c publicCommand) prepareSayoWrite(sysRoot, devRoot string, selected ch57.D
 	return reports, views, h.out.err
 }
 
-func (c publicCommand) encodeSayoRGBReports(keys int, layout *ch57.LayoutInfo) ([]ch57.Report, []changeView, error) {
+func (c publicCommand) encodeSayoRGBReports(pid uint16, keys int, layout *ch57.LayoutInfo) ([]ch57.Report, []changeView, error) {
 	beforeMode, beforeColour := "write-only", "#404040"
 	if layout != nil && layout.RGBMode != "" {
 		beforeMode, beforeColour = layout.RGBMode, layout.RGBColour
@@ -1309,7 +1321,9 @@ func (c publicCommand) encodeSayoRGBReports(keys int, layout *ch57.LayoutInfo) (
 		g = byte(c.changes["green"] & 255)
 		b = byte(c.changes["blue"] & 255)
 	}
-	reports, err := ch57.EncodeSayoRGB(ch57.SayoProfile(keys, 1, false), afterMode, r, g, b, hasColour)
+	profile := ch57.SayoProfile(keys, 1, false)
+	profile.PID = pid
+	reports, err := ch57.EncodeSayoRGB(profile, afterMode, r, g, b, hasColour)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1374,7 +1388,9 @@ func (c publicCommand) prepare514CWrite(sysRoot, devRoot string, selected ch57.D
 			}
 		}
 	}
-	reports, views, err := c.encodeCH57ReportsWithProfile(ch57.K884xProfile(selected.PID, kind, c.layer), before)
+	profile := ch57.K884xProfile(selected.PID, kind, c.layer)
+	profile.VID = selected.VID
+	reports, views, err := c.encodeCH57ReportsWithProfile(profile, before)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1384,9 +1400,10 @@ func (c publicCommand) prepare514CWrite(sysRoot, devRoot string, selected ch57.D
 }
 
 func (c publicCommand) renderCH57CardHeading(selected ch57.DiscoveredCandidate, deviceID int, h human) {
+	vid, pid := ch57VIDPID(selected)
 	h.heading(fmt.Sprintf("[%d] %s", deviceID, ch57ProductName(selected)))
 	h.field("USB path", selected.PhysicalPath)
-	if selected.VID != 0x514c && selected.VID != 0x8089 {
+	if !ch57.IsK884xFamily(vid, pid) && !ch57.IsSayoFamily(vid, pid) {
 		h.field("Supports", ch57SupportsSummary(selected))
 	}
 }
@@ -1395,6 +1412,10 @@ func renderCH57ProbeOutcome(selected ch57.DiscoveredCandidate, probed ch57.Probe
 	if probed.Layout != nil {
 		h.field("Layout", formatLayoutSummary(probed.Layout.Keys, probed.Layout.Knobs))
 		h.field("Supports", ch57SupportsSummary(selected))
+		if len(probed.Layout.Bindings) == 0 {
+			h.field("Settings", "Write-only (not readable over USB)")
+			return
+		}
 		for k := 1; k <= probed.Layout.Keys; k++ {
 			h.field(fmt.Sprintf("key%d", k), formatCH57SlotBinding(probed.Layout.Bindings[byte(k)]))
 		}
@@ -1474,12 +1495,13 @@ func (c publicCommand) runXFKEYSelected(selected Candidate, deviceID int, h huma
 
 func (c publicCommand) runCH57Selected(selected ch57.DiscoveredCandidate, deviceID int, h human, access publicAccess) error {
 	const sysRoot, devRoot = "/sys/bus/usb/devices", "/dev/bus/usb"
+	vid, pid := ch57VIDPID(selected)
 	c.renderCH57CardHeading(selected, deviceID, h)
 	if h.out.err != nil {
 		return h.out.err
 	}
 	probed, err := access.probeCH57(sysRoot, devRoot, selected)
-	if err != nil && (selected.VID == 0x514c || selected.VID == 0x8089) {
+	if err != nil && (ch57.IsK884xFamily(vid, pid) || ch57.IsSayoFamily(vid, pid)) {
 		h.field("Supports", ch57SupportsSummary(selected))
 	}
 	if err == nil && probed.Status != ch57.ProbeRawReport && probed.Count == 1 && len(probed.Raw) == 1 && probed.Raw[0] == 0xaa {
