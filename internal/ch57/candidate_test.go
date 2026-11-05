@@ -109,7 +109,6 @@ func TestMatchCandidateRejectsEveryTruncation(t *testing.T) {
 	for _, d := range [][]byte{
 		syntheticCandidateDescriptors(),
 		[]byte(candidate8851USBDescriptor),
-		[]byte(candidateSayo000CUSBDescriptor),
 	} {
 		for length := range len(d) {
 			if got, err := MatchCandidate("1-2", d[:length]); err == nil || got != (Candidate{}) {
@@ -135,14 +134,6 @@ func TestMatchCandidateExpandedFamilies(t *testing.T) {
 			if err != nil || got.VID != vid || got.PID != pid || !IsK884xFamily(got.VID, got.PID) {
 				t.Fatalf("k884x %04x:%04x: got %+v, %v", vid, pid, got, err)
 			}
-		}
-	}
-	for _, pid := range []uint16{0x0009, 0x000b, 0x000c} {
-		d := []byte(candidateSayo000CUSBDescriptor)
-		binary.LittleEndian.PutUint16(d[10:12], pid)
-		got, err := MatchCandidate("7-1.4.3.4", d)
-		if err != nil || got.VID != 0x8089 || got.PID != pid || !IsSayoFamily(got.VID, got.PID) {
-			t.Fatalf("sayo 8089:%04x: got %+v, %v", pid, got, err)
 		}
 	}
 }
@@ -200,32 +191,10 @@ func TestMatchCandidate514C(t *testing.T) {
 	}
 }
 
-func TestMatchCandidateSayo000C(t *testing.T) {
-	got, err := MatchCandidate("7-1.4.3.4", []byte(candidateSayo000CUSBDescriptor))
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := Candidate{
-		PhysicalPath:  "7-1.4.3.4",
-		VID:           0x8089,
-		PID:           0x000c,
-		Revision:      0x089a,
-		Configuration: 1,
-		Interfaces: [4]CandidateInterface{
-			{0, 0, 3, 1, 1, 0x0110, 65, CandidateEndpoint{0x81, 3, 8, 1}},
-			{1, 0, 3, 0, 0, 0x0111, 154, CandidateEndpoint{0x82, 3, 64, 1}},
-		},
-	}
-	if got != want {
-		t.Fatalf("got %+v, want %+v", got, want)
-	}
-}
-
 func FuzzMatchCandidate(f *testing.F) {
 	f.Add("1-2", syntheticCandidateDescriptors())
 	f.Add("1-2", []byte(candidate8851USBDescriptor))
 	f.Add("1-2", []byte(candidate8850USBDescriptor))
-	f.Add("7-1.4.3.4", []byte(candidateSayo000CUSBDescriptor))
 	f.Add("1-2", []byte{})
 	f.Add("hidraw0", syntheticCandidateDescriptors())
 	f.Fuzz(func(t *testing.T, path string, descriptors []byte) {
@@ -236,7 +205,7 @@ func FuzzMatchCandidate(f *testing.F) {
 			}
 			return
 		}
-		validFamily := IsK8890Family(got.VID, got.PID) || IsK884xFamily(got.VID, got.PID) || IsSayoFamily(got.VID, got.PID)
+		validFamily := IsK8890Family(got.VID, got.PID) || IsK884xFamily(got.VID, got.PID)
 		if !validFamily || got.PhysicalPath != path || got.Configuration == 0 {
 			t.Fatal("accepted an unknown family or changed the physical path")
 		}

@@ -49,8 +49,6 @@ func EncodeKeyboard(profile Profile, control Control, strokes []Stroke) ([]Repor
 	}
 
 	switch profile.Variant {
-	case SayoV2:
-		return encodeSayoKeyboard(profile, slot, layer, strokes)
 	case K884xFE:
 		r := Report{0x03, 0xfe, slot, layer, 0x01, 0, 0, 0, 0, 0, byte(count)}
 		if count == 1 && strokes[0].Usage == 0 {
@@ -110,60 +108,6 @@ func k884xFDReports(r Report) []Report {
 		r,
 		{0x03, 0xfd, 0xfe, 0xff},
 	}
-}
-
-// SayoSignPacket computes and writes the 16-bit little-endian word checksum at pkt[2..3].
-func SayoSignPacket(pkt *Report) {
-	pkt[2] = 0
-	pkt[3] = 0
-	var sum uint16
-	for i := 0; i < 64; i += 2 {
-		sum += uint16(pkt[i]) | (uint16(pkt[i+1]) << 8)
-	}
-	pkt[2] = byte(sum)
-	pkt[3] = byte(sum >> 8)
-}
-
-func encodeSayoKeyboard(profile Profile, slot, layer byte, strokes []Stroke) ([]Report, error) {
-	count := len(strokes)
-	if count > 3 {
-		return nil, fmt.Errorf("SayoDevice keyboard binding requires 1..3 strokes")
-	}
-	if count == 3 && (strokes[1].Modifiers != 0 || strokes[2].Modifiers != 0) {
-		return nil, fmt.Errorf("SayoDevice 3-stroke binding does not support modifiers on strokes 2..3")
-	}
-	var slotBytes [8]byte
-	switch count {
-	case 1:
-		slotBytes = [8]byte{0x00, 0x00, 0x00, 0x00, byte(strokes[0].Modifiers & 255), byte(strokes[0].Usage & 255), 0x00, 0x00}
-	case 2:
-		slotBytes = [8]byte{0x04, 0x00, 0x00, 0x00, byte(strokes[0].Modifiers & 255), byte(strokes[0].Usage & 255), byte(strokes[1].Modifiers & 255), byte(strokes[1].Usage & 255)}
-	case 3:
-		slotBytes = [8]byte{0x01, 0x00, 0x00, 0x00, byte(strokes[0].Modifiers & 255), byte(strokes[0].Usage & 255), byte(strokes[1].Usage & 255), byte(strokes[2].Usage & 255)}
-	}
-	return sayoKeyReports(profile, slot, layer, slotBytes), nil
-}
-
-// SayoSaveReport returns the signed 64-byte SayoDevice v2 Save (0x0D) report.
-func SayoSaveReport() Report {
-	r := Report{0x21, 0x12, 0x00, 0x00, 0x04, 0x00, 0x0d, 0x00}
-	SayoSignPacket(&r)
-	return r
-}
-
-func sayoKeyReports(profile Profile, slot, layer byte, slotBytes [8]byte) []Report {
-	fn := layer - 1
-	r := Report{0x21, 0x12, 0x00, 0x00, 0x3c, 0x00, 0x10, slot - 1}
-	off := 24 + int(fn)*8
-	copy(r[off:off+8], slotBytes[:])
-	layerMask := byte(1 << fn)
-	if profile.BothDefaultLayers && fn == 0 {
-		copy(r[32:40], slotBytes[:])
-		layerMask |= 1 << 1
-	}
-	r[8] = layerMask
-	SayoSignPacket(&r)
-	return []Report{r, SayoSaveReport()}
 }
 
 func bindingReports(layer byte, records ...Report) []Report {

@@ -2,7 +2,7 @@
 
 ## Architecture notes
 
-- Keep `cmd/wonkey` limited to process entry and exit handling. Keep CLI, protocol, and Linux device logic in `internal/xfkey` and `internal/ch57`.
+- Keep `cmd/wonkey` limited to process entry and exit handling. Keep CLI, protocol, and Linux device logic in `internal/xfkey`, `internal/ch57`, and `internal/sayo`.
 - Expose only `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, and `led`, with help and validated command-specific options. Do not add developer commands, legacy aliases, or a second transaction engine.
 - Use WonKey/`wonkey` for project branding and the executable, not for genuine hardware or compatibility identifiers.
 - Preserve `XFKEY`, One Key Max, `internal/xfkey`, upstream URLs, and captured metadata.

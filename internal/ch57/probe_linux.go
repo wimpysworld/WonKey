@@ -1,7 +1,6 @@
 package ch57
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -20,14 +19,6 @@ import (
 // https://github.com/the-via/keyboards/issues/2169. They are not a local capture.
 // Report ID 3 has 64 eight-bit Input fields and 64 eight-bit Output fields.
 const candidateReportDescriptor = "\x06\x00\xff\x09\x01\xa1\x01\x85\x03\x09\x02\x15\x00\x26\x00\xff\x75\x08\x95\x40\x81\x06\x09\x02\x15\x00\x26\x00\xff\x75\x08\x95\x40\x91\x06\xc0"
-
-const sayoV2ReportSignature = "\x06\x11\xff\x09\x02\xa1\x01\x85\x21"
-
-const candidateSayoReportDescriptor = "\x06\x00\xff\x09\x01\xa1\x01\x85\x02\x15\x00\x26\xff\x00\x75\x08\x95\x3f\x09\x01\x81\x00\x09\x01\x91\x00\xc0" +
-	"\x06\x11\xff\x09\x02\xa1\x01\x85\x21\x15\x00\x26\xff\x00\x75\x08\x95\x3f\x09\x02\x81\x00\x09\x02\x91\x00\xc0" +
-	"\x05\x01\x09\x06\xa1\x01\x85\x01\x05\x07\x19\x00\x29\xe7\x15\x00\x25\x01\x75\x01\x95\xe8\x81\x02\xc0" +
-	"\x05\x01\x09\x02\xa1\x01\x85\x03\x09\x01\xa1\x00\x05\x09\x19\x01\x29\x08\x15\x00\x25\x01\x95\x08\x75\x01\x81\x02\x05\x01\x09\x30\x09\x31\x09\x38\x15\x81\x25\x7f\x75\x08\x95\x03\x81\x06\xc0\xc0" +
-	"\x05\x0c\x09\x01\xa1\x01\x85\x04\x95\x01\x75\x10\x16\x00\x00\x26\xff\x02\x1a\x00\x00\x2a\xff\x02\x81\x00\xc0"
 
 // DiscoveredCandidate binds a descriptor match to one sysfs device instance.
 // Obtain this value through DiscoverCandidates. Do not persist it across runs.
@@ -72,13 +63,10 @@ type SlotBinding struct {
 }
 
 type LayoutInfo struct {
-	Keys          int
-	Knobs         int
-	Kind          int
-	Bindings      map[byte]SlotBinding
-	LayerBindings [5]map[byte]SlotBinding
-	RGBMode       string
-	RGBColour     string
+	Keys     int
+	Knobs    int
+	Kind     int
+	Bindings map[byte]SlotBinding
 }
 
 // ProbeResult preserves raw GET_REPORT bytes, including an invalid short reply.
@@ -346,9 +334,6 @@ func (ops probeOps) revalidate(sysRoot string, candidate DiscoveredCandidate) er
 }
 
 func (ops probeOps) probe(sysRoot, devRoot string, candidate DiscoveredCandidate) (ProbeResult, error) {
-	if IsSayoFamily(candidate.VID, candidate.PID) {
-		return ops.probeSayo(sysRoot, devRoot, candidate)
-	}
 	if IsK884xFamily(candidate.VID, candidate.PID) {
 		return ops.probe514C(sysRoot, devRoot, candidate)
 	}
@@ -504,14 +489,6 @@ func (ops probeOps) apply(sysRoot, devRoot string, candidate DiscoveredCandidate
 	if !filepath.IsAbs(devRoot) {
 		return result, fmt.Errorf("USB device root must be absolute")
 	}
-	if IsSayoFamily(candidate.VID, candidate.PID) {
-		for i, r := range reports {
-			if r[0] != 0x21 {
-				return result, fmt.Errorf("report %d requires report ID 0x21", i+1)
-			}
-		}
-		return ops.applySayo(sysRoot, devRoot, candidate, reports)
-	}
 	for i, r := range reports {
 		if r[0] != 0x03 {
 			return result, fmt.Errorf("report %d requires report ID 3", i+1)
@@ -660,10 +637,8 @@ func writeBulkOut(fd int, transfer *usbBulkTransfer) (int, error) {
 }
 
 func writeHidrawReport(fd int, data []byte) (int, error) {
-	valid3 := len(data) == 65 && data[0] == 0x03
-	valid21 := len(data) == 64 && data[0] == 0x21
-	if !valid3 && !valid21 {
-		return 0, fmt.Errorf("refused hidraw write outside 65-byte report ID 3 or 64-byte report ID 0x21")
+	if len(data) != 65 || data[0] != 0x03 {
+		return 0, fmt.Errorf("refused hidraw write outside 65-byte report ID 3")
 	}
 	for {
 		n, err := unix.Write(fd, data)
@@ -675,7 +650,7 @@ func writeHidrawReport(fd int, data []byte) (int, error) {
 }
 
 func readHidrawReport(fd int, data []byte, timeoutMs int) (int, error) {
-	if fd < 0 || fd > 0x7fffffff || (len(data) != 65 && len(data) != 64) || timeoutMs <= 0 {
+	if fd < 0 || fd > 0x7fffffff || len(data) != 65 || timeoutMs <= 0 {
 		return 0, fmt.Errorf("invalid hidraw read buffer or timeout")
 	}
 	pfd := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
@@ -731,12 +706,6 @@ func checkHidrawNode(st unix.Stat_t, wantMajor, wantMinor uint32) error {
 func (ops probeOps) locate514CHidraw(candidate DiscoveredCandidate) (string, []byte, uint32, uint32, error) {
 	return ops.locateCandidateHidraw(candidate, 0, len(candidateReportDescriptor), func(d []byte) bool {
 		return string(d) == candidateReportDescriptor
-	})
-}
-
-func (ops probeOps) locateSayoHidraw(candidate DiscoveredCandidate) (string, []byte, uint32, uint32, error) {
-	return ops.locateCandidateHidraw(candidate, 1, 512, func(d []byte) bool {
-		return bytes.Contains(d, []byte(sayoV2ReportSignature))
 	})
 }
 
@@ -1055,333 +1024,4 @@ func (ops probeOps) apply514C(sysRoot, devRoot string, candidate DiscoveredCandi
 		result.ReportsWritten++
 	}
 	return result, nil
-}
-
-func (ops probeOps) probeSayo(sysRoot, devRoot string, candidate DiscoveredCandidate) (result ProbeResult, err error) {
-	result.Status = ProbeRefused
-	if !filepath.IsAbs(devRoot) {
-		return result, fmt.Errorf("USB device root must be absolute")
-	}
-	if err := ops.revalidate(sysRoot, candidate); err != nil {
-		return result, err
-	}
-	hidrawName, descriptor, wantMajor, wantMinor, err := ops.locateSayoHidraw(candidate)
-	result.ReportDescriptor = descriptor
-	result.ReportDescriptorCount = len(descriptor)
-	if err != nil {
-		if descriptor != nil {
-			result.Status = ProbeDescriptorFailed
-		}
-		return result, err
-	}
-	result.ReportDescriptorVerified = true
-	node := filepath.Join(hidrawRoot(devRoot), hidrawName)
-	var named unix.Stat_t
-	if err := ops.lstat(node, &named); err != nil {
-		return result, err
-	}
-	if err := checkHidrawNode(named, wantMajor, wantMinor); err != nil {
-		return result, err
-	}
-	fd, err := ops.open(node, unix.O_RDWR|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return result, err
-	}
-	defer func() {
-		if closeErr := ops.close(fd); closeErr != nil {
-			err = errors.Join(err, closeErr)
-			if result.Status == ProbeRawReport {
-				result.Status = ProbeCloseFailed
-			}
-		}
-	}()
-	if err := ops.validateHidrawOpen(sysRoot, node, fd, candidate, named, wantMajor, wantMinor); err != nil {
-		return result, err
-	}
-	return ops.exchangeSayoLayoutAndSettings(fd, result)
-}
-
-func (ops probeOps) exchangeSayoLayoutAndSettings(fd int, result ProbeResult) (ProbeResult, error) {
-	bindings := make(map[byte]SlotBinding)
-	var layerBindings [5]map[byte]SlotBinding
-	for fn := range layerBindings {
-		layerBindings[fn] = make(map[byte]SlotBinding)
-	}
-	keys := 0
-	for index := range 16 {
-		result.Status = ProbeTransferFailed
-		req := Report{0x21, 0x12, 0x00, 0x00, 0x04, 0x00, 0x10, byte(index)}
-		SayoSignPacket(&req)
-		if n, err := ops.writeHidraw(fd, req[:]); err != nil || n != 64 {
-			if err != nil {
-				return result, fmt.Errorf("write 0x10 key %d query: %w", index, err)
-			}
-			return result, fmt.Errorf("write 0x10 key %d query wrote %d bytes, want 64", index, n)
-		}
-		var rx [64]byte
-		n, err := ops.readHidraw(fd, rx[:], 1000)
-		if index == 0 {
-			result.Count = n
-			if n >= 0 && n <= len(rx) {
-				result.Raw = append([]byte(nil), rx[:n]...)
-			}
-		}
-		if err != nil {
-			return result, fmt.Errorf("read 0x10 key %d reply: %w", index, err)
-		}
-		result.Status = ProbeInvalidReport
-		if n != 64 || rx[0] != 0x21 || rx[6] != 0x10 || rx[7] != byte(index) {
-			return result, fmt.Errorf("invalid 0x10 key %d reply", index)
-		}
-		if rx[5]&0x40 != 0 {
-			keys = index
-			break
-		}
-		if rx[4] != 0x3c || rx[5] != 0x00 {
-			return result, fmt.Errorf("unexpected 0x10 key %d reply length (%#02x, %#02x)", index, rx[4], rx[5])
-		}
-		slot := byte(index + 1)
-		for fn := range 5 {
-			off := 24 + fn*8
-			layerBindings[fn][slot] = DecodeSayoSlot(slot, byte(fn+1), rx[off:off+8])
-		}
-		bindings[slot] = layerBindings[0][slot]
-		keys = index + 1
-	}
-	if keys < 1 || keys > 12 {
-		result.Status = ProbeInvalidReport
-		return result, fmt.Errorf("unsupported SayoDevice layout (%d keys)", keys)
-	}
-	result.Status = ProbeTransferFailed
-	lightReq := Report{0x21, 0x12, 0x00, 0x00, 0x04, 0x00, 0x11, 0x00}
-	SayoSignPacket(&lightReq)
-	if n, err := ops.writeHidraw(fd, lightReq[:]); err != nil || n != 64 {
-		if err != nil {
-			return result, fmt.Errorf("write 0x11 light query: %w", err)
-		}
-		return result, fmt.Errorf("write 0x11 light query wrote %d bytes, want 64", n)
-	}
-	var lightRx [64]byte
-	n, err := ops.readHidraw(fd, lightRx[:], 1000)
-	if err != nil {
-		return result, fmt.Errorf("read 0x11 light reply: %w", err)
-	}
-	result.Status = ProbeInvalidReport
-	if n != 64 || lightRx[0] != 0x21 || lightRx[4] != 0x3c || lightRx[5] != 0x00 || lightRx[6] != 0x11 || lightRx[7] != 0x00 {
-		return result, fmt.Errorf("invalid 0x11 light reply")
-	}
-	mode, colour := DecodeSayoLight(lightRx[24:32])
-	result.Status = ProbeRawReport
-	result.Layout = &LayoutInfo{
-		Keys:          keys,
-		Knobs:         0,
-		Bindings:      bindings,
-		LayerBindings: layerBindings,
-		RGBMode:       mode,
-		RGBColour:     colour,
-	}
-	return result, nil
-}
-
-// DecodeSayoSlot decodes an 8-byte SayoDevice v2 layer slot record (rx[24+fn*8 : 32+fn*8]).
-func DecodeSayoSlot(slot, layer byte, s []byte) SlotBinding {
-	b := SlotBinding{Slot: slot, Layer: layer}
-	if len(s) < 8 {
-		return b
-	}
-	switch s[0] {
-	case 0x00:
-		mod, usage := int(s[4]), int(s[5])
-		if mod != 0 || usage != 0 {
-			b.ActionType = SlotActionKeyboard
-			b.Strokes = []Stroke{{Modifiers: mod, Usage: usage}}
-		}
-	case 0x01:
-		mod := int(s[4])
-		for _, code := range s[5:8] {
-			if code != 0 {
-				strokeMod := 0
-				if len(b.Strokes) == 0 {
-					strokeMod = mod
-				}
-				b.Strokes = append(b.Strokes, Stroke{Modifiers: strokeMod, Usage: int(code)})
-			}
-		}
-		if len(b.Strokes) == 0 && mod != 0 {
-			b.Strokes = append(b.Strokes, Stroke{Modifiers: mod, Usage: 0})
-		}
-		if len(b.Strokes) > 0 {
-			b.ActionType = SlotActionMacro
-		}
-	case 0x04:
-		if s[4] != 0 || s[5] != 0 {
-			b.Strokes = append(b.Strokes, Stroke{Modifiers: int(s[4]), Usage: int(s[5])})
-		}
-		if s[6] != 0 || s[7] != 0 {
-			b.Strokes = append(b.Strokes, Stroke{Modifiers: int(s[6]), Usage: int(s[7])})
-		}
-		if len(b.Strokes) > 0 {
-			b.ActionType = SlotActionMacro
-		}
-	case 0x02:
-		b.ActionType = SlotActionMouse
-		b.Mouse = decodeMouseEvent(MouseNoModifier, MouseButtons(s[4]), signedReportByte(s[5]), signedReportByte(s[6]), signedReportByte(s[7]))
-	case 0x03:
-		b.ActionType = SlotActionMedia
-		if s[5] != 0 {
-			b.MediaUsage = uint16(s[4]) | (uint16(s[5]) << 8)
-		} else {
-			b.MediaUsage = SayoMediaUsage(s[4])
-		}
-	}
-	return b
-}
-
-// DecodeSayoLight decodes an 8-byte SayoDevice v2 light record (rx[24:32]).
-func DecodeSayoLight(s []byte) (string, string) {
-	if len(s) < 8 {
-		return "off", "#000000"
-	}
-	ledMode, ledEvent := s[0], s[1]
-	r, g, b := s[4], s[5], s[6]
-	if r == 0 && g == 0 && b == 0 {
-		return "off", "#000000"
-	}
-	mode := "static"
-	switch {
-	case ledMode == 0x08:
-		mode = "flash"
-	case ledEvent == 0x01:
-		mode = "held"
-	case ledMode == 0x02:
-		mode = "breathe"
-	case ledMode == 0x04:
-		mode = "cycle-slow"
-	}
-	return mode, fmt.Sprintf("#%02X%02X%02X", r, g, b)
-}
-
-func (ops probeOps) applySayo(sysRoot, devRoot string, candidate DiscoveredCandidate, reports []Report) (result ApplyResult, err error) {
-	if err := ops.revalidate(sysRoot, candidate); err != nil {
-		return result, err
-	}
-	hidrawName, _, wantMajor, wantMinor, err := ops.locateSayoHidraw(candidate)
-	if err != nil {
-		return result, err
-	}
-	node := filepath.Join(hidrawRoot(devRoot), hidrawName)
-	var named unix.Stat_t
-	if err := ops.lstat(node, &named); err != nil {
-		return result, err
-	}
-	if err := checkHidrawNode(named, wantMajor, wantMinor); err != nil {
-		return result, err
-	}
-	fd, err := ops.open(node, unix.O_RDWR|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return result, err
-	}
-	defer func() {
-		if closeErr := ops.close(fd); closeErr != nil {
-			err = errors.Join(err, closeErr)
-		}
-	}()
-	if err := ops.validateHidrawOpen(sysRoot, node, fd, candidate, named, wantMajor, wantMinor); err != nil {
-		return result, err
-	}
-	result.WriteAttempted = true
-	for i, report := range reports {
-		if err := ops.applySayoReport(fd, i, report); err != nil {
-			return result, err
-		}
-		result.ReportsWritten++
-	}
-	return result, nil
-}
-
-func (ops probeOps) applySayoReport(fd, i int, report Report) error {
-	cmdID, index := report[6], report[7]
-	switch cmdID {
-	case 0x10, 0x11:
-		cur, err := ops.readSayoRecord(fd, i, cmdID, index)
-		if err != nil {
-			return err
-		}
-		mergeSayoRecord(&cur, report)
-		return ops.writeSayoWithAck(fd, i, cur, cmdID, index)
-	case 0x0d:
-		out := report
-		SayoSignPacket(&out)
-		return ops.writeSayoWithAck(fd, i, out, 0x0d, index)
-	default:
-		return fmt.Errorf("unsupported SayoDevice command %#02x in report %d", cmdID, i+1)
-	}
-}
-
-func (ops probeOps) readSayoRecord(fd, i int, cmdID, index byte) (Report, error) {
-	readReq := Report{0x21, 0x12, 0x00, 0x00, 0x04, 0x00, cmdID, index}
-	SayoSignPacket(&readReq)
-	if n, err := ops.writeHidraw(fd, readReq[:]); err != nil || n != 64 {
-		if err != nil {
-			return Report{}, fmt.Errorf("read-before-write report %d query: %w", i+1, err)
-		}
-		return Report{}, fmt.Errorf("read-before-write report %d query wrote %d bytes, want 64", i+1, n)
-	}
-	var cur Report
-	n, err := ops.readHidraw(fd, cur[:], 1000)
-	if err != nil {
-		return Report{}, fmt.Errorf("read-before-write report %d reply: %w", i+1, err)
-	}
-	if n != 64 || cur[0] != 0x21 || cur[4] != 0x3c || cur[5] != 0x00 || cur[6] != cmdID || cur[7] != index {
-		return Report{}, fmt.Errorf("invalid read-before-write report %d reply", i+1)
-	}
-	return cur, nil
-}
-
-func mergeSayoRecord(cur *Report, report Report) {
-	cmdID, index := report[6], report[7]
-	if cmdID == 0x10 {
-		layerMask := report[8]
-		if layerMask == 0 {
-			layerMask = 1
-		}
-		for fn := range 5 {
-			if layerMask&(1<<fn) != 0 {
-				off := 24 + fn*8
-				copy(cur[off:off+8], report[off:off+8])
-			}
-		}
-	} else {
-		preserveColour := report[8] != 0
-		oldR, oldG, oldB := cur[28], cur[29], cur[30]
-		copy(cur[24:32], report[24:32])
-		if preserveColour {
-			cur[28], cur[29], cur[30] = oldR, oldG, oldB
-		}
-	}
-	cur[0] = 0x21
-	cur[1] = 0x12
-	cur[4] = 0x3c
-	cur[5] = 0x00
-	cur[6] = cmdID
-	cur[7] = index
-	SayoSignPacket(cur)
-}
-
-func (ops probeOps) writeSayoWithAck(fd, i int, pkt Report, cmdID, index byte) error {
-	if n, err := ops.writeHidraw(fd, pkt[:]); err != nil || n != 64 {
-		if err != nil {
-			return fmt.Errorf("write report %d: %w", i+1, err)
-		}
-		return fmt.Errorf("write report %d: wrote %d bytes, want 64", i+1, n)
-	}
-	var ack [64]byte
-	n, err := ops.readHidraw(fd, ack[:], 1000)
-	if err != nil {
-		return fmt.Errorf("read report %d ACK: %w", i+1, err)
-	}
-	if n != 64 || ack[0] != 0x21 || ack[5]&0x40 != 0 || ack[6] != cmdID || (cmdID != 0x0d && ack[7] != index) {
-		return fmt.Errorf("invalid report %d ACK", i+1)
-	}
-	return nil
 }

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"wonkey/internal/ch57"
+	"wonkey/internal/sayo"
 )
 
 const publicHelp = `Inspect and configure supported macropads.
@@ -633,6 +634,9 @@ type publicAccess struct {
 	discoverCH57 func(string) ([]ch57.DiscoveredCandidate, error)
 	probeCH57    func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error)
 	applyCH57    func(string, string, ch57.DiscoveredCandidate, []ch57.Report) (ch57.ApplyResult, error)
+	discoverSayo func(string) ([]sayo.DiscoveredCandidate, error)
+	probeSayo    func(string, string, sayo.DiscoveredCandidate) (sayo.ProbeResult, error)
+	applySayo    func(string, string, sayo.DiscoveredCandidate, sayo.WriteRequest) (sayo.ApplyResult, error)
 	discover     func() ([]Candidate, error)
 	query        func(Candidate) (CaptureResult, error)
 	apply        func(Candidate, ApplyTarget, configurationChanges, func(configuration, configuration) (bool, error)) (ApplyResult, error)
@@ -648,6 +652,14 @@ func publicDeviceAccess() publicAccess {
 		},
 		probeCH57: ch57.ProbeCandidate,
 		applyCH57: ch57.ApplyCandidate,
+		discoverSayo: func(sysRoot string) ([]sayo.DiscoveredCandidate, error) {
+			if reflect.ValueOf(liveDiscover).Pointer() != reflect.ValueOf(discover).Pointer() {
+				return nil, nil
+			}
+			return sayo.DiscoverCandidates(sysRoot)
+		},
+		probeSayo: sayo.ProbeCandidate,
+		applySayo: sayo.ApplyCandidate,
 		discover:  func() ([]Candidate, error) { return liveDiscover("/sys/bus/usb/devices", "/dev") },
 		query:     func(selected Candidate) (CaptureResult, error) { return querySelected(selected, true) },
 		apply: func(selected Candidate, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration) (bool, error)) (ApplyResult, error) {
@@ -813,16 +825,38 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 		})
 		byCH57Path[candidate.PhysicalPath] = candidate
 	}
+	var sayoCandidates []sayo.DiscoveredCandidate
+	if access.discoverSayo != nil {
+		var err error
+		sayoCandidates, err = access.discoverSayo(sysRoot)
+		if err != nil {
+			return err
+		}
+	}
+	bySayoPath := make(map[string]sayo.DiscoveredCandidate, len(sayoCandidates))
+	for _, candidate := range sayoCandidates {
+		candidates = append(candidates, Candidate{
+			PhysicalPath: candidate.PhysicalPath, Product: sayoProductName(candidate), Compatible: true,
+			VendorNode: NodeMetadata{Path: fmt.Sprintf("%s/%03d/%03d", devRoot, candidate.BusNumber, candidate.DeviceNumber)},
+		})
+		bySayoPath[candidate.PhysicalPath] = candidate
+	}
 	matches := compatibleCandidates(candidates)
 	if len(matches) == 0 {
 		return fmt.Errorf("no compatible device found")
 	}
 	if c.isReadOnly() {
-		return c.runReadAll(matches, byCH57Path, h, access)
+		return c.runReadAll(matches, byCH57Path, bySayoPath, h, access)
 	}
 	selected, deviceID, err := c.selectWriteDevice(matches)
 	if err != nil {
 		return err
+	}
+	if sayoSelected, ok := bySayoPath[selected.PhysicalPath]; ok {
+		if err := c.checkSayoCapabilitiesFor(sayoSelected); err != nil {
+			return err
+		}
+		return c.runSayoWrite(sayoSelected, deviceID, h, access)
 	}
 	if chSelected, ok := byCH57Path[selected.PhysicalPath]; ok {
 		if err := c.checkCH57CapabilitiesFor(chSelected); err != nil {
@@ -861,30 +895,39 @@ func ch57VIDPID(candidate ch57.DiscoveredCandidate) (uint16, uint16) {
 	return candidate.VID, candidate.PID
 }
 
-func sayoBaseProductName(candidate ch57.DiscoveredCandidate) string {
+func sayoVIDPID(candidate sayo.DiscoveredCandidate) (uint16, uint16) {
+	if candidate.VID == 0 && candidate.PID == 0 {
+		return 0x8089, 0x000c
+	}
+	return candidate.VID, candidate.PID
+}
+
+func sayoBaseProductName(candidate sayo.DiscoveredCandidate) string {
 	if candidate.ProductName != "" {
 		return candidate.ProductName
 	}
-	if candidate.PID == 0x000c {
+	if candidate.PID == 0x000c || (candidate.VID == 0 && candidate.PID == 0) {
 		return "SayoDevice 2x3P"
 	}
 	return "SayoDevice"
 }
 
+func sayoProductName(candidate sayo.DiscoveredCandidate) string {
+	vid, pid := sayoVIDPID(candidate)
+	return fmt.Sprintf("%s (%04x:%04x)", sayoBaseProductName(candidate), vid, pid)
+}
+
 func ch57ProductName(candidate ch57.DiscoveredCandidate) string {
 	vid, pid := ch57VIDPID(candidate)
-	if ch57.IsSayoFamily(vid, pid) {
-		return fmt.Sprintf("%s (%04x:%04x)", sayoBaseProductName(candidate), vid, pid)
-	}
 	return fmt.Sprintf("CH57x Macropad (%04x:%04x)", vid, pid)
 }
 
-func ch57SupportsSummary(candidate ch57.DiscoveredCandidate) string {
-	vid, pid := ch57VIDPID(candidate)
-	if ch57.IsSayoFamily(vid, pid) {
-		return "key, mouse, media, macro, rgb"
-	}
+func ch57SupportsSummary(_ ch57.DiscoveredCandidate) string {
 	return "key, mouse, media, macro, led"
+}
+
+func sayoSupportsSummary() string {
+	return "key, mouse, media, macro, rgb"
 }
 
 func controlKeyAndKnobIndex(control ch57.Control) (int, int) {
@@ -947,9 +990,6 @@ func (c publicCommand) checkCH57Capabilities() error {
 func (c publicCommand) checkCH57CapabilitiesFor(selected ch57.DiscoveredCandidate) error {
 	vid, pid := ch57VIDPID(selected)
 	product := ch57ProductName(selected)
-	if ch57.IsSayoFamily(vid, pid) {
-		return c.checkSayoCapabilities(product)
-	}
 	switch c.name {
 	case "key", "macro", "mouse", "media":
 		if _, ok := parseControlName(string(c.control)); !ok {
@@ -1004,14 +1044,12 @@ func (c publicCommand) checkCH57CapabilitiesFor(selected ch57.DiscoveredCandidat
 	return nil
 }
 
-func (c publicCommand) checkSayoCapabilities(product string) error {
+func (c publicCommand) checkSayoCapabilitiesFor(selected sayo.DiscoveredCandidate) error {
+	product := sayoProductName(selected)
 	switch c.name {
 	case "key", "macro", "mouse", "media":
 		if _, ok := parseControlName(string(c.control)); !ok {
 			return fmt.Errorf("%s does not support control %q", product, c.control)
-		}
-		if _, m := controlKeyAndKnobIndex(c.control); m > 0 {
-			return fmt.Errorf("%s has 0 knobs; %s is not available", product, c.control)
 		}
 		if c.layer < 1 || c.layer > 5 {
 			return fmt.Errorf("%s supports layers 1..5 only", product)
@@ -1052,7 +1090,7 @@ func (c publicCommand) checkSayoCapabilities(product string) error {
 		}
 	case "media":
 		if media, ok := c.action.(MediaAction); ok {
-			if _, ok := ch57.SayoMediaCode(ch57.MediaUsage(media.Usage)); !ok {
+			if _, ok := sayo.MediaCode(sayo.MediaUsage(media.Usage & 0xffff)); !ok {
 				return fmt.Errorf("%s does not support that media action", product)
 			}
 		}
@@ -1113,6 +1151,34 @@ func formatCH57SlotBinding(b ch57.SlotBinding) string {
 		}
 		return actionDescription(MediaAction{Usage: int(b.MediaUsage)})
 	case ch57.SlotActionMouse:
+		return actionDescription(MouseAction{
+			Buttons: int(b.Mouse.Buttons),
+			X:       b.Mouse.DX,
+			Y:       b.Mouse.DY,
+			Wheel:   b.Mouse.Wheel,
+		})
+	default:
+		return "none"
+	}
+}
+
+func formatSayoSlotBinding(b sayo.SlotBinding) string {
+	switch b.ActionType {
+	case sayo.SlotActionKeyboard, sayo.SlotActionMacro:
+		if len(b.Strokes) == 0 {
+			return "none"
+		}
+		parts := make([]string, len(b.Strokes))
+		for i, stroke := range b.Strokes {
+			parts[i] = formatCH57Stroke(ch57.Stroke{Modifiers: stroke.Modifiers, Usage: stroke.Usage})
+		}
+		return strings.Join(parts, ",")
+	case sayo.SlotActionMedia:
+		if b.MediaUsage == 0 {
+			return "none"
+		}
+		return actionDescription(MediaAction{Usage: int(b.MediaUsage)})
+	case sayo.SlotActionMouse:
 		return actionDescription(MouseAction{
 			Buttons: int(b.Mouse.Buttons),
 			X:       b.Mouse.DX,
@@ -1232,12 +1298,9 @@ func (c publicCommand) runCH57Write(selected ch57.DiscoveredCandidate, deviceID 
 	var reports []ch57.Report
 	var views []changeView
 	var err error
-	switch {
-	case ch57.IsSayoFamily(vid, pid):
-		reports, views, err = c.prepareSayoWrite(sysRoot, devRoot, selected, deviceID, h, access)
-	case ch57.IsK884xFamily(vid, pid):
+	if ch57.IsK884xFamily(vid, pid) {
 		reports, views, err = c.prepare514CWrite(sysRoot, devRoot, selected, deviceID, h, access)
-	default:
+	} else {
 		profile := ch57.TwelveKeyThreeKnob(c.layer)
 		profile.VID, profile.PID = vid, pid
 		reports, views, err = c.encodeCH57ReportsWithProfile(profile, "write-only")
@@ -1262,53 +1325,144 @@ func (c publicCommand) runCH57Write(selected ch57.DiscoveredCandidate, deviceID 
 		h.line("33", "Stop. No automatic retry or rollback.")
 		return err
 	}
-	if ch57.IsSayoFamily(vid, pid) {
-		h.line("32", fmt.Sprintf("Settings saved to %s.", sayoBaseProductName(selected)))
-	} else {
-		h.line("32", "Settings saved to CH57x Macropad.")
-	}
+	h.line("32", "Settings saved to CH57x Macropad.")
 	return h.out.err
 }
 
-func (c publicCommand) prepareSayoWrite(sysRoot, devRoot string, selected ch57.DiscoveredCandidate, deviceID int, h human, access publicAccess) ([]ch57.Report, []changeView, error) {
-	product := ch57ProductName(selected)
-	probed, probeErr := access.probeCH57(sysRoot, devRoot, selected)
-	if probeErr != nil {
-		c.renderCH57CardHeading(selected, deviceID, h)
-		renderCH57ProbeOutcome(selected, probed, h)
-		return nil, nil, errors.Join(probeErr, h.out.err)
+func (c publicCommand) runSayoWrite(selected sayo.DiscoveredCandidate, deviceID int, h human, access publicAccess) error {
+	const sysRoot, devRoot = "/sys/bus/usb/devices", "/dev/bus/usb"
+	req, views, err := c.prepareSayoWrite(sysRoot, devRoot, selected, deviceID, h, access)
+	if err != nil {
+		return err
 	}
-	keys, knobs := 6, 0
+	h.changes(views)
+	if h.out.err != nil {
+		return h.out.err
+	}
+	applied, err := access.applySayo(sysRoot, devRoot, selected, req)
+	if err != nil {
+		if applied.WriteAttempted {
+			h.line("31", "Device state uncertain. A submitted write can still complete.")
+		} else {
+			h.line("", "Stopped before settings upload.")
+		}
+		h.line("33", "Stop. No automatic retry or rollback.")
+		return err
+	}
+	h.line("32", fmt.Sprintf("Settings saved to %s.", sayoBaseProductName(selected)))
+	return h.out.err
+}
+
+func (c publicCommand) prepareSayoWrite(sysRoot, devRoot string, selected sayo.DiscoveredCandidate, deviceID int, h human, access publicAccess) (sayo.WriteRequest, []changeView, error) {
+	product := sayoProductName(selected)
+	probed, probeErr := access.probeSayo(sysRoot, devRoot, selected)
+	if probeErr != nil {
+		c.renderSayoCardHeading(selected, deviceID, h)
+		renderSayoProbeOutcome(probed, h)
+		return sayo.WriteRequest{}, nil, errors.Join(probeErr, h.out.err)
+	}
+	keys, knobs, slotCount := 6, 0, 6
 	if probed.Layout != nil {
 		keys, knobs = probed.Layout.Keys, probed.Layout.Knobs
+		if probed.Layout.SlotCount > 0 {
+			slotCount = probed.Layout.SlotCount
+		} else {
+			slotCount = keys + knobs*3
+		}
 	}
-	var reports []ch57.Report
+	var req sayo.WriteRequest
 	var views []changeView
 	if c.name == "rgb" {
 		var err error
-		reports, views, err = c.encodeSayoRGBReports(selected.PID, keys, probed.Layout)
+		req, views, err = c.encodeSayoRGBWrite(slotCount, probed.Layout)
 		if err != nil {
-			return nil, nil, err
+			return sayo.WriteRequest{}, nil, err
 		}
 	} else {
 		if err := validateCH57Control(product, keys, knobs, c.control); err != nil {
-			return nil, nil, err
+			return sayo.WriteRequest{}, nil, err
 		}
-		before := sayoBeforeBinding(probed.Layout, c.control, c.layer)
-		profile := ch57.SayoProfile(keys, c.layer, !c.seenLayer)
-		profile.PID = selected.PID
+		sayoCtrl := sayo.Control(c.control)
+		slotIdx, ok := probed.Layout.SlotIndex(sayoCtrl)
+		if !ok {
+			return sayo.WriteRequest{}, nil, fmt.Errorf("%s does not support control %q", product, c.control)
+		}
+		before := sayoBeforeBinding(probed.Layout, sayoCtrl, c.layer)
 		var err error
-		reports, views, err = c.encodeCH57ReportsWithProfile(profile, before)
+		req, views, err = c.encodeSayoActionWrite(sayoCtrl, slotIdx, before)
 		if err != nil {
-			return nil, nil, err
+			return sayo.WriteRequest{}, nil, err
 		}
 	}
-	c.renderCH57CardHeading(selected, deviceID, h)
-	renderCH57ProbeOutcome(selected, probed, h)
-	return reports, views, h.out.err
+	c.renderSayoCardHeading(selected, deviceID, h)
+	renderSayoProbeOutcome(probed, h)
+	return req, views, h.out.err
 }
 
-func (c publicCommand) encodeSayoRGBReports(pid uint16, keys int, layout *ch57.LayoutInfo) ([]ch57.Report, []changeView, error) {
+func (c publicCommand) encodeSayoActionWrite(control sayo.Control, slotIdx byte, before string) (sayo.WriteRequest, []changeView, error) {
+	setting := string(c.control)
+	if c.layer > 1 {
+		setting = fmt.Sprintf("%s (layer %d)", c.control, c.layer)
+	}
+	bothDefault := !c.seenLayer
+	switch c.name {
+	case "key":
+		stroke := sayo.Stroke{Modifiers: c.changes["modifiers"], Usage: c.changes["key"]}
+		req, err := sayo.PrepareKeyboardWrite(control, slotIdx, c.layer, bothDefault, []sayo.Stroke{stroke})
+		if err != nil {
+			return sayo.WriteRequest{}, nil, err
+		}
+		after := formatCH57Stroke(ch57.Stroke{Modifiers: stroke.Modifiers, Usage: stroke.Usage})
+		return req, []changeView{{Setting: setting, Before: before, After: after}}, nil
+	case "macro":
+		strokes := make([]sayo.Stroke, len(c.macroStrokes))
+		formatted := make([]string, len(c.macroStrokes))
+		for i, s := range c.macroStrokes {
+			strokes[i] = sayo.Stroke{Modifiers: s.Modifiers, Usage: s.Usage}
+			formatted[i] = formatCH57Stroke(s)
+		}
+		req, err := sayo.PrepareKeyboardWrite(control, slotIdx, c.layer, bothDefault, strokes)
+		if err != nil {
+			return sayo.WriteRequest{}, nil, err
+		}
+		return req, []changeView{{Setting: setting, Before: before, After: strings.Join(formatted, ",")}}, nil
+	case "mouse":
+		mouse, ok := c.action.(MouseAction)
+		if !ok {
+			return sayo.WriteRequest{}, nil, fmt.Errorf("invalid mouse action")
+		}
+		chEvent, err := ch57MouseEvent(mouse)
+		if err != nil {
+			return sayo.WriteRequest{}, nil, err
+		}
+		sayoEvent := sayo.MouseEvent{
+			Action:  sayo.MouseAction(chEvent.Action),
+			Buttons: sayo.MouseButtons(chEvent.Buttons),
+			DX:      chEvent.DX,
+			DY:      chEvent.DY,
+			Wheel:   chEvent.Wheel,
+		}
+		req, err := sayo.PrepareMouseWrite(control, slotIdx, c.layer, bothDefault, sayoEvent)
+		if err != nil {
+			return sayo.WriteRequest{}, nil, err
+		}
+		return req, []changeView{{Setting: setting, Before: before, After: actionDescription(c.action)}}, nil
+	case "media":
+		media, ok := c.action.(MediaAction)
+		if !ok {
+			return sayo.WriteRequest{}, nil, fmt.Errorf("invalid media action")
+		}
+		req, err := sayo.PrepareMediaWrite(control, slotIdx, c.layer, bothDefault, sayo.MediaUsage(media.Usage&0xffff))
+		if err != nil {
+			return sayo.WriteRequest{}, nil, err
+		}
+		return req, []changeView{{Setting: setting, Before: before, After: actionDescription(c.action)}}, nil
+	default:
+		return sayo.WriteRequest{}, nil, fmt.Errorf("unsupported SayoDevice command %q", c.name)
+	}
+}
+
+func (c publicCommand) encodeSayoRGBWrite(slotCount int, layout *sayo.DeviceLayout) (sayo.WriteRequest, []changeView, error) {
 	beforeMode, beforeColour := "write-only", "#404040"
 	if layout != nil && layout.RGBMode != "" {
 		beforeMode, beforeColour = layout.RGBMode, layout.RGBColour
@@ -1321,11 +1475,9 @@ func (c publicCommand) encodeSayoRGBReports(pid uint16, keys int, layout *ch57.L
 		g = byte(c.changes["green"] & 255)
 		b = byte(c.changes["blue"] & 255)
 	}
-	profile := ch57.SayoProfile(keys, 1, false)
-	profile.PID = pid
-	reports, err := ch57.EncodeSayoRGB(profile, afterMode, r, g, b, hasColour)
+	req, err := sayo.PrepareRGBWrite(slotCount, afterMode, r, g, b, hasColour)
 	if err != nil {
-		return nil, nil, err
+		return sayo.WriteRequest{}, nil, err
 	}
 	afterColour := beforeColour
 	if afterMode == "off" {
@@ -1340,24 +1492,12 @@ func (c publicCommand) encodeSayoRGBReports(pid uint16, keys int, layout *ch57.L
 	if (hasColour || afterMode == "off") && (beforeColour != afterColour || len(views) == 0) {
 		views = append(views, changeView{Setting: "colour", Before: beforeColour, After: afterColour})
 	}
-	return reports, views, nil
+	return req, views, nil
 }
 
-func sayoBeforeBinding(layout *ch57.LayoutInfo, control ch57.Control, layer int) string {
-	if layout == nil {
-		return "write-only"
-	}
-	k, _ := controlKeyAndKnobIndex(control)
-	slot := byte(k & 255)
-	var b ch57.SlotBinding
-	var has bool
-	if layer >= 1 && layer <= len(layout.LayerBindings) && layout.LayerBindings[layer-1] != nil {
-		b, has = layout.LayerBindings[layer-1][slot]
-	} else if layer == 1 {
-		b, has = layout.Bindings[slot]
-	}
-	if has && b.ActionType != ch57.SlotActionNone {
-		return formatCH57SlotBinding(b)
+func sayoBeforeBinding(layout *sayo.DeviceLayout, control sayo.Control, layer int) string {
+	if b, ok := layout.Binding(control, layer); ok && b.ActionType != sayo.SlotActionNone {
+		return formatSayoSlotBinding(b)
 	}
 	return "write-only"
 }
@@ -1403,9 +1543,14 @@ func (c publicCommand) renderCH57CardHeading(selected ch57.DiscoveredCandidate, 
 	vid, pid := ch57VIDPID(selected)
 	h.heading(fmt.Sprintf("[%d] %s", deviceID, ch57ProductName(selected)))
 	h.field("USB path", selected.PhysicalPath)
-	if !ch57.IsK884xFamily(vid, pid) && !ch57.IsSayoFamily(vid, pid) {
+	if !ch57.IsK884xFamily(vid, pid) {
 		h.field("Supports", ch57SupportsSummary(selected))
 	}
+}
+
+func (c publicCommand) renderSayoCardHeading(selected sayo.DiscoveredCandidate, deviceID int, h human) {
+	h.heading(fmt.Sprintf("[%d] %s", deviceID, sayoProductName(selected)))
+	h.field("USB path", selected.PhysicalPath)
 }
 
 func renderCH57ProbeOutcome(selected ch57.DiscoveredCandidate, probed ch57.ProbeResult, h human) {
@@ -1430,10 +1575,6 @@ func renderCH57ProbeOutcome(selected ch57.DiscoveredCandidate, probed ch57.Probe
 				formatCH57SlotBinding(probed.Layout.Bindings[rightSlot]))
 			h.field(fmt.Sprintf("knob%d", m), val)
 		}
-		if probed.Layout.RGBMode != "" {
-			h.field("Mode", probed.Layout.RGBMode)
-			fmt.Fprintf(h.out, "  %-10s %s\n", "Colour", h.rgb(probed.Layout.RGBColour))
-		}
 		return
 	}
 	if probed.Status == ch57.ProbeRawReport {
@@ -1456,11 +1597,56 @@ func renderCH57ProbeOutcome(selected ch57.DiscoveredCandidate, probed ch57.Probe
 	}
 }
 
-func (c publicCommand) runReadAll(matches []Candidate, byCH57Path map[string]ch57.DiscoveredCandidate, h human, access publicAccess) error {
+func renderSayoProbeOutcome(probed sayo.ProbeResult, h human) {
+	if probed.Layout != nil {
+		h.field("Layout", formatLayoutSummary(probed.Layout.Keys, probed.Layout.Knobs))
+		h.field("Supports", sayoSupportsSummary())
+		for k := 1; k <= probed.Layout.Keys; k++ {
+			ctrl := sayo.Control(fmt.Sprintf("key%d", k))
+			b, _ := probed.Layout.Binding(ctrl, 1)
+			h.field(string(ctrl), formatSayoSlotBinding(b))
+		}
+		for m := 1; m <= probed.Layout.Knobs; m++ {
+			leftCtrl := sayo.Control(fmt.Sprintf("knob%d-left", m))
+			pressCtrl := sayo.Control(fmt.Sprintf("knob%d-press", m))
+			rightCtrl := sayo.Control(fmt.Sprintf("knob%d-right", m))
+			bLeft, _ := probed.Layout.Binding(leftCtrl, 1)
+			bPress, _ := probed.Layout.Binding(pressCtrl, 1)
+			bRight, _ := probed.Layout.Binding(rightCtrl, 1)
+			val := fmt.Sprintf("left: %s, press: %s, right: %s",
+				formatSayoSlotBinding(bLeft),
+				formatSayoSlotBinding(bPress),
+				formatSayoSlotBinding(bRight))
+			h.field(fmt.Sprintf("knob%d", m), val)
+		}
+		if probed.Layout.RGBMode != "" {
+			h.field("Mode", probed.Layout.RGBMode)
+			fmt.Fprintf(h.out, "  %-10s %s\n", "Colour", h.rgb(probed.Layout.RGBColour))
+		}
+		return
+	}
+	h.field("Status", string(probed.Status))
+	if probed.ReportDescriptor != nil || probed.ReportDescriptorCount != 0 {
+		h.field("Descriptor bytes", strconv.Itoa(probed.ReportDescriptorCount))
+		h.field("Descriptor hex", hex.EncodeToString(probed.ReportDescriptor))
+	}
+	if probed.Raw != nil || probed.Count != 0 || probed.Status == sayo.ProbeTransferFailed {
+		h.field("Input bytes", strconv.Itoa(probed.Count))
+		h.field("Input hex", hex.EncodeToString(probed.Raw))
+	}
+}
+
+func (c publicCommand) runReadAll(matches []Candidate, byCH57Path map[string]ch57.DiscoveredCandidate, bySayoPath map[string]sayo.DiscoveredCandidate, h human, access publicAccess) error {
 	for i, selected := range matches {
 		deviceID := i + 1
 		if i > 0 {
 			_, _ = io.WriteString(h.out, "\n")
+		}
+		if sayoCandidate, ok := bySayoPath[selected.PhysicalPath]; ok {
+			if err := c.runSayoSelected(sayoCandidate, deviceID, h, access); err != nil {
+				return err
+			}
+			continue
 		}
 		if chCandidate, ok := byCH57Path[selected.PhysicalPath]; ok {
 			if err := c.runCH57Selected(chCandidate, deviceID, h, access); err != nil {
@@ -1501,7 +1687,7 @@ func (c publicCommand) runCH57Selected(selected ch57.DiscoveredCandidate, device
 		return h.out.err
 	}
 	probed, err := access.probeCH57(sysRoot, devRoot, selected)
-	if err != nil && (ch57.IsK884xFamily(vid, pid) || ch57.IsSayoFamily(vid, pid)) {
+	if err != nil && ch57.IsK884xFamily(vid, pid) {
 		h.field("Supports", ch57SupportsSummary(selected))
 	}
 	if err == nil && probed.Status != ch57.ProbeRawReport && probed.Count == 1 && len(probed.Raw) == 1 && probed.Raw[0] == 0xaa {
@@ -1520,6 +1706,20 @@ func (c publicCommand) runCH57Selected(selected ch57.DiscoveredCandidate, device
 		return errors.Join(err, h.out.err)
 	}
 	renderCH57ProbeOutcome(selected, probed, h)
+	return errors.Join(err, h.out.err)
+}
+
+func (c publicCommand) runSayoSelected(selected sayo.DiscoveredCandidate, deviceID int, h human, access publicAccess) error {
+	const sysRoot, devRoot = "/sys/bus/usb/devices", "/dev/bus/usb"
+	c.renderSayoCardHeading(selected, deviceID, h)
+	if h.out.err != nil {
+		return h.out.err
+	}
+	probed, err := access.probeSayo(sysRoot, devRoot, selected)
+	if err != nil {
+		h.field("Supports", sayoSupportsSummary())
+	}
+	renderSayoProbeOutcome(probed, h)
 	return errors.Join(err, h.out.err)
 }
 

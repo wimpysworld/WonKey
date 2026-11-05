@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 	"wonkey/internal/ch57"
+	"wonkey/internal/sayo"
 )
 
 func checkPublicHeader(t *testing.T, text string) {
@@ -1567,42 +1568,33 @@ func TestPublic514CReadValidationAndWrite(t *testing.T) {
 }
 
 func TestPublicSayo000CReadValidationAndWrite(t *testing.T) {
-	cSayo := ch57.DiscoveredCandidate{
-		Candidate:    ch57.Candidate{PhysicalPath: "7-1.4.3.4", VID: 0x8089, PID: 0x000c},
+	cSayo := sayo.DiscoveredCandidate{
+		Candidate:    sayo.Candidate{PhysicalPath: "7-1.4.3.4", VID: 0x8089, PID: 0x000c},
 		BusNumber:    7,
 		DeviceNumber: 12,
 	}
-	probeSayo := func(_ string, _ string, _ ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
-		bindings := map[byte]ch57.SlotBinding{
-			1: {Slot: 1, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x1e}}},
-			2: {Slot: 2, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x1f}}},
-			3: {Slot: 3, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x20}}},
-			4: {Slot: 4, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x21}}},
-			5: {Slot: 5, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x22}}},
-			6: {Slot: 6, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x23}}},
+	probeSayo := func(_ string, _ string, _ sayo.DiscoveredCandidate) (sayo.ProbeResult, error) {
+		var rawRecords []sayo.RawSlotRecord
+		for i := range 6 {
+			var r sayo.RawSlotRecord
+			r.KeyType = 0
+			r.Layers[0] = sayo.SlotBinding{ActionType: sayo.SlotActionKeyboard, Strokes: []sayo.Stroke{{Usage: 0x1e + i}}}
+			r.Layers[1] = r.Layers[0]
+			rawRecords = append(rawRecords, r)
 		}
-		var layerBindings [5]map[byte]ch57.SlotBinding
-		layerBindings[0] = bindings
-		layerBindings[1] = bindings
-		return ch57.ProbeResult{
-			Status: ch57.ProbeRawReport,
-			Layout: &ch57.LayoutInfo{
-				Keys:          6,
-				Knobs:         0,
-				Bindings:      bindings,
-				LayerBindings: layerBindings,
-				RGBMode:       "held",
-				RGBColour:     "#404040",
-			},
-		}, nil
+		layout, err := sayo.BuildDeviceLayout(sayo.ProtocolV2, rawRecords, "held", "#404040")
+		return sayo.ProbeResult{
+			Status: sayo.ProbeRawReport,
+			Layout: layout,
+		}, err
 	}
 
 	t.Run("bare-read-card", func(t *testing.T) {
 		access := ch57TestAccess(t)
-		access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
-			return []ch57.DiscoveredCandidate{cSayo}, nil
+		access.discoverSayo = func(string) ([]sayo.DiscoveredCandidate, error) {
+			return []sayo.DiscoveredCandidate{cSayo}, nil
 		}
-		access.probeCH57 = probeSayo
+		access.probeSayo = probeSayo
 		var out, diag bytes.Buffer
 		if err := runPublic(nil, &cliRuntime{strings.NewReader(""), &out, &diag}, access); err != nil {
 			t.Fatalf("err=%v diag=%q", err, diag.String())
@@ -1643,10 +1635,10 @@ func TestPublicSayo000CReadValidationAndWrite(t *testing.T) {
 			{[]string{"rgb", "toggle"}, `SayoDevice 2x3P (8089:000c) does not support RGB mode "toggle"`},
 		} {
 			access := ch57TestAccess(t)
-			access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
-				return []ch57.DiscoveredCandidate{cSayo}, nil
+			access.discoverSayo = func(string) ([]sayo.DiscoveredCandidate, error) {
+				return []sayo.DiscoveredCandidate{cSayo}, nil
 			}
-			access.probeCH57 = probeSayo
+			access.probeSayo = probeSayo
 			var out, diag bytes.Buffer
 			err := runPublic(tc.args, &cliRuntime{strings.NewReader(""), &out, &diag}, access)
 			if err == nil || err.Error() != tc.want || !strings.Contains(strings.ReplaceAll(diag.String(), "\n", " "), tc.want) {
@@ -1657,38 +1649,37 @@ func TestPublicSayo000CReadValidationAndWrite(t *testing.T) {
 
 	t.Run("live-programming", func(t *testing.T) {
 		for _, tc := range []struct {
-			args          []string
-			wantChange    string
-			wantCount     int
-			wantCmdID     byte
-			wantLayerMask byte
+			args       []string
+			wantChange string
+			wantIsRGB  bool
+			wantBoth   bool
 		}{
-			{[]string{"key", "key1", "f13"}, "  key1: 1 -> f13\n", 2, 0x10, 0x03},
-			{[]string{"key", "key2", "ctrl+f13", "--layer", "2"}, "  key2 (layer 2): 2 -> ctrl+f13\n", 2, 0x10, 0x02},
-			{[]string{"macro", "key3", "ctrl+c,ctrl+v"}, "  key3: 3 -> ctrl+c,ctrl+v\n", 2, 0x10, 0x03},
-			{[]string{"mouse", "key4", "left"}, "  key4: 4 -> mouse left (x=0, y=0, wheel=0)\n", 2, 0x10, 0x03},
-			{[]string{"media", "key5", "volumeup"}, "  key5: 5 -> media volumeup (0x00e9)\n", 2, 0x10, 0x03},
-			{[]string{"rgb", "static", "0000ff"}, "  lighting: held -> static\n  colour: #404040 -> #0000FF\n", 7, 0x11, 0x00},
-			{[]string{"rgb", "breathe"}, "  lighting: held -> breathe\n", 7, 0x11, 0x01},
-			{[]string{"rgb", "off"}, "  lighting: held -> off\n  colour: #404040 -> #000000\n", 7, 0x11, 0x00},
+			{[]string{"key", "key1", "f13"}, "  key1: 1 -> f13\n", false, true},
+			{[]string{"key", "key2", "ctrl+f13", "--layer", "2"}, "  key2 (layer 2): 2 -> ctrl+f13\n", false, false},
+			{[]string{"macro", "key3", "ctrl+c,ctrl+v"}, "  key3: 3 -> ctrl+c,ctrl+v\n", false, true},
+			{[]string{"mouse", "key4", "left"}, "  key4: 4 -> mouse left (x=0, y=0, wheel=0)\n", false, true},
+			{[]string{"media", "key5", "volumeup"}, "  key5: 5 -> media volumeup (0x00e9)\n", false, true},
+			{[]string{"rgb", "static", "0000ff"}, "  lighting: held -> static\n  colour: #404040 -> #0000FF\n", true, false},
+			{[]string{"rgb", "breathe"}, "  lighting: held -> breathe\n", true, false},
+			{[]string{"rgb", "off"}, "  lighting: held -> off\n  colour: #404040 -> #000000\n", true, false},
 		} {
 			access := ch57TestAccess(t)
-			access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
-				return []ch57.DiscoveredCandidate{cSayo}, nil
+			access.discoverSayo = func(string) ([]sayo.DiscoveredCandidate, error) {
+				return []sayo.DiscoveredCandidate{cSayo}, nil
 			}
-			access.probeCH57 = probeSayo
-			var written []ch57.Report
-			access.applyCH57 = func(_ string, _ string, _ ch57.DiscoveredCandidate, reports []ch57.Report) (ch57.ApplyResult, error) {
-				written = reports
-				return ch57.ApplyResult{WriteAttempted: true, ReportsWritten: len(reports)}, nil
+			access.probeSayo = probeSayo
+			var gotReq sayo.WriteRequest
+			access.applySayo = func(_ string, _ string, _ sayo.DiscoveredCandidate, req sayo.WriteRequest) (sayo.ApplyResult, error) {
+				gotReq = req
+				return sayo.ApplyResult{WriteAttempted: true, ReportsWritten: 2}, nil
 			}
 			var out, diag bytes.Buffer
 			if err := runPublic(tc.args, &cliRuntime{strings.NewReader(""), &out, &diag}, access); err != nil {
 				t.Fatalf("args=%v err=%v diag=%q", tc.args, err, diag.String())
 			}
 			if !strings.Contains(out.String(), tc.wantChange) || !strings.Contains(out.String(), "Settings saved to SayoDevice 2x3P.\n") ||
-				len(written) != tc.wantCount || written[0][0] != 0x21 || written[0][6] != tc.wantCmdID || written[0][8] != tc.wantLayerMask {
-				t.Fatalf("args=%v out=%q written=%x", tc.args, out.String(), written)
+				gotReq.IsRGB != tc.wantIsRGB || gotReq.BothDefaultLayers != tc.wantBoth {
+				t.Fatalf("args=%v out=%q gotReq=%+v", tc.args, out.String(), gotReq)
 			}
 		}
 	})
@@ -1743,45 +1734,55 @@ func TestPublicExpandedCH57AndSayoFamilies(t *testing.T) {
 		}
 	})
 
-	t.Run("sayo-dynamic-product-names", func(t *testing.T) {
+	t.Run("sayo-dynamic-product-names-and-knobs", func(t *testing.T) {
 		for _, tc := range []struct {
 			pid         uint16
 			productName string
 			wantHeading string
 			wantSaved   string
 		}{
+			{0x0002, "SayoDevice O2", "[1] SayoDevice O2 (8089:0002)\n", "Settings saved to SayoDevice O2.\n"},
+			{0x0003, "SayoDevice O2L", "[1] SayoDevice O2L (8089:0003)\n", "Settings saved to SayoDevice O2L.\n"},
+			{0x0004, "SayoDevice 6x4F", "[1] SayoDevice 6x4F (8089:0004)\n", "Settings saved to SayoDevice 6x4F.\n"},
 			{0x0009, "SayoDevice O3C", "[1] SayoDevice O3C (8089:0009)\n", "Settings saved to SayoDevice O3C.\n"},
 			{0x000b, "SayoDevice 2x4V", "[1] SayoDevice 2x4V (8089:000b)\n", "Settings saved to SayoDevice 2x4V.\n"},
 			{0x000c, "SayoDevice 2x3P", "[1] SayoDevice 2x3P (8089:000c)\n", "Settings saved to SayoDevice 2x3P.\n"},
 		} {
-			c := ch57.DiscoveredCandidate{
-				Candidate:    ch57.Candidate{PhysicalPath: "7-1.4", VID: 0x8089, PID: tc.pid},
+			c := sayo.DiscoveredCandidate{
+				Candidate:    sayo.Candidate{PhysicalPath: "7-1.4", VID: 0x8089, PID: tc.pid},
 				ProductName:  tc.productName,
 				BusNumber:    7,
 				DeviceNumber: 12,
 			}
 			access := ch57TestAccess(t)
-			access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) { return []ch57.DiscoveredCandidate{c}, nil }
-			access.probeCH57 = func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
-				return ch57.ProbeResult{
-					Status: ch57.ProbeRawReport,
-					Layout: &ch57.LayoutInfo{
-						Keys:      3,
-						Bindings:  map[byte]ch57.SlotBinding{1: {Slot: 1, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x04}}}},
-						RGBMode:   "static",
-						RGBColour: "#0000FF",
-					},
-				}, nil
+			access.discoverSayo = func(string) ([]sayo.DiscoveredCandidate, error) { return []sayo.DiscoveredCandidate{c}, nil }
+			access.probeSayo = func(string, string, sayo.DiscoveredCandidate) (sayo.ProbeResult, error) {
+				layout, err := sayo.BuildDeviceLayout(sayo.ProtocolV2, []sayo.RawSlotRecord{
+					{KeyType: 0, Layers: [5]sayo.SlotBinding{{ActionType: sayo.SlotActionKeyboard, Strokes: []sayo.Stroke{{Usage: 0x04}}}}},
+					{KeyType: 0, Layers: [5]sayo.SlotBinding{{ActionType: sayo.SlotActionKeyboard, Strokes: []sayo.Stroke{{Usage: 0x05}}}}},
+					{KeyType: 0, Layers: [5]sayo.SlotBinding{{ActionType: sayo.SlotActionKeyboard, Strokes: []sayo.Stroke{{Usage: 0x06}}}}},
+					{KeyType: 0, Layers: [5]sayo.SlotBinding{{ActionType: sayo.SlotActionMedia, MediaUsage: 0x00e2}}},
+					{KeyType: 1, Layers: [5]sayo.SlotBinding{{ActionType: sayo.SlotActionMedia, MediaUsage: 0x00ea}}},
+					{KeyType: 2, Layers: [5]sayo.SlotBinding{{ActionType: sayo.SlotActionMedia, MediaUsage: 0x00e9}}},
+				}, "static", "#0000FF")
+				if err != nil {
+					t.Fatal(err)
+				}
+				return sayo.ProbeResult{Status: sayo.ProbeRawReport, Layout: layout}, nil
 			}
-			access.applyCH57 = func(_ string, _ string, _ ch57.DiscoveredCandidate, reports []ch57.Report) (ch57.ApplyResult, error) {
-				return ch57.ApplyResult{WriteAttempted: true, ReportsWritten: len(reports)}, nil
+			var gotReq sayo.WriteRequest
+			access.applySayo = func(_ string, _ string, _ sayo.DiscoveredCandidate, req sayo.WriteRequest) (sayo.ApplyResult, error) {
+				gotReq = req
+				return sayo.ApplyResult{WriteAttempted: true, ReportsWritten: 2}, nil
 			}
 			var out, diag bytes.Buffer
-			if err := runPublic([]string{"key", "key1", "f13"}, &cliRuntime{strings.NewReader(""), &out, &diag}, access); err != nil {
+			if err := runPublic([]string{"media", "knob-right", "calculator"}, &cliRuntime{strings.NewReader(""), &out, &diag}, access); err != nil {
 				t.Fatalf("pid=%04x err=%v diag=%q", tc.pid, err, diag.String())
 			}
-			if !strings.Contains(out.String(), tc.wantHeading) || !strings.Contains(out.String(), tc.wantSaved) {
-				t.Fatalf("pid=%04x got:\n%s", tc.pid, out.String())
+			if !strings.Contains(out.String(), tc.wantHeading) || !strings.Contains(out.String(), "  knob1      left: media volumedown (0x00ea), press: media mute (0x00e2), right: media volumeup (0x00e9)\n") ||
+				!strings.Contains(out.String(), "  knob-right: media volumeup (0x00e9) -> media calculator (0x0192)\n") ||
+				!strings.Contains(out.String(), tc.wantSaved) || gotReq.SlotIndex != 5 || gotReq.SlotPayload[4] != 22 {
+				t.Fatalf("pid=%04x got:\n%s\nreq=%+v", tc.pid, out.String(), gotReq)
 			}
 		}
 	})

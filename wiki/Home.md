@@ -15,7 +15,7 @@ Read [device access requirements](hardware#device-selection-and-access) before a
 | XFKEY One Key Max (`0112`) | `af88:6688` | 1 key | `key`, `trigger`, `macro`, `mouse`, `media`, `rgb` | Full 128-byte readback |
 | CH57x Macropad (Gen 1) | `1189:8890`, `514c:8890` | Up to 12 keys, 3 knobs, 15 layers | `key`, `macro`, `mouse`, `media`, `led` | Write-only firmware |
 | CH57x Macropad (Gen 2) | `1189` / `514c` : `8830`, `8831`, `8832`, `8833`, `8840`, `8842`, `8850`, `8851` | Up to 12 keys, 4 knobs, 15 layers | `key`, `macro`, `mouse`, `media`, `led` | Layout (`0xFB`) and Layer 1 (`0xFA`) readback |
-| SayoDevice Macropad (HID v2) | `8089:0009`, `8089:000b`, `8089:000c` | Up to 12 keys, 5 layers | `key`, `macro`, `mouse`, `media`, `rgb` | Key (`0x10`) and Light (`0x11`) readback |
+| SayoDevice Macropad (HID v1 / v2) | `8089:0002`, `0003`, `0004`, `0005`, `0009`, `000a`, `000b`, `000c`, `000e` | Up to 12 keys, 4 knobs, 5 layers | `key`, `macro`, `mouse`, `media`, `rgb` | Key (`0x10` / `0x16`) and Light (`0x11` / `0x10`) readback |
 
 ## Use WonKey
 

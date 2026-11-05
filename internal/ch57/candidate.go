@@ -26,11 +26,6 @@ const candidate8850USBDescriptor = "\x12\x01\x10\x01\x00\x00\x00\x40\x4c\x51\x50
 	"\x09\x04\x00\x00\x02\x03\x00\x00\x00\x09\x21\x11\x01\x00\x01\x22\x24\x00\x07\x05\x84\x03\x40\x00\x01\x07\x05\x04\x03\x40\x00\x01" +
 	"\x09\x04\x01\x00\x01\x03\x01\x01\x00\x09\x21\x01\x02\x00\x01\x22\xcf\x00\x07\x05\x82\x03\x10\x00\x01"
 
-const candidateSayo000CUSBDescriptor = "\x12\x01\x10\x01\x00\x00\x00\x40\x89\x80\x0c\x00\x9a\x08\x01\x02\x03\x01" +
-	"\x09\x02\x42\x00\x02\x01\x00\xe0\x32" +
-	"\x09\x04\x00\x00\x01\x03\x01\x01\x00\x09\x21\x10\x01\x00\x01\x22\x41\x00\x07\x05\x81\x03\x08\x00\x01" +
-	"\x09\x04\x01\x00\x02\x03\x00\x00\x00\x09\x21\x11\x01\x00\x01\x22\x9a\x00\x07\x05\x82\x03\x40\x00\x01\x07\x05\x03\x03\x40\x00\x01"
-
 var physicalUSBPath = regexp.MustCompile(`^[1-9][0-9]*-[1-9][0-9]*(\.[1-9][0-9]*)*$`)
 
 // Candidate is a provisional USB structure match, not firmware identification.
@@ -212,9 +207,7 @@ func matchCandidateFamily(vid, pid uint16, ifaceCount int, ifaces [4]parsedInter
 	case IsK8890Family(vid, pid):
 		return ifaceCount == 4 && validK8890VendorInterface(ifaces[1].info, ifaces[1].endpoints)
 	case IsK884xFamily(vid, pid):
-		return ifaceCount >= 2 && validBidirectionalHIDInterface(ifaces[0].info, ifaces[0].endpoints, true)
-	case IsSayoFamily(vid, pid):
-		return ifaceCount >= 2 && validBidirectionalHIDInterface(ifaces[1].info, ifaces[1].endpoints, false)
+		return ifaceCount >= 2 && validBidirectionalHIDInterface(ifaces[0].info, ifaces[0].endpoints)
 	default:
 		return false
 	}
@@ -228,14 +221,8 @@ func validK8890VendorInterface(info CandidateInterface, endpoints []CandidateEnd
 	return ep.Address == 0x02 && ep.Attributes == 0x03 && ep.MaxPacketSize == 64
 }
 
-func validBidirectionalHIDInterface(info CandidateInterface, endpoints []CandidateEndpoint, exact36 bool) bool {
-	if info.Class != 0x03 || info.Subclass != 0x00 || info.Protocol != 0x00 || len(endpoints) != 2 {
-		return false
-	}
-	if exact36 && info.ReportDescriptorLength != 36 {
-		return false
-	}
-	if !exact36 && info.ReportDescriptorLength < 36 {
+func validBidirectionalHIDInterface(info CandidateInterface, endpoints []CandidateEndpoint) bool {
+	if info.Class != 0x03 || info.Subclass != 0x00 || info.Protocol != 0x00 || info.ReportDescriptorLength != 36 || len(endpoints) != 2 {
 		return false
 	}
 	var hasIN, hasOUT bool
