@@ -2,23 +2,52 @@
 
 [Wiki home](Home) · [Development](development)
 
-WonKey reads and writes settings through the device's vendor HID interface.
-This reference records reply layouts and the evidence behind the implementation.
+WonKey reads and writes macropad settings through each supported device's USB or vendor HID interface.
+This reference records reply layouts, report encodings, and the evidence behind the implementation.
 
 [Hardware verification](#hardware-verification) · [Reply layout](#reply-layout) · [Action layouts](#action-layouts) · [Source evidence](#evidence)
 
-See [device selection](hardware#device-selection-and-access) for descriptor requirements and [apply safety](hardware#apply-safety-and-records) for upload framing.
+See [device selection](hardware#device-selection-and-access) for descriptor requirements and [apply safety](hardware#apply-safety) for upload framing.
 
 ## Hardware verification
 
-The authentic user capture in `internal/xfkey/testdata/hardware-20260911` confirms identify/readback framing on this unit:
+### XFKEY One Key Max (`0112`)
+
+The authentic user fixture in `internal/xfkey/testdata/hardware-20260911` confirms identify/readback framing on this unit:
 model `0112`, version `1014`, identifier `be077ba2`, <kbd>Enter</kbd> on press without modifiers, and RGB API mode 0 with channels `255,255,255`.
 The four report descriptors also match. Separate user-run tests confirmed upload/commit echoes and full 128-byte readback after <kbd>F13</kbd> and steady-blue changes.
 The user confirmed <kbd>F13</kbd> press/release events, steady-blue RGB, and persistence of both settings after reconnect.
-Other settings and devices remain unverified.
-All other selectable keys, including the added keyboard usages through `0x91`, and all mouse, consumer media, and multi-key actions remain hardware-unverified.
-Existing parser output and capture metadata retain the status `host-derived, hardware-unverified`.
+All other selectable keys on `0112`, including the added keyboard usages through `0x91`, and all mouse, consumer media, and macro (`03` multi-key) actions on `0112` remain hardware-unverified.
+Existing parser output and fixture metadata retain the status `host-derived, hardware-unverified`.
 The included query fixture does not record the later upload tests.
+
+### CH57x Macropad (`1189:8890`)
+
+Hardware checks on a 3-key, 1-knob CH57x Macropad (`1189:8890`) unit confirmed:
+
+- Inspection via `GET_REPORT` Input report ID 3 returning the 1-byte `0xaa` status response on stock write-only firmware.
+- Keyboard bindings on `key1`..`key3` via report ID `0x03` sequences on interrupt OUT endpoint `0x02`.
+- Rotary knob consumer media actions on `knob-left`, `knob-right`, and `knob-press` (volume down, volume up, and mute).
+- LED backlight modes via `wonkey led` (`off` = `0`, `reactive` = `1`, `cycle` = `2`, encoded with `03 a1 01`, `03 b0 18 <mode>`, and `03 aa a1`).
+
+Other controls (`key4`..`key12`, `knob2`..`knob3`), higher layers (`2..15`), mouse actions, multi-stroke macros, and unverified keyboard/media usages on `1189:8890` remain hardware-unverified.
+
+### CH57x Macropad (`1189` / `514c` : `8830`, `8831`, `8832`, `8833`, `8840`, `8842`, `8850`, `8851`)
+
+Hardware checks on a 4-key, 1-knob (`514c:8851`, `kind = 0`) unit and a 12-key, 4-knob (`514c:8850`, `kind = 11`) unit confirmed:
+
+- Layout discovery via 65-byte report ID `0x03` command `0xFB` (`03 fb fb fb`) on interface 0 `hidraw` returning `[0x03, 0xfb, keys, knobs, kind, ...]`.
+- Layer 1 slot binding readback via `0xFA` (`03 fa 0f 03 01` returning 24 reports on `kind < 10`, and `03 fa 19 00 01` returning 25 reports on `kind >= 10`, with a write-only layout fallback when `0xFA` times out).
+- Live programming of `key`, `macro`, `mouse`, `media`, and `led` via `0xFE` (`kind < 10`) and `0xFD` (`kind >= 10`) report sequences.
+
+### SayoDevice Macropads (`8089:0002..0005`, `0009..000c`, `000e`)
+
+Hardware checks on a 6-key SayoDevice 2x3P (`8089:000c`, `bcdDevice = 0x089a`) unit confirmed:
+
+- SayoDevice HID v2 (`Report ID 0x21`, 64-byte packets on interface 1 `hidraw` with 16-bit little-endian word checksum at `pkt[2..3]`), plus HID v1 (`Report ID 0x02` on `0xFF00` with 8-bit sum checksum) for `8089:0002..0005`.
+- Dynamic key and rotary knob (`key_type` `0`, `1`, `2`) discovery and Layer 1..5 slot readback via `cmd_id = 0x10` on v2 (`index = 0..5`, with `index = 6` returning `rx[5] = 0x40`) or `cmd = 0x16` on v1.
+- Per-key RGB lighting readback via `cmd_id = 0x11` on v2 (`index = 0`, factory default `00 01 64 64 40 40 40 00` -> `held`, `#404040`) or `cmd = 0x10` on v1.
+- Read-modify-write programming of `key`, `macro`, `mouse`, `media` (`0x10` / `0x16`) and `rgb` (`0x11` / `0x10`) preserving the button geometry header, committed with Save (`0x0D` on v2, `0x04` on v1).
 
 ## Reply layout
 
@@ -28,7 +57,7 @@ The internal parser and authentic fixtures retain the raw protocol evidence.
 
 Identify has model at offsets 2 to 3, version at 4 to 5, both big-endian, and identifier at 6 to 9.
 Readback copies `RX6[2:64]` to `C[0:62]`, `RX7[2:64]` to `C[62:124]`, and `RX8[2:6]` to `C[124:128]`.
-Saved captures retain all raw replies, including unused RX8 bytes.
+The authentic fixture retains all raw replies, including unused RX8 bytes.
 Internal parsing retains unknown RGB values, labelled `unknown`.
 
 See [lighting](usage#lighting) for public modes and [configuration fields](usage#supported-configuration-fields) for writable offsets.
@@ -42,13 +71,13 @@ The 128-byte configuration uses byte 0 as an action type. These layouts apply on
 | `00` keyboard | 1 trigger (`01` press, `02` release, `03` both), 2 left-modifier mask (`0x00` to `0x0f`), 3 count (`01`), 4 keyboard-page usage | Defined keyboard usages `0x04` to `0x91`; right modifiers are unsupported. |
 | `01` relative mouse | 1 button bitmap (left `01`, right `02`, middle `04`), 2 signed X, 3 signed Y, 4 signed wheel | Button mask `0..7`; X, Y, and wheel each `-127..127` (signed byte). |
 | `02` consumer media | 1 low usage byte, 2 high usage byte | Consumer-page usage `0x0001..0x023c`; little-endian bytes, for example volume up `0x00e9` is `e9 00`. |
-| `03` multi-key | 1 to 2 interval in milliseconds (big-endian), 3 repeat count, 4 key count, 5 onward keyboard-page usage bytes | Interval `1..65535`, repeat `1..255`, count `1..115`; each key uses the supported keyboard name table. |
+| `03` multi-key (`macro`) | 1 to 2 interval in milliseconds (big-endian), 3 repeat count, 4 key count, 5 onward keyboard-page usage bytes | Interval `1..65535`, repeat `1..255`, count `1..115`; each key uses the supported keyboard name table. |
 
-The multi-key count stops at 115 because keys occupy bytes 5 to 119. WonKey preserves bytes 120 to 123 and RGB bytes 124 to 127.
+The `03` multi-key (`macro`) count stops at 115 because keys occupy bytes 5 to 119. WonKey preserves bytes 120 to 123 and RGB bytes 124 to 127.
 Only active fields change. On a type change, WonKey clears the previous active span. On a shorter same-type action, it clears retired active bytes.
 It preserves unknown bytes outside those spans. Keyboard trigger `both` can involve separate release fields, so conversion to or from another type is rejected.
-Unsupported special (`04`), macro (`06`), touch (`07`), unknown types, and malformed known actions fail closed, including RGB-only changes and restore.
-The public command is not a raw packet writer. See [action syntax](usage#mouse-media-and-multi-key-actions).
+Unsupported special (`04`), macro (`06`), touch (`07`), unknown types, and malformed known actions fail closed, including RGB-only changes.
+The public command is not a raw packet writer. See [action syntax](usage#mouse-media-and-macro-actions).
 
 ## Evidence
 
@@ -65,7 +94,7 @@ Vendor executable evidence: big-endian model at VA `0046A989–0046A9A1`, versio
 RGB strings are at file offsets `000A6D46–000A6DA9`, indexed insertion at VA `00435234–00435618`, and assignment at `00436110–00436121`.
 The authentic fixture confirms queries only.
 
-Public names differ from the historical vendor interpretations retained by the internal parser and capture metadata:
+Public names differ from the historical vendor interpretations retained by the internal parser and fixture metadata:
 
 | Public mode | Stored byte | Historical vendor interpretation | Former public name |
 | --- | --- | --- | --- |
@@ -79,7 +108,7 @@ Public names differ from the historical vendor interpretations retained by the i
 | `off` | `06` | Lights off | unchanged |
 
 The public descriptions reflect user observations. The rename does not add automated hardware verification or change protocol values.
-Former names are not aliases. Existing captures retain their names and remain valid restore sources.
+Former names are not aliases.
 
 The [USB HID Usage Tables](https://www.usb.org/sites/default/files/hut1_7.pdf), section 10, define keyboard/keypad usages on page `0x07`.
 WonKey accepts the defined key usages from `0x04` through `0x91`, excluding the preceding no-event and error values.

@@ -2,8 +2,6 @@ package xfkey
 
 import (
 	"encoding/hex"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 )
@@ -48,7 +46,6 @@ func (t submissionTrackingTransport) StartWrite(b []byte, deadline time.Time) (<
 }
 
 type ApplyResult struct {
-	Directory           string       `json:"capture_directory"`
 	Outcome             string       `json:"outcome"`
 	Changes             []changeView `json:"changes"`
 	CommitEcho          bool         `json:"commit_echo_received"`
@@ -57,20 +54,15 @@ type ApplyResult struct {
 	PersistenceVerified bool         `json:"persistence_after_reconnect_verified"`
 	Error               string       `json:"error,omitempty"`
 	Warning             string       `json:"warning"`
-	CleanupWarning      string       `json:"cleanup_warning,omitempty"`
 }
 
 // This transaction is the only live configuration path. Query permissions stay unchanged.
-func applySettings(t queryTransport, dir string, target ApplyTarget, changes configurationChanges, write bool, timeout time.Duration) (ApplyResult, error) {
-	return applySettingsConfirmed(t, dir, target, changes, write, timeout, func(configuration, configuration, string) (bool, error) { return true, nil })
+func applySettings(t queryTransport, target ApplyTarget, changes configurationChanges, write bool, timeout time.Duration) (ApplyResult, error) {
+	return applySettingsConfirmed(t, target, changes, write, timeout, func(configuration, configuration) (bool, error) { return true, nil })
 }
 
-func applySettingsConfirmed(t queryTransport, dir string, target ApplyTarget, changes configurationChanges, write bool, timeout time.Duration, confirm func(configuration, configuration, string) (bool, error), checkNoOp ...bool) (result ApplyResult, err error) {
-	return applySettingsWithCapture(t, dir, target, changes, write, timeout, confirm, captureQueries, checkNoOp...)
-}
-
-func applySettingsWithCapture(t queryTransport, dir string, target ApplyTarget, changes configurationChanges, write bool, timeout time.Duration, confirm func(configuration, configuration, string) (bool, error), capture func(queryTransport, string, bool) (CaptureResult, error), checkNoOp ...bool) (result ApplyResult, err error) {
-	result = ApplyResult{Directory: dir, Outcome: "failed-before-upload", Warning: "No automatic retry or rollback. Readback verifies current state only, not persistence after reconnect. A timed-out submitted write can still complete in the kernel."}
+func applySettingsConfirmed(t queryTransport, target ApplyTarget, changes configurationChanges, write bool, timeout time.Duration, confirm func(configuration, configuration) (bool, error), checkNoOp ...bool) (result ApplyResult, err error) {
+	result = ApplyResult{Outcome: "failed-before-upload", Warning: "No automatic retry or rollback. Readback verifies current state only, not persistence after reconnect. A timed-out submitted write can still complete in the kernel."}
 	if !write {
 		return result, errWriteRequired
 	}
@@ -84,52 +76,30 @@ func applySettingsWithCapture(t queryTransport, dir string, target ApplyTarget, 
 		if err != nil {
 			result.Error = err.Error()
 		}
-		b, marshalErr := json.MarshalIndent(result, "", "  ")
-		if marshalErr == nil {
-			marshalErr = saveExclusive(dir, "apply-outcome.json", b)
-		}
-		if marshalErr != nil {
-			err = errors.Join(err, fmt.Errorf("outcome storage failed: %w; device state must not be assumed", marshalErr))
-		}
 	}()
-	backupCapture, captureErr := capture(t, dir, true)
-	dir = backupCapture.Directory
-	result.Directory = dir
-	if captureErr != nil {
-		return result, captureErr
-	}
-	// Reopen the durable backup and validate it before permitting any configuration write.
-	backup, current, err := loadCapture(dir)
+	fresh, err := queryCapture(t, true)
 	if err != nil {
 		return result, err
 	}
-	if !target.matches(backup.Identity) {
+	if !target.matches(fresh.result.Identity) {
 		return result, fmt.Errorf("current identity differs from explicitly expected target")
 	}
-	if err = saveBackupRecord(dir, backup.Identity); err != nil {
-		return result, err
+	if len(fresh.config) != 128 {
+		return result, fmt.Errorf("device settings need exactly 128 bytes")
 	}
+	var current configuration
+	copy(current[:], fresh.config)
 	intended, err := changes.configuration(current)
 	if err != nil {
 		return result, err
 	}
 	result.Changes = actionSettingViews(current, intended)
 	plan := settingsPlan(current, intended)
-	b, err := json.MarshalIndent(plan, "", "  ")
-	if err != nil {
-		return result, err
-	}
-	if err = saveExclusive(dir, "plan.json", b); err != nil {
-		return result, err
-	}
-	if err = saveExclusive(dir, "intended-configuration.bin", intended[:]); err != nil {
-		return result, err
-	}
 	if len(plan.ChangedOffsets) == 0 && (len(checkNoOp) == 0 || !checkNoOp[0]) {
 		result.Outcome = "no-op"
 		return result, nil
 	}
-	confirmed, confirmErr := confirm(current, intended, dir)
+	confirmed, confirmErr := confirm(current, intended)
 	if confirmErr != nil {
 		return result, confirmErr
 	}
@@ -144,9 +114,6 @@ func applySettingsWithCapture(t queryTransport, dir string, target ApplyTarget, 
 	packets := preview(intended)
 	for i, packet := range packets[1:] {
 		name := fmt.Sprintf("write-%d", i+1)
-		if err = saveExclusive(dir, name+"-request.bin", packet[:]); err != nil {
-			return result, err
-		}
 		transport := t
 		if i == 0 {
 			transport = submissionTrackingTransport{queryTransport: t, submitted: &result.WriteAttempted}
@@ -154,11 +121,6 @@ func applySettingsWithCapture(t queryTransport, dir string, target ApplyTarget, 
 		reply, exchangeErr := exchange(transport, packet, timeout)
 		if result.WriteAttempted {
 			result.Outcome = "failed-state-unknown"
-		}
-		if len(reply) > 0 {
-			if err = saveExclusive(dir, name+"-reply.bin", reply); err != nil {
-				return result, errors.Join(exchangeErr, err)
-			}
 		}
 		if exchangeErr != nil {
 			return result, fmt.Errorf("%s: %w; no further commands", name, exchangeErr)
@@ -168,19 +130,14 @@ func applySettingsWithCapture(t queryTransport, dir string, target ApplyTarget, 
 		}
 	}
 	result.CommitEcho = true
-	err = verifyAppliedSettings(t, dir, intended, timeout, &result)
+	err = verifyAppliedSettings(t, intended, timeout, &result)
 	return result, err
 }
 
-func verifyAppliedSettings(t queryTransport, dir string, intended configuration, timeout time.Duration, result *ApplyResult) error {
+func verifyAppliedSettings(t queryTransport, intended configuration, timeout time.Duration, result *ApplyResult) error {
 	var replies [3][]byte
 	for i := range replies {
 		reply, queryErr := queryWithTimeout(t, byte(6+i), timeout)
-		if len(reply) > 0 {
-			if err := saveExclusive(dir, fmt.Sprintf("post-reply-%02x.bin", i+6), reply); err != nil {
-				return errors.Join(queryErr, err)
-			}
-		}
 		if queryErr != nil {
 			return fmt.Errorf("post-commit readback: %w; no rollback", queryErr)
 		}
@@ -188,10 +145,6 @@ func verifyAppliedSettings(t queryTransport, dir string, intended configuration,
 	}
 	observed, err := parseReadback(replies)
 	if err != nil {
-		return err
-	}
-	raw, _ := hex.DecodeString(observed.Configuration)
-	if err = saveExclusive(dir, "post-configuration.bin", raw); err != nil {
 		return err
 	}
 	if observed.Configuration != hex.EncodeToString(intended[:]) {
@@ -203,12 +156,12 @@ func verifyAppliedSettings(t queryTransport, dir string, intended configuration,
 	return nil
 }
 
-func liveApplyBound(path, root string, target ApplyTarget, changes configurationChanges, write bool, confirm func(configuration, configuration, string) (bool, error), pinned *Candidate, checkNoOp ...bool) (result ApplyResult, err error) {
+func liveApplyBound(path string, target ApplyTarget, changes configurationChanges, write bool, confirm func(configuration, configuration) (bool, error), pinned *Candidate, checkNoOp ...bool) (result ApplyResult, err error) {
 	if !write {
 		return result, errWriteRequired
 	}
-	if path == "" || root == "" {
-		return result, fmt.Errorf("apply requires explicit --path and --capture-root")
+	if path == "" {
+		return result, fmt.Errorf("apply requires explicit --path")
 	}
 	if err := target.validate(); err != nil {
 		return result, err
@@ -216,19 +169,6 @@ func liveApplyBound(path, root string, target ApplyTarget, changes configuration
 	if err := changes.validate(); err != nil {
 		return result, err
 	}
-	lifecycle, err := lockCaptureRoot(root)
-	if err != nil {
-		return result, err
-	}
-	defer func() {
-		if closeErr := lifecycle.close(); closeErr != nil && err == nil {
-			warning := fmt.Sprintf("release backup lifecycle lock: %v", closeErr)
-			if result.CleanupWarning != "" {
-				warning = result.CleanupWarning + "; " + warning
-			}
-			result.CleanupWarning = warning
-		}
-	}()
 	candidates, err := liveDiscover("/sys/bus/usb/devices", "/dev")
 	if err != nil {
 		return result, err
@@ -240,24 +180,10 @@ func liveApplyBound(path, root string, target ApplyTarget, changes configuration
 	if pinned != nil && !sameCandidate(*selected, *pinned) {
 		return result, fmt.Errorf("selected descriptor, path or node changed; no settings write sent")
 	}
-	dir, err := newCaptureInRoot(lifecycle.root, *selected, syncDir)
-	result.Directory = dir
+	t, closer, err := liveOpenTarget(*selected)
 	if err != nil {
 		return result, err
 	}
-	t, closer, err := liveOpenTarget(*selected)
-	if err != nil {
-		return result, fmt.Errorf("backup %s: %w", dir, err)
-	}
 	defer closer.Close()
-	result, err = applySettingsWithCapture(t, dir, target, changes, write, transactionTimeout, confirm, captureNamedQueries, checkNoOp...)
-	if err != nil {
-		return result, fmt.Errorf("backup/transaction %s: %w", result.Directory, err)
-	}
-	if result.Outcome == "no-op" || result.Outcome == "readback-verified" {
-		if cleanupErr := lifecycle.retainBackups(target.Identifier, 10); cleanupErr != nil {
-			result.CleanupWarning = "backup retention failed: " + cleanupErr.Error()
-		}
-	}
-	return result, nil
+	return applySettingsConfirmed(t, target, changes, write, transactionTimeout, confirm, checkNoOp...)
 }

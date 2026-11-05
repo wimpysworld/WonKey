@@ -205,7 +205,12 @@ type fakeProbe struct {
 	target       DiscoveredCandidate
 	opened       int
 	closed       int
+	detached     int
+	claimed      int
+	released     int
+	attached     int
 	calls        []usbControlTransfer
+	written      []Report
 	node         unix.Stat_t
 	openErr      error
 	closeErr     error
@@ -276,7 +281,49 @@ func newFakeProbe(t *testing.T) *fakeProbe {
 		}
 		return len(data), nil
 	}
+	fake.ops.detachDriver = func(fd int, ifno int32) error {
+		if fd != 77 || ifno != 1 || fake.closed != 0 {
+			t.Fatalf("unsafe detachDriver: fd=%d ifno=%d closed=%d", fd, ifno, fake.closed)
+		}
+		fake.detached++
+		return nil
+	}
+	fake.ops.claimInterface = func(fd int, ifno uint32) error {
+		if fd != 77 || ifno != 1 || fake.detached != 1 || fake.closed != 0 {
+			t.Fatalf("unsafe claimInterface: fd=%d ifno=%d detached=%d closed=%d", fd, ifno, fake.detached, fake.closed)
+		}
+		fake.claimed++
+		return nil
+	}
+	fake.ops.releaseInterface = func(fd int, ifno uint32) error {
+		if fd != 77 || ifno != 1 || fake.claimed != 1 || fake.closed != 0 {
+			t.Fatalf("unsafe releaseInterface: fd=%d ifno=%d claimed=%d closed=%d", fd, ifno, fake.claimed, fake.closed)
+		}
+		fake.released++
+		return nil
+	}
+	fake.ops.attachDriver = func(fd int, ifno int32) error {
+		if fd != 77 || ifno != 1 || fake.closed != 0 {
+			t.Fatalf("unsafe attachDriver: fd=%d ifno=%d closed=%d", fd, ifno, fake.closed)
+		}
+		fake.attached++
+		return nil
+	}
+	fake.ops.bulkOut = func(fd int, transfer *usbBulkTransfer) (int, error) {
+		if fd != 77 || fake.claimed != 1 || fake.released != 0 || fake.closed != 0 ||
+			transfer == nil || transfer.Ep != 0x02 || transfer.Len != 64 || transfer.Timeout != 1000 || transfer.Data == nil {
+			t.Fatalf("unsafe bulkOut: fd=%d claimed=%d released=%d closed=%d transfer=%+v", fd, fake.claimed, fake.released, fake.closed, transfer)
+		}
+		var report Report
+		copy(report[:], unsafe.Slice((*byte)(transfer.Data), transfer.Len))
+		fake.written = append(fake.written, report)
+		return int(transfer.Len), nil
+	}
 	return fake
+}
+
+func (fake *fakeProbe) apply(reports []Report) (ApplyResult, error) {
+	return fake.ops.apply(fake.root, "/synthetic-usb", fake.target, reports)
 }
 
 func (fake *fakeProbe) run() (ProbeResult, error) {
@@ -295,7 +342,8 @@ func TestProbeOutputCandidateReplies(t *testing.T) {
 		status ProbeStatus
 	}{
 		{"raw", 65, nil, 3, ProbeRawReport},
-		{"observed-short", 1, nil, 0xaa, ProbeInvalidReport},
+		{"observed-short", 1, nil, 0xaa, ProbeRawReport},
+		{"short-one-other", 1, nil, 0xab, ProbeInvalidReport},
 		{"short", 64, nil, 3, ProbeInvalidReport},
 		{"empty", 0, nil, 0, ProbeInvalidReport},
 		{"wrong-id", 65, nil, 0xaa, ProbeInvalidReport},
@@ -363,8 +411,23 @@ func TestProbeInputObservedShortReply(t *testing.T) {
 		return n, err
 	}
 	result, err := fake.run()
-	if err == nil || err.Error() != "input GET_REPORT returned 1 bytes, want 65 including report ID" || result.Status != ProbeInvalidReport || result.Count != 1 || !bytes.Equal(result.Raw, []byte{0xaa}) || len(fake.calls) != 2 {
-		t.Fatalf("Input behaviour changed: %+v, %v", result, err)
+	if err != nil || result.Status != ProbeRawReport || result.Count != 1 || !bytes.Equal(result.Raw, []byte{0xaa}) || len(fake.calls) != 2 {
+		t.Fatalf("Input 0xaa reply rejected: %+v, %v", result, err)
+	}
+
+	fake = newFakeProbe(t)
+	ioctl = fake.ops.ioctl
+	fake.ops.ioctl = func(fd int, request uintptr, transfer *usbControlTransfer) (int, error) {
+		n, err := ioctl(fd, request, transfer)
+		if len(fake.calls) == 2 {
+			*(*byte)(transfer.Data) = 0xab
+			return 1, nil
+		}
+		return n, err
+	}
+	result, err = fake.run()
+	if err == nil || err.Error() != "input GET_REPORT returned 1 bytes, want 65 including report ID" || result.Status != ProbeInvalidReport || result.Count != 1 || !bytes.Equal(result.Raw, []byte{0xab}) || len(fake.calls) != 2 {
+		t.Fatalf("Input invalid short reply accepted: %+v, %v", result, err)
 	}
 }
 
@@ -745,5 +808,430 @@ func TestControlINRejectsOtherRequestsWithoutSyscall(t *testing.T) {
 	}
 	if !bytes.Equal(data, make([]byte, 65)) {
 		t.Fatal("refused request changed its data")
+	}
+}
+
+func TestApplyCandidateWritesInitAndReports(t *testing.T) {
+	fake := newFakeProbe(t)
+	reports, err := EncodeKeyboard(TwelveKeyThreeKnob(2), Key3, []Stroke{
+		{Modifiers: 0x01, Usage: 0x06},
+		{Modifiers: 0x01, Usage: 0x19},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := fake.apply(reports)
+	if err != nil || !result.WriteAttempted || result.ReportsWritten != len(reports) {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if fake.opened != 1 || fake.closed != 1 || len(fake.calls) != 1 ||
+		fake.detached != 1 || fake.claimed != 1 || fake.released != 1 || fake.attached != 1 {
+		t.Fatalf("unexpected operation counts: %+v", fake)
+	}
+	want := append([]Report{{}}, reports...)
+	if len(fake.written) != len(want) {
+		t.Fatalf("got %d written packets, want %d", len(fake.written), len(want))
+	}
+	for i := range want {
+		if fake.written[i] != want[i] {
+			t.Fatalf("packet %d: got %x, want %x", i, fake.written[i], want[i])
+		}
+	}
+}
+
+func TestApplyCandidateRefusesBeforeWrite(t *testing.T) {
+	validReports, err := EncodeLED(TwelveKeyThreeKnob(1), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name    string
+		reports []Report
+	}{
+		{"empty-reports", nil},
+		{"too-many-reports", make([]Report, 17)},
+		{"wrong-report-id", []Report{{0x02, 0xfe, 0x01}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := newFakeProbe(t)
+			result, err := fake.apply(tc.reports)
+			if err == nil || result.WriteAttempted || fake.opened != 0 || len(fake.written) != 0 {
+				t.Fatalf("result=%+v err=%v fake=%+v", result, err, fake)
+			}
+		})
+	}
+	if result, err := ApplyCandidate("relative", "relative", DiscoveredCandidate{}, validReports); err == nil || result.WriteAttempted {
+		t.Fatalf("accepted relative roots: %+v, %v", result, err)
+	}
+	for _, stage := range []string{"descriptor-mismatch", "drift-after-descriptor", "detach-error", "claim-error"} {
+		t.Run(stage, func(t *testing.T) {
+			fake := newFakeProbe(t)
+			switch stage {
+			case "descriptor-mismatch":
+				ioctl := fake.ops.ioctl
+				fake.ops.ioctl = func(fd int, request uintptr, transfer *usbControlTransfer) (int, error) {
+					n, err := ioctl(fd, request, transfer)
+					*(*byte)(transfer.Data) ^= 1
+					return n, err
+				}
+			case "drift-after-descriptor":
+				ioctl := fake.ops.ioctl
+				fake.ops.ioctl = func(fd int, request uintptr, transfer *usbControlTransfer) (int, error) {
+					n, err := ioctl(fd, request, transfer)
+					fake.node.Ino++
+					return n, err
+				}
+			case "detach-error":
+				fake.ops.detachDriver = func(int, int32) error { return unix.EPERM }
+			case "claim-error":
+				fake.ops.claimInterface = func(int, uint32) error { return unix.EBUSY }
+			}
+			result, err := fake.apply(validReports)
+			if err == nil || result.WriteAttempted || result.ReportsWritten != 0 || len(fake.written) != 0 || fake.closed != 1 {
+				t.Fatalf("stage=%s result=%+v err=%v fake=%+v", stage, result, err, fake)
+			}
+			if stage == "claim-error" && fake.attached != 1 {
+				t.Fatalf("claim failure did not reattach driver: %+v", fake)
+			}
+		})
+	}
+}
+
+func TestApplyCandidateWriteFailures(t *testing.T) {
+	reports, err := EncodeLED(TwelveKeyThreeKnob(1), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name           string
+		failCall       int
+		count          int
+		err            error
+		wantWritten    int
+		wantErrContain string
+	}{
+		{"init-error", 1, 0, unix.EIO, 0, "write initialisation packet"},
+		{"init-short", 1, 63, nil, 0, "wrote 63 bytes, want 64"},
+		{"report-1-error", 2, 0, unix.ETIMEDOUT, 0, "write report 1"},
+		{"report-2-short", 3, 32, nil, 1, "write report 2"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := newFakeProbe(t)
+			calls := 0
+			bulkOut := fake.ops.bulkOut
+			fake.ops.bulkOut = func(fd int, transfer *usbBulkTransfer) (int, error) {
+				calls++
+				if calls == tc.failCall {
+					return tc.count, tc.err
+				}
+				return bulkOut(fd, transfer)
+			}
+			result, err := fake.apply(reports)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErrContain) || !result.WriteAttempted || result.ReportsWritten != tc.wantWritten {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+			if fake.released != 1 || fake.attached != 1 || fake.closed != 1 {
+				t.Fatalf("cleanup missed on write failure: %+v", fake)
+			}
+		})
+	}
+}
+
+func TestUSBBulkAndIoctlGuards(t *testing.T) {
+	var bulk usbBulkTransfer
+	pointerSize := unsafe.Sizeof(bulk.Data)
+	wantBulkSize := uintptr(24)
+	if pointerSize == 4 {
+		wantBulkSize = 16
+	}
+	if unsafe.Sizeof(bulk) != wantBulkSize || unsafe.Offsetof(bulk.Ep) != 0 || unsafe.Offsetof(bulk.Len) != 4 || unsafe.Offsetof(bulk.Timeout) != 8 {
+		t.Fatalf("unexpected usbBulkTransfer ABI: size=%d", unsafe.Sizeof(bulk))
+	}
+	var report Report
+	valid := usbBulkTransfer{Ep: 0x02, Len: 64, Timeout: 1000, Data: unsafe.Pointer(&report[0])}
+	if _, err := writeBulkOut(-1, &valid); !errors.Is(err, syscall.EBADF) {
+		t.Fatalf("valid bulk transfer did not reach syscall: %v", err)
+	}
+	for _, change := range []func(*usbBulkTransfer){
+		func(b *usbBulkTransfer) { b.Ep = 0x01 },
+		func(b *usbBulkTransfer) { b.Ep = 0x82 },
+		func(b *usbBulkTransfer) { b.Len = 63 },
+		func(b *usbBulkTransfer) { b.Len = 65 },
+		func(b *usbBulkTransfer) { b.Timeout = 0 },
+		func(b *usbBulkTransfer) { b.Data = nil },
+	} {
+		invalid := valid
+		change(&invalid)
+		if _, err := writeBulkOut(-1, &invalid); err == nil || errors.Is(err, syscall.EBADF) {
+			t.Fatalf("invalid bulk transfer reached syscall: %+v, %v", invalid, err)
+		}
+	}
+	if _, err := writeBulkOut(-1, nil); err == nil {
+		t.Fatal("accepted nil bulk transfer")
+	}
+	if err := claimUSBInterface(-1, 0); err == nil || errors.Is(err, syscall.EBADF) {
+		t.Fatalf("interface 0 claim reached syscall: %v", err)
+	}
+	if err := releaseUSBInterface(-1, 0); err == nil || errors.Is(err, syscall.EBADF) {
+		t.Fatalf("interface 0 release reached syscall: %v", err)
+	}
+	if err := detachUSBDriver(-1, 0); err == nil || errors.Is(err, syscall.EBADF) {
+		t.Fatalf("interface 0 detach reached syscall: %v", err)
+	}
+	if err := attachUSBDriver(-1, 0); err == nil || errors.Is(err, syscall.EBADF) {
+		t.Fatalf("interface 0 attach reached syscall: %v", err)
+	}
+}
+
+func make514CSysfs(t *testing.T, pid uint16, hidrawName string) string {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, "1-4.1")
+	hidrawDir := filepath.Join(dir, "1-4.1:1.0", "0003:514C:8851.0001", "hidraw", hidrawName)
+	if err := os.MkdirAll(hidrawDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	desc := []byte(candidate8851USBDescriptor)
+	if pid == 0x8850 {
+		desc = []byte(candidate8850USBDescriptor)
+	}
+	for name, data := range map[string][]byte{
+		"descriptors": desc,
+		"busnum":      []byte("1\n"),
+		"devnum":      []byte("25\n"),
+		"dev":         []byte("189:24\n"),
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hidDir := filepath.Dir(filepath.Dir(hidrawDir))
+	if err := os.WriteFile(filepath.Join(hidDir, "report_descriptor"), syntheticProbeReportDescriptor(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hidrawDir, "dev"), []byte("241:7\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func TestProbeAndApply514CHidraw(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		pid               uint16
+		keys, knobs, kind int
+		reportCount       int
+		wantFA            [5]byte
+	}{
+		{"514c:8851-kind0", 0x8851, 4, 1, 0, 24, [5]byte{0x03, 0xfa, 0x0f, 0x03, 0x01}},
+		{"514c:8850-kind11", 0x8850, 12, 4, 11, 25, [5]byte{0x03, 0xfa, 0x19, 0x00, 0x01}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := make514CSysfs(t, tc.pid, "hidraw7")
+			candidates, err := DiscoverCandidates(root)
+			if err != nil || len(candidates) != 1 || candidates[0].VID != 0x514c || candidates[0].PID != tc.pid {
+				t.Fatalf("discover: %+v, %v", candidates, err)
+			}
+			candidate := candidates[0]
+			ops := systemProbeOps()
+			node := unix.Stat_t{Mode: unix.S_IFCHR | 0o600, Dev: 3, Ino: 200, Rdev: unix.Mkdev(241, 7)}
+			opened, closed := 0, 0
+			var txReports [][65]byte
+			readIndex := 0
+			ops.lstat = func(path string, st *unix.Stat_t) error {
+				if path != "/dev/hidraw7" {
+					t.Fatalf("unexpected hidraw lstat path: %s", path)
+				}
+				*st = node
+				return nil
+			}
+			ops.open = func(path string, flags int, mode uint32) (int, error) {
+				opened++
+				if path != "/dev/hidraw7" || flags != unix.O_RDWR|unix.O_NOFOLLOW|unix.O_CLOEXEC || mode != 0 {
+					t.Fatalf("unsafe hidraw open: %s %#x %#x", path, flags, mode)
+				}
+				return 88, nil
+			}
+			ops.fstat = func(fd int, st *unix.Stat_t) error {
+				if fd != 88 {
+					t.Fatalf("unexpected fd: %d", fd)
+				}
+				*st = node
+				return nil
+			}
+			ops.close = func(fd int) error {
+				if fd != 88 {
+					t.Fatalf("unexpected close fd: %d", fd)
+				}
+				closed++
+				return nil
+			}
+			ops.writeHidraw = func(fd int, data []byte) (int, error) {
+				if fd != 88 || len(data) != 65 || data[0] != 0x03 {
+					t.Fatalf("invalid hidraw write: fd=%d len=%d", fd, len(data))
+				}
+				var buf [65]byte
+				copy(buf[:], data)
+				txReports = append(txReports, buf)
+				return 65, nil
+			}
+			ops.readHidraw = func(fd int, data []byte, timeoutMs int) (int, error) {
+				if fd != 88 || len(data) != 65 || timeoutMs != 1000 {
+					t.Fatalf("invalid hidraw read: fd=%d len=%d timeout=%d", fd, len(data), timeoutMs)
+				}
+				clear(data)
+				readIndex++
+				if readIndex == 1 {
+					data[0] = 0x03
+					data[1] = 0xfb
+					data[2] = byte(tc.keys & 255)
+					data[3] = byte(tc.knobs & 255)
+					data[4] = byte(tc.kind & 255)
+					return 65, nil
+				}
+				slot := byte((readIndex - 1) & 255)
+				data[0] = 0x03
+				data[1] = 0xfa
+				data[2] = slot
+				data[3] = 1
+				data[4] = 1
+				if tc.kind < 10 {
+					data[10] = 1
+					data[11] = 0
+					data[12] = 0x04
+				} else {
+					data[6] = 1
+					data[9] = 0x04
+				}
+				return 65, nil
+			}
+			probed, err := ops.probe(root, "/dev/bus/usb", candidate)
+			if err != nil || probed.Status != ProbeRawReport || probed.Layout == nil {
+				t.Fatalf("probe514C: %+v, %v", probed, err)
+			}
+			if probed.Layout.Keys != tc.keys || probed.Layout.Knobs != tc.knobs || probed.Layout.Kind != tc.kind {
+				t.Fatalf("wrong layout: %+v", probed.Layout)
+			}
+			if len(txReports) != 2 || txReports[0][1] != 0xfb || !bytes.Equal(txReports[1][:5], tc.wantFA[:]) {
+				t.Fatalf("unexpected probe TX: %x", txReports)
+			}
+			b1 := probed.Layout.Bindings[1]
+			if b1.ActionType != SlotActionKeyboard || len(b1.Strokes) != 1 || b1.Strokes[0] != (Stroke{Modifiers: 0, Usage: 0x04}) {
+				t.Fatalf("wrong slot 1 binding: %+v", b1)
+			}
+
+			txReports = nil
+			profile := K884xProfile(tc.pid, tc.kind, 1)
+			reports, err := EncodeKeyboard(profile, Key1, []Stroke{{Modifiers: 0x01, Usage: 0x06}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			applied, err := ops.apply(root, "/dev/bus/usb", candidate, reports)
+			if err != nil || !applied.WriteAttempted || applied.ReportsWritten != len(reports) || len(txReports) != len(reports) {
+				t.Fatalf("apply514C: %+v, %v, tx=%d", applied, err, len(txReports))
+			}
+			if opened != 2 || closed != 2 {
+				t.Fatalf("opens=%d closes=%d", opened, closed)
+			}
+		})
+	}
+}
+
+func TestDecodeFASlotKindLt10AndGe10(t *testing.T) {
+	var rLtMod [65]byte
+	rLtMod[0], rLtMod[1], rLtMod[2], rLtMod[3], rLtMod[4] = 0x03, 0xfa, 1, 1, 1
+	rLtMod[10], rLtMod[11], rLtMod[12] = 0, 0x05, 0x00
+	if b := DecodeFASlotKindLt10(rLtMod[:]); len(b.Strokes) != 1 || b.Strokes[0] != (Stroke{Modifiers: 0x05, Usage: 0}) {
+		t.Fatalf("lt10 mod-only: %+v", b)
+	}
+
+	var rLtMedia [65]byte
+	rLtMedia[0], rLtMedia[1], rLtMedia[2], rLtMedia[3], rLtMedia[4] = 0x03, 0xfa, 16, 1, 2
+	rLtMedia[11], rLtMedia[12] = 0xe9, 0x00
+	if b := DecodeFASlotKindLt10(rLtMedia[:]); b.MediaUsage != 0x00e9 {
+		t.Fatalf("lt10 media: %+v", b)
+	}
+
+	var rLtMouse [65]byte
+	rLtMouse[0], rLtMouse[1], rLtMouse[2], rLtMouse[3], rLtMouse[4] = 0x03, 0xfa, 17, 1, 3
+	rLtMouse[11], rLtMouse[12], rLtMouse[13], rLtMouse[14], rLtMouse[15] = 0x01, 0x02, 0xfe, 0x03, 0x00
+	if b := DecodeFASlotKindLt10(rLtMouse[:]); b.Mouse.Action != MouseDrag || b.Mouse.Buttons != MouseRight || b.Mouse.DX != -2 || b.Mouse.DY != 3 || b.Mouse.Modifier != MouseCtrl {
+		t.Fatalf("lt10 mouse: %+v", b)
+	}
+
+	var rGeKey [65]byte
+	rGeKey[0], rGeKey[1], rGeKey[2], rGeKey[3], rGeKey[4], rGeKey[6] = 0x03, 0xfa, 13, 1, 1, 4
+	rGeKey[9], rGeKey[12], rGeKey[15], rGeKey[18] = 0xf1, 0xf2, 0x06, 0xf1
+	bGe := DecodeFASlotKindGe10(rGeKey[:])
+	wantStrokes := []Stroke{{Modifiers: 0x03, Usage: 0x06}, {Modifiers: 0x01, Usage: 0}}
+	if !bytes.Equal(rGeKey[:2], []byte{0x03, 0xfa}) || len(bGe.Strokes) != 2 || bGe.Strokes[0] != wantStrokes[0] || bGe.Strokes[1] != wantStrokes[1] {
+		t.Fatalf("ge10 strokes: %+v", bGe)
+	}
+
+	var rGeMedia [65]byte
+	rGeMedia[0], rGeMedia[1], rGeMedia[2], rGeMedia[3], rGeMedia[4] = 0x03, 0xfa, 14, 1, 2
+	rGeMedia[9], rGeMedia[12] = 0x92, 0x01
+	if b := DecodeFASlotKindGe10(rGeMedia[:]); b.MediaUsage != 0x0192 {
+		t.Fatalf("ge10 media: %+v", b)
+	}
+
+	var rGeMouse [65]byte
+	rGeMouse[0], rGeMouse[1], rGeMouse[2], rGeMouse[3], rGeMouse[4] = 0x03, 0xfa, 15, 1, 3
+	rGeMouse[9], rGeMouse[12], rGeMouse[15], rGeMouse[18], rGeMouse[21] = 0xf3, 0x00, 0x00, 0x00, 0xff
+	if b := DecodeFASlotKindGe10(rGeMouse[:]); b.Mouse.Action != MouseWheel || b.Mouse.Wheel != -1 || b.Mouse.Modifier != MouseAlt {
+		t.Fatalf("ge10 mouse: %+v", b)
+	}
+}
+
+func TestDiscoverCandidatesRejectsLCKEY(t *testing.T) {
+	for _, product := range []string{"LCKEY\n", "lckey\n", "  LcKeY \n"} {
+		root := makeProbeSysfs(t)
+		if err := os.WriteFile(filepath.Join(root, "1-2.3", "product"), []byte(product), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := systemProbeOps().inspect(root, "1-2.3"); err == nil {
+			t.Fatalf("inspect accepted %q", product)
+		}
+		candidates, err := DiscoverCandidates(root)
+		if err != nil || len(candidates) != 0 {
+			t.Fatalf("DiscoverCandidates(%q): got %+v, %v", product, candidates, err)
+		}
+	}
+}
+
+func TestProbe514CWriteOnlyKindGe10FATimeout(t *testing.T) {
+	root := make514CSysfs(t, 0x8850, "hidraw7")
+	candidates, err := DiscoverCandidates(root)
+	if err != nil || len(candidates) != 1 {
+		t.Fatalf("discover: %+v, %v", candidates, err)
+	}
+	candidate := candidates[0]
+	ops := systemProbeOps()
+	node := unix.Stat_t{Mode: unix.S_IFCHR | 0o600, Dev: 3, Ino: 200, Rdev: unix.Mkdev(241, 7)}
+	ops.lstat = func(_ string, st *unix.Stat_t) error { *st = node; return nil }
+	ops.open = func(string, int, uint32) (int, error) { return 88, nil }
+	ops.fstat = func(_ int, st *unix.Stat_t) error { *st = node; return nil }
+	ops.close = func(int) error { return nil }
+	ops.writeHidraw = func(_ int, data []byte) (int, error) { return len(data), nil }
+
+	readCall := 0
+	ops.readHidraw = func(_ int, data []byte, _ int) (int, error) {
+		readCall++
+		if readCall == 1 {
+			clear(data)
+			data[0], data[1], data[2], data[3], data[4] = 0x03, 0xfb, 12, 4, 11
+			return 65, nil
+		}
+		return 0, unix.ETIMEDOUT
+	}
+	probed, err := ops.probe(root, "/dev/bus/usb", candidate)
+	if err != nil || probed.Status != ProbeRawReport || probed.Layout == nil {
+		t.Fatalf("expected fallback layout on first 0xFA timeout: %+v, %v", probed, err)
+	}
+	if probed.Layout.Keys != 12 || probed.Layout.Knobs != 4 || probed.Layout.Kind != 11 || len(probed.Layout.Bindings) != 0 {
+		t.Fatalf("unexpected fallback layout: %+v", probed.Layout)
+	}
+	if len(probed.Raw) != 65 || probed.Raw[0] != 0x03 || probed.Raw[1] != 0xfb {
+		t.Fatalf("expected rawFB preserved, got %x", probed.Raw)
 	}
 }

@@ -5,32 +5,43 @@
 Build WonKey as described in the [project overview](https://github.com/wimpysworld/WonKey/blob/main/README.md#get-started).
 Run command examples from the project root. Device examples are instructions, not permission to access hardware.
 
-[Read settings](#read-settings) · [Set the key](#set-the-key) · [Mouse, media, and multi-key actions](#mouse-media-and-multi-key-actions) · [Lighting](#lighting) · [Restore](#restore-saved-settings) · [Confirmation](#selection-and-confirmation) · [Backups](#backup-storage)
+[Read settings](#read-settings) · [Set the key](#set-the-key) · [Mouse, media, and macro actions](#mouse-media-and-macro-actions) · [Lighting](#lighting) · [Device selection](#device-selection-and-verification)
 
-Changes require a terminal, a preview, and [confirmation](#selection-and-confirmation).
-WonKey validates a new durable backup before each settings upload.
+WonKey configures supported USB macropads and mini-keyboards on Linux.
+Changes require a supported device (`0112` or `1189:8890`). WonKey validates device capabilities and descriptors before writing, shows the proposed change, and verifies all 128 configuration bytes in memory after each settings upload on devices that support readback (`0112`).
+
+## Supported devices
+
+| Device | USB ID | Controls | Supported Commands | Settings Readback |
+| --- | --- | --- | --- | --- |
+| XFKEY One Key Max (`0112`) | `af88:6688` | 1 key | `key`, `trigger`, `macro`, `mouse`, `media`, `rgb` | Full 128-byte readback |
+| CH57x Macropad (Gen 1) | `1189:8890`, `514c:8890` | Up to 12 keys, 3 knobs, 15 layers | `key`, `macro`, `mouse`, `media`, `led` | Write-only firmware |
+| CH57x Macropad (Gen 2) | `1189` / `514c` : `8830`, `8831`, `8832`, `8833`, `8840`, `8842`, `8850`, `8851` | Up to 12 keys, 4 knobs, 15 layers | `key`, `macro`, `mouse`, `media`, `led` | Layout (`0xFB`) and Layer 1 (`0xFA`) readback |
+| SayoDevice Macropad (HID v1 / v2) | `8089:0002`, `0003`, `0004`, `0005`, `0009`, `000a`, `000b`, `000c`, `000e` | Up to 12 keys, 4 knobs, 5 layers | `key`, `macro`, `mouse`, `media`, `rgb` | Key (`0x10` / `0x16`) and Light (`0x11` / `0x10`) readback |
 
 ## Read settings
 
 ```sh
-./wonkey key
-./wonkey mouse
-./wonkey media
-./wonkey multi
-./wonkey rgb
+./wonkey
 ```
 
-`key` shows a keyboard combination and trigger, or the current typed action. `mouse`, `media`, and `multi` show the current action. `rgb` shows the mode and configured colour.
-Each command shows the physical USB path, identifier, and version. They read hardware but create no files.
-For an unsupported configuration, bare `key`, `mouse`, `media`, `multi`, and `rgb` instead show an explicit unknown layout.
-They show the raw type at byte 0 and configuration bytes 0 to 15 as hexadecimal.
-They do not decode key, trigger, lighting, mouse, media, or multi-key fields from an unknown layout.
-This read-only display does not enable changes or restore. Both remain blocked before backup or upload for unsupported configurations.
-Bare `wonkey`, `wonkey --help`, and help for each command show help without device access.
+Bare `wonkey` discovers and inspects all connected supported macropads automatically without prompting for selection, sorted deterministically by USB physical path (`[1]`, `[2]`, and so on).
+On each XFKEY One Key Max (`0112`), the section heading is `[N] XFKEY One Key Max (0112)` and `wonkey` shows the physical USB path, `Supports` (`key, trigger, mouse, media, macro, rgb`), the keyboard combination and trigger (or the current typed action), and the RGB mode and configured colour.
+For an unsupported `0112` configuration, bare `wonkey` instead shows an explicit unknown layout.
+It shows the raw type at byte 0 and configuration bytes 0 to 15 as hexadecimal.
+It does not decode key, trigger, lighting, mouse, media, or macro fields from an unknown layout.
+This read-only display does not enable changes. Live writes remain blocked for unsupported configurations.
+
+On each CH57x Macropad (`1189:8890`) device, the section heading is `[N] CH57x Macropad (1189:8890)` and bare `wonkey` shows the USB path, `Supports` (`key, mouse, media, macro, led`), and `Settings   Write-only (not readable over USB)` (plus `Input hex` when a 65-byte report ID 3 reply is returned).
+The USB check requests Input report ID 3.
+Stock `1189:8890` write-only firmware returns a 1-byte `0xaa` status response to `GET_REPORT`. WonKey accepts that 1-byte `0xaa` status (exit 0) alongside 65-byte report ID 3 replies.
+When a CH57x Macropad (`1189:8890`) is selected for a write command, WonKey checks per-device capabilities first (accepting optional `[CONTROL]` in `key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right` defaulting to `key1` and `--layer <1..15>` defaulting to `1` on `key`, `macro`, `mouse`, and `media`, and rejecting `trigger`, keys outside `0x04..0x73`, `macro` options `--interval` or `--repeat`, sequences over 5 strokes, `rgb` with a hint to use `wonkey led`, and unsupported media usages), shows the proposed change, revalidates the USB and HID report descriptors, and writes the 64-byte report sequence to endpoint `0x02`.
+
+`wonkey --help` and help for each command show help without device access. Running `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, or `led` without arguments returns usage guidance without device access.
 
 ## Set the key
 
-These commands change stored key settings after confirmation:
+These commands change stored key and trigger settings:
 
 ```sh
 ./wonkey key f13
@@ -40,16 +51,18 @@ These commands change stored key settings after confirmation:
 ./wonkey key f12
 ./wonkey key ctrl+left
 ./wonkey key mute
-./wonkey key f13 --on release
-./wonkey key enter --on press
+./wonkey key key2 f13
+./wonkey trigger release
+./wonkey trigger press
 ```
 
 A key expression is the complete combination. `key f13` means **<kbd>F13</kbd> without modifiers**, not <kbd>F13</kbd> with the previous modifiers.
 
-Use exactly one base key from the [supported key names](#supported-key-names).
-Names cover letters, digits, function keys, punctuation keys, navigation, keypad keys, and defined keyboard usages through `0x91`.
+Use `wonkey key [CONTROL] <COMBINATION> [--layer N] [--device N]` with one base key from the [supported key names](#supported-key-names).
+On CH57x Macropad (`1189:8890`), `[CONTROL]` accepts `key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, or `knob1-left`..`knob3-right` (defaulting to `key1`), and `--layer` accepts `1..15` (defaulting to `1`). On single-key XFKEY One Key Max (`0112`), `[CONTROL]` and `--layer` are rejected (`XFKEY One Key Max (0112) has a single key and does not support ...` / `XFKEY One Key Max (0112) does not support --layer`).
+Names cover letters, digits, function keys, punctuation keys, navigation, keypad keys, and defined keyboard usages through `0x91` on `0112` (or `0x04..0x73` on `1189:8890`).
 Use names such as `semicolon` and `keypadplus`, not punctuation symbols or raw usage numbers.
-The `key` command does not accept mouse or consumer media names. Macros and right-hand modifiers remain unsupported.
+The `key` command does not accept mouse or consumer media names, or a `--on` flag. Multi-stroke sequences use `macro`, and right-hand modifiers remain unsupported.
 Prefix modifiers with `+`: `ctrl`, `shift`, `alt`, and `super`, each at most once.
 `super` is the <kbd>Super</kbd>/<kbd>Windows</kbd>/<kbd>Command</kbd> modifier. Put the base key last. Names ignore letter case.
 
@@ -58,49 +71,57 @@ Names select USB Human Interface Device (HID) keyboard usages, not guaranteed te
 `mute`, `volumeup`, and `volumedown` select keyboard-page usages, not consumer-page media commands.
 `power` selects the keyboard Power usage. The host determines its effect.
 
-`--on` accepts `press`, `release`, or `both`. Omit it to preserve a keyboard trigger. When replacing another action, the default is `press`.
-It requires a key expression, so `key --on release` is rejected.
-Repeated `--on`, repeated modifiers, unsupported keys, and extra arguments are rejected before device access.
-Key changes preserve lighting and unrelated bytes. Conversion to or from a keyboard action with `both` is rejected because separate release fields remain uncertain.
+`key <COMBINATION>` preserves an existing keyboard trigger on `0112`, or defaults to `press` when replacing another action.
+Use `wonkey trigger <press|release|both> [--device N]` on `0112` to change when the configured keyboard key fires; `trigger` requires a keyboard key to be configured on `0112` and is rejected on `1189:8890`.
+Repeated modifiers, unsupported keys, and extra arguments are rejected before device access.
+Key and trigger changes preserve lighting and unrelated bytes. Conversion to or from a keyboard action with `both` is rejected because separate release fields remain uncertain.
 
-Hardware tests confirmed <kbd>F13</kbd> events and persistence, as recorded in [hardware verification](protocol#hardware-verification).
+Hardware tests confirmed <kbd>F13</kbd> events and persistence on XFKEY One Key Max (`0112`) and `key1`..`key3` key bindings on a 3-key, 1-knob CH57x Macropad (`1189:8890`), as recorded in [hardware verification](protocol#hardware-verification).
 All other selectable keys remain hardware-unverified. The captured descriptor confirms that the added usages fit, not that firmware executes them.
 Desktop keymaps can show different symbols for function keys. Check the key name in your target shortcut editor.
 
-## Mouse, media, and multi-key actions
+## Mouse, media, and macro actions
 
-Each command changes the complete action after confirmation. Omit its action and options to read the current action without a backup.
+Each command changes the complete action on a supported device (`0112` or `1189:8890`). Run `./wonkey` without arguments to read the current action and lighting.
 
 | Command | Example | Input and limits |
 |---|---|---|
-| `mouse` | `./wonkey mouse left+right --x=-20 --y 10 --wheel -1` | Use `left`, `right`, `middle`, or a `+` combination without repeats. Use `none` alone for no button, or `wheelup` or `wheeldown` alone for one tick. `--x`, `--y`, and `--wheel` take integers from `-127` to `127`; omitted values are zero. Do not combine a wheel name with `--wheel`. |
-| `media` | `./wonkey media playpause` | Use a name below or `0xHHHH` with exactly four hexadecimal digits. The usage must be `0x0001` to `0x023c`. |
-| `multi` | `./wonkey multi a,f13,enter --interval 50 --repeat 2` | Use 1 to 115 comma-separated base key names from [supported key names](#supported-key-names). No modifiers or raw usage numbers. `--interval` takes 1 to 65535 milliseconds (default 50). `--repeat` takes 1 to 255 (default 1). |
+| `mouse` | `./wonkey mouse left+right --x=-20 --y 10 --wheel -1` | Syntax: `wonkey mouse [CONTROL] <BUTTONS> [--x N] [--y N] [--wheel N] [--layer N] [--device N]`. Use `left`, `right`, `middle`, or a `+` combination without repeats. Use `none` alone for no button, or `wheelup` or `wheeldown` alone for one tick. `--x`, `--y`, and `--wheel` take integers from `-127` to `127`; omitted values are zero. Do not combine a wheel name with `--wheel`. |
+| `media` | `./wonkey media playpause`, `./wonkey media knob-right volumeup` | Syntax: `wonkey media [CONTROL] <ACTION\|0xHHHH> [--layer N] [--device N]`. Use a name below or `0xHHHH` with exactly four hexadecimal digits. The usage must be `0x0001` to `0x023c` on `0112` (or one of the CH57x-supported media usages on `1189:8890`). |
+| `macro` | `./wonkey macro a,f13,enter --interval 50 --repeat 2`, `./wonkey macro key3 ctrl+c,ctrl+v --layer 2` | Syntax: `wonkey macro [CONTROL] <STROKE[,STROKE...]> [--interval MS] [--repeat COUNT] [--layer N] [--device N]`. Replaces `multi`. On `0112`, use 1 to 115 comma-separated base key names from [supported key names](#supported-key-names) without modifiers or raw usage numbers; `--interval` takes 1 to 65535 milliseconds (default 50) and `--repeat` takes 1 to 255 (default 1). On `1189:8890`, use 1 to 5 comma-separated strokes (`0x04..0x73`) including optional per-stroke modifiers such as `ctrl+c,ctrl+v`, without `--interval` or `--repeat`. |
+
+On `1189:8890`, `mouse`, `media`, and `macro` accept an optional `[CONTROL]` (`key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right`, defaulting to `key1`) before the action argument and `--layer <1..15>` (defaulting to `1`). On single-key `0112` devices, `[CONTROL]` and `--layer` are rejected (`XFKEY One Key Max (0112) has a single key and does not support ...` / `XFKEY One Key Max (0112) does not support --layer`).
 
 Media names ignore case: `play`, `pause`, `record`, `fastforward`, `rewind`, `next`, `prev`, `previous`, `stop`, `eject`, `playpause`, `mute`, `volumeup`, `volumedown`, `calculator`, `mycomputer`, `browser`, `email`, `search`, `home`, `back`, `forward`, `refresh`, and `bookmarks`.
 `prev` and `previous` select the same usage. A raw usage within the bound does not prove that the device or host supports its effect.
-Media, mouse, and multi-key actions replace the complete current action, not only one field.
+Media, mouse, and macro actions replace the complete current action, not only one field.
 The `media` command uses HID consumer page `0x0c`. In contrast, `key mute` uses keyboard page `0x07`.
 
 Mouse values are signed relative movement, not pointer positions. `wheelup` means `+1` and `wheeldown` means `-1`.
-The multi-key limit stops at configuration byte 119, so bytes 120 to 123 remain unchanged.
+On `0112`, the `macro` key limit stops at configuration byte 119, so bytes 120 to 123 remain unchanged.
 The options accept `--name VALUE` or `--name=VALUE` and each option can appear once. Repeated names, invalid values, and extra actions fail before device access.
-See [wire layouts and evidence](protocol#action-layouts) for the stored fields. Hardware effects and persistence for these three actions remain unverified.
+See [wire layouts and evidence](protocol#action-layouts) for the stored fields. Hardware checks confirmed `knob-left`, `knob-right`, and `knob-press` media volume controls on a 3-key, 1-knob CH57x Macropad (`1189:8890`); other mouse, media, and macro actions remain hardware-unverified.
 
 ## Lighting
 
-These commands change stored lighting settings after confirmation:
+These commands change or validate lighting settings:
 
 ```sh
 ./wonkey rgb static 0000ff
 ./wonkey rgb static
 ./wonkey rgb off
+./wonkey led reactive
+./wonkey led cycle
+./wonkey led off
 ```
 
+`wonkey rgb <MODE> [RGB] [--device N]` configures RGB lighting on XFKEY One Key Max (`0112`) and is rejected on `1189:8890` with a hint to use `wonkey led`.
 `static`, `breathe`, `flash`, `held`, and `toggle` accept an optional colour: exactly six hexadecimal digits without `#`.
 `0000ff` is blue. Omit the colour to preserve all three RGB bytes.
 `cycle-slow`, `cycle-fast`, and `off` do not use a colour. They reject supplied colours before device access and preserve the stored colour.
 RGB commands preserve the current typed action and unrelated bytes.
+
+`wonkey led <MODE> [--device N]` configures LED backlight mode (`off`, `reactive`, or `cycle`, encoded as mode indices `0`, `1`, and `2`) on CH57x Macropad (`1189:8890`) and is rejected on `0112` with a hint to use `wonkey rgb`. Hardware checks on a 3-key, 1-knob CH57x Macropad (`1189:8890`) confirmed `off`, `reactive`, and `cycle` backlight modes.
 
 | Mode | Description | Stored byte |
 |---|---|---|
@@ -114,72 +135,23 @@ RGB commands preserve the current typed action and unrelated bytes.
 | `off` | Lights off | `06` |
 
 Descriptions reflect user observations, not automated hardware verification. See [protocol evidence](protocol#evidence) for the original vendor labels.
-Old public names are not accepted. Existing captures remain compatible. WonKey has no brightness or speed option.
+Old public names are not accepted. WonKey has no brightness or speed option.
 
-## Restore saved settings
+## Device selection and verification
 
-These commands restore supported settings after selection and confirmation:
+WonKey enumerates compatible XFKEY One Key Max (`0112`) and CH57x Macropad (`1189:8890`) devices together and sorts them deterministically by USB physical path (`1-1.2` before `1-1.10` before `2-1`), assigning `1..N` device IDs shown as `[1]`, `[2]`, and so on.
+Bare `wonkey` inspects all compatible devices without modifying them.
+For changes (`key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, and `led`), one compatible device is selected automatically as `[1]`.
+When multiple compatible devices are connected, pass `--device <N>` (or `--device=<N>`) to select the target device; omitting `--device` or passing an out-of-range number fails before opening any device node.
 
-```sh
-./wonkey restore
-./wonkey restore /path/to/capture-directory
-```
+When applying a change, WonKey inspects the selected device, shows its `[N]` heading, and prints the proposed change (`write-only -> <value>` on `1189:8890`, or current-to-proposed values on `0112`).
+On `0112`, if the requested setting already matches the current configuration, WonKey skips the write without sending a settings upload or commit.
 
-Bare `restore` lists compatible captures from automatic storage, newest first. Captures whose supported settings already match are excluded.
-Select a capture even when the list contains only one entry. Each entry shows its settings and one short local date and time.
-Blank input, EOF, or an invalid capture selection cancels without a backup or settings write.
-If no eligible capture exists, WonKey stops without an upload.
+Before writing to `0112`, WonKey revalidates the selected descriptors, node, physical path, identifier, and version, and performs a fresh readback to check for settings drift before upload. Any settings drift stops the transaction, including drift in unrelated bytes or drift that makes the request a no-op.
 
-An explicit directory selects one existing capture. It can be outside automatic storage, including an old or moved capture.
-The source directory does not change where WonKey saves the new backup.
-An explicit source whose supported settings already match is a no-op.
-
-Restore copies the saved keyboard, mouse, media, or multi-key action and RGB mode and colour into the current configuration.
-It preserves unrelated current bytes, including unknown bytes that differ from the capture. It clears the old action's retired active bytes on a type change or shorter sequence.
-The preview warns when other saved bytes differ and will remain unchanged. Restore cannot recover firmware, unsupported layouts, or unknown settings changed by another application.
-Conversions to or from a keyboard action with `both` are rejected because separate release fields remain uncertain.
-
-The source requires a complete `result.json`, consistent raw replies, and the exact reconstructed configuration.
-Both source and current settings must use supported layouts. Model, version, and protocol identifier must match.
-A complete backup from a failed transaction remains eligible. Restore does not require a successful apply outcome or retention ownership.
-The authentic query fixture lacks a completion record and is not a restore source.
-
-## Selection and confirmation
-
-One compatible device is selected automatically. Multiple matches require a terminal prompt with each physical path and vendor node.
-A number selects only the path displayed for this command. It is not a persistent device identifier.
-Blank, invalid, out-of-range, or incomplete selection cancels without opening a HID device.
-Without a terminal, multiple-device queries and all changes are refused before HID access.
-
-Before a change, WonKey reads current settings and shows current-to-proposed values.
-<!-- markdownlint-disable-next-line MD038 -->
-At `Save settings? [Y/n]: `, press <kbd>Enter</kbd> to accept the default Yes.
-You can also enter `y` or `yes`, ignoring letter case.
-`n`, `no`, any other answer, or EOF cancels without a backup or settings write.
-There is no bypass flag. A no-op sends no settings upload or commit and creates no backup.
-
-After confirmation, WonKey revalidates the selected descriptors, node, physical path, identifier, and version.
-It saves, reopens, and validates a new durable backup before upload. Any settings drift after preview stops the transaction.
-This check includes unrelated bytes and drift that makes the request a no-op.
-
-All 128 readback bytes must match. A failure stops without retry or rollback.
+After `AF02` upload and `AF04` commit on `0112`, WonKey reads back and compares all 128 configuration bytes in memory. On `1189:8890`, WonKey probes the device, shows the proposed change, revalidates the USB descriptors and interface 1 report descriptor, and writes the 64-byte report sequence to endpoint `0x02`. A failure stops without retry or rollback.
 A submitted write can still complete after timeout. Stop when the tool reports uncertain state.
 Persistence after reconnect and observed key/lighting effects require separate hardware checks.
-
-## Backup storage
-
-| Environment | New backup destination |
-|---|---|
-| Absolute, non-empty `XDG_STATE_HOME` | `$XDG_STATE_HOME/wonkey/captures` |
-| Unset, empty, or relative `XDG_STATE_HOME` | `$HOME/.local/state/wonkey/captures` |
-| Fallback with unset, empty, or relative `HOME` | Storage error before upload |
-
-WonKey does not expand a literal `~` or fall back to temporary storage.
-It has no custom configuration file or storage flags. `WONKEY_CAPTURE_ROOT` and `XFKEY_CAPTURE_ROOT` have no effect.
-Existing captures stay in place. Use an explicit restore source to read one outside automatic storage.
-After a successful transaction, retention keeps the newest 10 owned backups for the model and identifier.
-Do not retry a successful write because backup cleanup reports a warning.
-See [hardware safety and records](hardware#apply-safety-and-records) for durable storage details.
 
 ## Supported configuration fields
 
@@ -191,15 +163,15 @@ See [hardware safety and records](hardware#apply-safety-and-records) for durable
 | Lighting mode | 124 |
 | RGB channels | 125 to 127 |
 
-Byte 0 selects the action type: `00` keyboard, `01` mouse, `02` media, or `03` multi-key. Keyboard byte 3 must be `01`.
+Byte 0 selects the action type on `0112`: `00` keyboard, `01` mouse, `02` media, or `03` multi-key (`macro`). Keyboard byte 3 must be `01`.
 Changes accept only validated actions and RGB modes. WonKey changes active action bytes and explicit RGB fields, and preserves other bytes.
-Unknown action types, invalid fields, and unsupported special, macro, or touch layouts fail closed for changes and restore, even for RGB-only changes.
+Unknown action types, invalid fields, and unsupported special, macro (`06`), or touch layouts fail closed for changes, even for RGB-only changes.
 For exact offsets, see [action layouts](protocol#action-layouts).
 
 ### Supported key names
 
 Each row lists names in usage order. Ranges include both ends.
-Help and previews use these canonical names. Keyboard backup names use them too.
+Help and output use these canonical names.
 
 | Base key names | HID usage at byte 4 |
 |---|---|
@@ -234,7 +206,7 @@ The `nonus*`, `international*`, and `lang*` names identify usages without assumi
 The [USB HID Usage Tables](https://www.usb.org/sites/default/files/hut1_7.pdf), keyboard/keypad page `0x07`, define these values.
 The captured keyboard descriptor has a usage maximum of `0x91` and a logical maximum of `0xff`.
 WonKey rejects no-event, error, reserved, and out-of-range usages. Descriptor coverage does not prove hardware effects or persistence.
-See [protocol evidence](protocol#evidence) for upstream encoding and capture sources.
+See [protocol evidence](protocol#evidence) for upstream encoding and fixture sources.
 
 ## Output and options
 
@@ -242,7 +214,7 @@ Human output is not a machine-readable contract. Redirected output, `TERM=dumb`,
 True-colour terminals also show a configured RGB swatch. The swatch does not prove the observed LED colour.
 Output escapes control characters in external text.
 
-Public flags are `-h`/`--help`, `key --on`, `mouse --x`/`--y`/`--wheel`, and `multi --interval`/`--repeat`.
-Removed commands and flags, including `show`, `set`, `advanced`, `apply`, `plan`, `--json`, `--yes`, and `--dry-run`, fail before hardware access.
+Public flags are `-h`/`--help`, `--device`, `--layer`, `mouse --x`/`--y`/`--wheel`, and `macro --interval`/`--repeat`.
+Unknown or retired commands and flags, including `multi`, `show`, `set`, `advanced`, `apply`, `plan`, `--on`, `--report`, `--json`, `--yes`, and `--dry-run`, fail before hardware access.
 There is one executable, `wonkey`. The developer executable, protocol commands, and helper scripts are removed.
 WonKey has no arbitrary packet sender, firmware writer, reset, or bootloader command.

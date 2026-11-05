@@ -1,14 +1,11 @@
 package xfkey
 
 import (
-	"bufio"
-	"bytes"
 	"fmt"
 	"io"
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 )
 
 func supportedKeyNames() map[byte]string {
@@ -73,11 +70,16 @@ func TestSupportedKeys(t *testing.T) {
 					t.Fatalf("RGB change lost extended key or unrelated bytes: %v", err)
 				}
 			}
-			command, err := parsePublic([]string{"key", name, "--on", "release"})
-			if err != nil || !reflect.DeepEqual(command.changes, Changes{"key": usage, "modifiers": 0, "trigger": 2}) {
-				t.Fatal(command, err)
+			if _, err := parsePublic([]string{"key", name, "--on", "release"}); err == nil {
+				t.Fatalf("accepted retired --on for %s", name)
 			}
 		})
+	}
+	for name, trigger := range triggerValues {
+		command, err := parsePublic([]string{"trigger", name})
+		if err != nil || !reflect.DeepEqual(command.changes, Changes{"trigger": trigger}) {
+			t.Fatal(name, command, err)
+		}
 	}
 }
 
@@ -89,8 +91,7 @@ func TestUnsupportedKeysRemainRejected(t *testing.T) {
 		"rightshift", "rightalt", "rightsuper", "leftctrl", "playpause", "return", " space", "space ",
 	} {
 		access := publicAccess{
-			interactive: func(io.Reader) bool { t.Fatal("invalid key accessed runtime"); return false },
-			discover:    func() ([]Candidate, error) { t.Fatal("invalid key accessed devices"); return nil, nil },
+			discover: func() ([]Candidate, error) { t.Fatal("invalid key accessed devices"); return nil, nil },
 		}
 		err := runPublic([]string{"key", name}, &cliRuntime{strings.NewReader(""), io.Discard, io.Discard}, access)
 		if err == nil || ExitCode(err) != 2 {
@@ -139,53 +140,6 @@ func TestKeyAliases(t *testing.T) {
 				if got := settingName(keyValues, changes["key"]); got != canonical {
 					t.Fatalf("alias display %q, want %q", got, canonical)
 				}
-			}
-		})
-	}
-}
-
-func TestSupportedKeyRestore(t *testing.T) {
-	for usage, name := range supportedKeyNames() {
-		t.Run(name, func(t *testing.T) {
-			root := publicTestCaptureRoot(t)
-			saved := newSettingsTransport()
-			saved.current = restoreTestSettings()
-			saved.current[2], saved.current[4] = 15, usage
-			directory := restoreTestSource(t, root, "20260912-123456-0000", saved)
-			current := newSettingsTransport()
-			current.current[63] ^= 1
-			original := current.current
-			identity, err := parseIdentity(current.identity)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var out bytes.Buffer
-			source, err := chooseRestore("", identity, original, bufio.NewReader(strings.NewReader("1\n")), newHuman(&out))
-			if err != nil || source == nil || source.directory != directory || source.config != saved.current {
-				t.Fatalf("restore selection=%v error=%v", source, err)
-			}
-			if !strings.Contains(out.String(), "ctrl+shift+alt+super+"+name+" (both)") {
-				t.Fatalf("missing restore key name: %s", out.String())
-			}
-			backup := settingsDir(t)
-			changes, err := restoreChanges(source.config)
-			if err != nil {
-				t.Fatal(err)
-			}
-			result, err := applySettings(current, backup, settingsTarget(), changes, true, time.Second)
-			if err != nil || !result.ReadbackVerified || len(current.packets) != 11 {
-				t.Fatalf("restore transaction=%v error=%v", result, err)
-			}
-			want := original
-			for _, offset := range []int{1, 2, 4, 124, 125, 126, 127} {
-				want[offset] = saved.current[offset]
-			}
-			if current.current != want {
-				t.Fatal("restore lost saved settings or changed current unknown bytes")
-			}
-			_, captured, err := loadCapture(backup)
-			if err != nil || captured != original {
-				t.Fatalf("backup lost pre-restore state: %v", err)
 			}
 		})
 	}

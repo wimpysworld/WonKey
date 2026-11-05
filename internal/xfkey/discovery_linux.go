@@ -31,6 +31,7 @@ type NodeMetadata struct {
 
 type Candidate struct {
 	PhysicalPath  string       `json:"physical_path"`
+	Product       string       `json:"product,omitempty"`
 	SysfsPath     string       `json:"sysfs_path"`
 	Revision      string       `json:"revision"`
 	Compatible    bool         `json:"descriptor_match_not_model_confirmation"`

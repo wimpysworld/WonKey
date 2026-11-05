@@ -325,3 +325,83 @@ func TestActionsHaveNoSharedState(t *testing.T) {
 		})
 	}
 }
+
+func TestActionsK884xFEAndFD(t *testing.T) {
+	feProfile := K884xProfile(0x8851, 0, 1)
+	feMedia, err := EncodeMedia(feProfile, KnobLeft, MediaVolumeUp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFEMedia := []Report{
+		{0x03, 0xfe, 16, 1, 0x02, 0, 0, 0, 0, 0, 0x00, 0xe9, 0x00},
+		{0x03, 0xaa, 0xaa},
+		{0x03, 0xfd, 0xfe, 0xff},
+		{0x03, 0xaa, 0xaa},
+	}
+	if !slices.Equal(feMedia, wantFEMedia) {
+		t.Fatalf("K884xFE media:\n got %x\nwant %x", feMedia, wantFEMedia)
+	}
+
+	feMouse, err := EncodeMouse(feProfile, Key4, MouseEvent{Action: MouseWheel, Wheel: -1, Modifier: MouseCtrl})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFEMouse := []Report{
+		{0x03, 0xfe, 4, 1, 0x03, 0, 0, 0, 0, 0, 0x03, 0x01, 0x00, 0x00, 0x00, 0xff},
+		{0x03, 0xaa, 0xaa},
+		{0x03, 0xfd, 0xfe, 0xff},
+		{0x03, 0xaa, 0xaa},
+	}
+	if !slices.Equal(feMouse, wantFEMouse) {
+		t.Fatalf("K884xFE mouse:\n got %x\nwant %x", feMouse, wantFEMouse)
+	}
+
+	feLED, err := EncodeLED(feProfile, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFELED := []Report{
+		{0x03, 0xfe, 0xb0, 0x01, 0x08, 0, 0, 0, 0, 0, 0x01, 0x00, 0x04},
+		{0x03, 0xfd, 0xfe, 0xff},
+	}
+	if !slices.Equal(feLED, wantFELED) {
+		t.Fatalf("K884xFE LED:\n got %x\nwant %x", feLED, wantFELED)
+	}
+
+	fdProfile := K884xProfile(0x8850, 11, 1)
+	fdMedia, err := EncodeMedia(fdProfile, Knob4Right, MediaPlay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFDMedia := []Report{
+		{0x03, 0xfd, 15, 1, 0x02, 0x00, 0x02, 0x00, 0x00, 0xcd, 0x00, 0x00, 0x00},
+		{0x03, 0xfd, 0xfe, 0xff},
+	}
+	if !slices.Equal(fdMedia, wantFDMedia) {
+		t.Fatalf("K884xFD media:\n got %x\nwant %x", fdMedia, wantFDMedia)
+	}
+
+	fdMouse, err := EncodeMouse(fdProfile, Knob4Press, MouseEvent{Action: MouseDrag, Buttons: MouseLeft, DX: 5, DY: -3, Modifier: MouseShift})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFDMouse := []Report{
+		{0x03, 0xfd, 14, 1, 0x03, 0x01, 0x04, 0x00, 0x00, 0xf2, 0x00, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x00, 0xfd, 0x00, 0x00, 0x00},
+		{0x03, 0xfd, 0xfe, 0xff},
+	}
+	if !slices.Equal(fdMouse, wantFDMouse) {
+		t.Fatalf("K884xFD mouse:\n got %x\nwant %x", fdMouse, wantFDMouse)
+	}
+
+	fdLED, err := EncodeLED(fdProfile, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFDLED := []Report{
+		{0x03, 0xfe, 0xb0, 0x00, 0x01},
+		{0x03, 0xfd, 0xfe, 0xff},
+	}
+	if !slices.Equal(fdLED, wantFDLED) {
+		t.Fatalf("K884xFD LED:\n got %x\nwant %x", fdLED, wantFDLED)
+	}
+}

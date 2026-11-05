@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -24,15 +22,9 @@ func TestApplyTypedActions(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				dir := settingsDir(t)
-				result, err := applySettings(f, dir, settingsTarget(), changes, true, time.Second)
+				result, err := applySettings(f, settingsTarget(), changes, true, time.Second)
 				if err != nil || result.PersistenceVerified || f.current != wanted {
 					t.Fatal(result, err)
-				}
-				checkOutcome(t, dir, result)
-				_, backup, err := loadCapture(dir)
-				if err != nil || backup != original {
-					t.Fatal("invalid durable backup", err)
 				}
 				if noOp {
 					checkNoUpload(t, f)
@@ -67,7 +59,7 @@ func TestApplyMultiSpansAllUploadChunks(t *testing.T) {
 	f := newSettingsTransport()
 	original := f.current
 	action := MultiAction{Interval: 65535, Repeat: 255, Keys: bytes.Repeat([]byte{0x91}, 115)}
-	result, err := applySettings(f, settingsDir(t), settingsTarget(), ActionChanges{Action: action}, true, time.Second)
+	result, err := applySettings(f, settingsTarget(), ActionChanges{Action: action}, true, time.Second)
 	if err != nil || !result.ReadbackVerified || !bytes.Equal(f.current[5:120], action.Keys) || !bytes.Equal(f.current[120:], original[120:]) {
 		t.Fatal(result, err)
 	}
@@ -83,8 +75,7 @@ func TestApplyTypedActionFailures(t *testing.T) {
 			t.Run(fmt.Sprintf("%d/%s", at, failure), func(t *testing.T) {
 				f := newSettingsTransport()
 				f.failAt, f.failure = at, failure
-				dir := settingsDir(t)
-				result, err := applySettings(f, dir, settingsTarget(), changes, true, 5*time.Millisecond)
+				result, err := applySettings(f, settingsTarget(), changes, true, 5*time.Millisecond)
 				if err == nil || result.ReadbackVerified {
 					t.Fatal("accepted failure", result, err)
 				}
@@ -95,13 +86,12 @@ func TestApplyTypedActionFailures(t *testing.T) {
 				if len(f.packets) != want {
 					t.Fatal("continued after failure", len(f.packets), want)
 				}
-				checkOutcome(t, dir, result)
 			})
 		}
 	}
 	f := newSettingsTransport()
 	f.mismatch = true
-	result, err := applySettings(f, settingsDir(t), settingsTarget(), changes, true, time.Second)
+	result, err := applySettings(f, settingsTarget(), changes, true, time.Second)
 	if err == nil || result.Outcome != "readback-mismatch" || !result.CommitEcho || result.ReadbackVerified {
 		t.Fatal("accepted changed unknown byte", result, err)
 	}
@@ -129,7 +119,7 @@ func TestApplyTypedActionGuards(t *testing.T) {
 			if test == "ambiguous-current" {
 				f.current[1] = 3
 			}
-			result, err := applySettingsConfirmed(f, settingsDir(t), target, request, test != "write-disabled", time.Second, func(configuration, configuration, string) (bool, error) {
+			result, err := applySettingsConfirmed(f, target, request, test != "write-disabled", time.Second, func(configuration, configuration) (bool, error) {
 				if test == "confirm-error" {
 					return false, errors.New("settings drift")
 				}
@@ -148,42 +138,4 @@ func TestApplyTypedActionGuards(t *testing.T) {
 			checkNoUpload(t, f)
 		})
 	}
-}
-
-func TestApplyTypedActionBackupFailures(t *testing.T) {
-	changes := ActionChanges{Action: MultiAction{Interval: 1, Repeat: 1, Keys: []byte{4}}}
-	for _, name := range []string{"reply-01.bin", "reply-06.bin", "reply-07.bin", "reply-08.bin", "configuration.bin", ".result.json.pending", "result.json", "backup.json", "plan.json", "intended-configuration.bin", "write-1-request.bin"} {
-		t.Run(name, func(t *testing.T) {
-			f := newSettingsTransport()
-			dir := settingsDir(t)
-			if err := saveExclusive(dir, name, []byte("keep")); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := applySettings(f, dir, settingsTarget(), changes, true, time.Second); err == nil {
-				t.Fatal("ignored backup failure")
-			}
-			checkNoUpload(t, f)
-			raw, err := os.ReadFile(filepath.Join(dir, name))
-			if err != nil || string(raw) != "keep" {
-				t.Fatal("overwrote existing record", err)
-			}
-		})
-	}
-	t.Run("reopen-corrupt-backup", func(t *testing.T) {
-		f := newSettingsTransport()
-		dir := settingsDir(t)
-		capture := func(transport queryTransport, dir string, readback bool) (CaptureResult, error) {
-			result, err := captureQueries(transport, dir, readback)
-			if err != nil {
-				return result, err
-			}
-			err = os.WriteFile(filepath.Join(dir, "configuration.bin"), []byte("corrupt"), 0o600)
-			return result, err
-		}
-		_, err := applySettingsWithCapture(f, dir, settingsTarget(), changes, true, time.Second, func(configuration, configuration, string) (bool, error) { return true, nil }, capture)
-		if err == nil {
-			t.Fatal("accepted corrupt reopened backup")
-		}
-		checkNoUpload(t, f)
-	})
 }

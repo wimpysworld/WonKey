@@ -2,6 +2,7 @@ package ch57
 
 import (
 	"bytes"
+	"encoding/binary"
 	"strings"
 	"testing"
 )
@@ -70,7 +71,6 @@ func TestMatchCandidateRejectsUnknownStructure(t *testing.T) {
 	}{
 		{"wrong vendor", func(d []byte) []byte { d[8]++; return d }},
 		{"wrong product", func(d []byte) []byte { d[10]++; return d }},
-		{"unknown revision", func(d []byte) []byte { d[12]++; return d }},
 		{"multiple configurations", func(d []byte) []byte { d[17] = 2; return d }},
 		{"wrong total length", func(d []byte) []byte { d[20]--; return d }},
 		{"unknown interface count", func(d []byte) []byte { d[22] = 3; return d }},
@@ -105,24 +105,36 @@ func TestMatchCandidateRejectsUnknownStructure(t *testing.T) {
 	}
 }
 
-func TestMatchCandidateRejectsEveryTruncationAndByteChange(t *testing.T) {
-	d := syntheticCandidateDescriptors()
-	for length := range len(d) {
-		if got, err := MatchCandidate("1-2", d[:length]); err == nil || got != (Candidate{}) {
-			t.Fatalf("accepted truncation to %d bytes", length)
+func TestMatchCandidateRejectsEveryTruncation(t *testing.T) {
+	for _, d := range [][]byte{
+		syntheticCandidateDescriptors(),
+		[]byte(candidate8851USBDescriptor),
+	} {
+		for length := range len(d) {
+			if got, err := MatchCandidate("1-2", d[:length]); err == nil || got != (Candidate{}) {
+				t.Fatalf("accepted truncation to %d bytes", length)
+			}
 		}
 	}
-	for offset, original := range d {
-		for value := range 256 {
-			if byte(value) == original {
-				continue
-			}
-			d[offset] = byte(value)
-			if got, err := MatchCandidate("1-2", d); err == nil || got != (Candidate{}) {
-				t.Fatalf("accepted byte %d changed to %02x", offset, value)
+}
+
+func TestMatchCandidateExpandedFamilies(t *testing.T) {
+	for _, vid := range []uint16{0x1189, 0x514c} {
+		d8890 := syntheticCandidateDescriptors()
+		binary.LittleEndian.PutUint16(d8890[8:10], vid)
+		got, err := MatchCandidate("1-2", d8890)
+		if err != nil || got.VID != vid || got.PID != 0x8890 || !IsK8890Family(got.VID, got.PID) {
+			t.Fatalf("k8890 %04x:8890: got %+v, %v", vid, got, err)
+		}
+		for _, pid := range []uint16{0x8830, 0x8831, 0x8832, 0x8833, 0x8840, 0x8842, 0x8850, 0x8851} {
+			d := []byte(candidate8851USBDescriptor)
+			binary.LittleEndian.PutUint16(d[8:10], vid)
+			binary.LittleEndian.PutUint16(d[10:12], pid)
+			got, err := MatchCandidate("1-4.1", d)
+			if err != nil || got.VID != vid || got.PID != pid || !IsK884xFamily(got.VID, got.PID) {
+				t.Fatalf("k884x %04x:%04x: got %+v, %v", vid, pid, got, err)
 			}
 		}
-		d[offset] = original
 	}
 }
 
@@ -146,8 +158,43 @@ func TestMatchCandidatePhysicalPath(t *testing.T) {
 	}
 }
 
+func TestMatchCandidate514C(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		descriptors []byte
+		pid         uint16
+		ep0, ep1    byte
+	}{
+		{"514c:8851", []byte(candidate8851USBDescriptor), 0x8851, 0x82, 0x81},
+		{"514c:8850", []byte(candidate8850USBDescriptor), 0x8850, 0x84, 0x82},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := MatchCandidate("1-4.1", tc.descriptors)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := Candidate{
+				PhysicalPath:  "1-4.1",
+				VID:           0x514c,
+				PID:           tc.pid,
+				Revision:      0x0100,
+				Configuration: 1,
+				Interfaces: [4]CandidateInterface{
+					{0, 0, 3, 0, 0, 0x0111, 36, CandidateEndpoint{tc.ep0, 3, 64, 1}},
+					{1, 0, 3, 1, 1, 0x0201, 207, CandidateEndpoint{tc.ep1, 3, 16, 1}},
+				},
+			}
+			if got != want {
+				t.Fatalf("got %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
 func FuzzMatchCandidate(f *testing.F) {
 	f.Add("1-2", syntheticCandidateDescriptors())
+	f.Add("1-2", []byte(candidate8851USBDescriptor))
+	f.Add("1-2", []byte(candidate8850USBDescriptor))
 	f.Add("1-2", []byte{})
 	f.Add("hidraw0", syntheticCandidateDescriptors())
 	f.Fuzz(func(t *testing.T, path string, descriptors []byte) {
@@ -158,8 +205,9 @@ func FuzzMatchCandidate(f *testing.F) {
 			}
 			return
 		}
-		if !bytes.Equal(descriptors, syntheticCandidateDescriptors()) || got.PhysicalPath != path {
-			t.Fatal("accepted an unknown structure or changed the physical path")
+		validFamily := IsK8890Family(got.VID, got.PID) || IsK884xFamily(got.VID, got.PID)
+		if !validFamily || got.PhysicalPath != path || got.Configuration == 0 {
+			t.Fatal("accepted an unknown family or changed the physical path")
 		}
 	})
 }

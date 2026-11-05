@@ -39,6 +39,12 @@ func EncodeMedia(profile Profile, control Control, usage MediaUsage) ([]Report, 
 	default:
 		return nil, fmt.Errorf("unsupported CH57 media usage %#x", usage)
 	}
+	switch profile.Variant {
+	case K884xFE:
+		return k884xFEReports(Report{0x03, 0xfe, slot, layer, 0x02, 0, 0, 0, 0, 0, 0x00, byte(usage & 255), byte((usage >> 8) & 255)}), nil
+	case K884xFD:
+		return k884xFDReports(Report{0x03, 0xfd, slot, layer, 0x02, 0x00, 0x02, 0x00, 0x00, byte(usage & 255), 0x00, 0x00, byte((usage >> 8) & 255)}), nil
+	}
 	return bindingReports(layer, Report{0x03, slot, (layer << 4) | 0x02, byte(usage & 255), byte((usage >> 8) & 255)}), nil
 }
 
@@ -96,6 +102,27 @@ func EncodeMouse(profile Profile, control Control, event MouseEvent) ([]Report, 
 	buttons, dx, dy, wheel, err := encodeMousePayload(event)
 	if err != nil {
 		return nil, err
+	}
+	switch profile.Variant {
+	case K884xFE:
+		sub := byte(0x01)
+		if wheel != 0 {
+			sub = 0x03
+		} else if dx != 0 || dy != 0 {
+			sub = 0x05
+		}
+		return k884xFEReports(Report{0x03, 0xfe, slot, layer, 0x03, 0, 0, 0, 0, 0, sub, byte(event.Modifier & 255), buttons, dx, dy, wheel}), nil
+	case K884xFD:
+		var modByte byte
+		switch event.Modifier {
+		case MouseCtrl:
+			modByte = 0xf1
+		case MouseShift:
+			modByte = 0xf2
+		case MouseAlt:
+			modByte = 0xf3
+		}
+		return k884xFDReports(Report{0x03, 0xfd, slot, layer, 0x03, 0x01, 0x04, 0x00, 0x00, modByte, 0x00, 0x00, buttons, 0x00, 0x00, dx, 0x00, 0x00, dy, 0x00, 0x00, wheel}), nil
 	}
 	return bindingReports(layer, Report{0x03, slot, (layer << 4) | 0x03, buttons, dx, dy, wheel, byte(event.Modifier & 255)}), nil
 }
@@ -177,6 +204,12 @@ func EncodeLED(profile Profile, mode int) ([]Report, error) {
 	}
 	if mode < 0 || mode > 255 {
 		return nil, fmt.Errorf("LED mode requires an index 0..255")
+	}
+	switch profile.Variant {
+	case K884xFE:
+		return k884xFDReports(Report{0x03, 0xfe, 0xb0, 0x01, 0x08, 0, 0, 0, 0, 0, 0x01, 0x00, byte(mode & 255)}), nil
+	case K884xFD:
+		return k884xFDReports(Report{0x03, 0xfe, 0xb0, 0x00, byte(mode & 255)}), nil
 	}
 	return []Report{
 		{0x03, 0xa1, 0x01},

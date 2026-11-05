@@ -1,9 +1,22 @@
 package xfkey
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestSharedSettingsAcceptColourForEveryMode(t *testing.T) {
+	for mode, value := range lightingValues {
+		t.Run(mode, func(t *testing.T) {
+			changes, err := parseSettings("", "", "", mode, "#1234ab")
+			want := Changes{"rgb-mode": value, "red": 0x12, "green": 0x34, "blue": 0xab}
+			if err != nil || !reflect.DeepEqual(changes, want) {
+				t.Fatal(changes, err)
+			}
+		})
+	}
+}
 
 func TestSettingsValidationOrderAndFriendlyValues(t *testing.T) {
 	changes, err := parseSettings("f13", "release", "ctrl,shift", "static", "#0000ff")

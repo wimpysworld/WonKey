@@ -10,37 +10,47 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"wonkey/internal/ch57"
 )
 
 func TestPublicActionParser(t *testing.T) {
 	for _, tc := range []struct {
-		args []string
-		want Action
+		args        []string
+		want        Action
+		wantControl ch57.Control
+		wantLayer   int
+		wantDevice  int
 	}{
-		{[]string{"mouse"}, nil},
-		{[]string{"media"}, nil},
-		{[]string{"multi"}, nil},
-		{[]string{"mouse", "none"}, MouseAction{}},
-		{[]string{"mouse", "LEFT+right+middle", "--x", "-127", "--y=127", "--wheel", "-1"}, MouseAction{Buttons: 7, X: -127, Y: 127, Wheel: -1}},
-		{[]string{"mouse", "wheelup"}, MouseAction{Wheel: 1}},
-		{[]string{"mouse", "wheeldown", "--x=1"}, MouseAction{X: 1, Wheel: -1}},
-		{[]string{"media", "0x0001"}, MediaAction{Usage: 1}},
-		{[]string{"media", "0x023C"}, MediaAction{Usage: 0x23c}},
-		{[]string{"multi", "A,escape,arrowup,lang2"}, MultiAction{Interval: 50, Repeat: 1, Keys: []byte{4, 0x29, 0x52, 0x91}}},
-		{[]string{"multi", "f13", "--interval", "1", "--repeat=255"}, MultiAction{Interval: 1, Repeat: 255, Keys: []byte{0x68}}},
-		{[]string{"multi", strings.TrimSuffix(strings.Repeat("lang2,", 115), ","), "--interval=65535", "--repeat", "1"}, MultiAction{Interval: 65535, Repeat: 1, Keys: bytes.Repeat([]byte{0x91}, 115)}},
+		{[]string{"mouse", "none"}, MouseAction{}, ch57.Key1, 1, 0},
+		{[]string{"mouse", "knob1-press", "middle", "--layer", "2"}, MouseAction{Buttons: 4}, ch57.Knob1Press, 2, 0},
+		{[]string{"mouse", "LEFT+right+middle", "--x", "-127", "--y=127", "--wheel", "-1"}, MouseAction{Buttons: 7, X: -127, Y: 127, Wheel: -1}, ch57.Key1, 1, 0},
+		{[]string{"mouse", "wheelup"}, MouseAction{Wheel: 1}, ch57.Key1, 1, 0},
+		{[]string{"mouse", "wheeldown", "--x=1", "--device", "2"}, MouseAction{X: 1, Wheel: -1}, ch57.Key1, 1, 2},
+		{[]string{"media", "0x0001"}, MediaAction{Usage: 1}, ch57.Key1, 1, 0},
+		{[]string{"media", "knob-right", "volumeup", "--layer=15"}, MediaAction{Usage: 0xe9}, ch57.KnobRight, 15, 0},
+		{[]string{"media", "0x023C", "--device=3"}, MediaAction{Usage: 0x23c}, ch57.Key1, 1, 3},
+		{[]string{"macro", "A,escape,arrowup,lang2"}, MultiAction{Interval: 50, Repeat: 1, Keys: []byte{4, 0x29, 0x52, 0x91}}, ch57.Key1, 1, 0},
+		{[]string{"macro", "key3", "a,b", "--layer", "4"}, MultiAction{Interval: 50, Repeat: 1, Keys: []byte{4, 5}}, ch57.Key3, 4, 0},
+		{[]string{"macro", "f13", "--interval", "1", "--repeat=255", "--device", "1"}, MultiAction{Interval: 1, Repeat: 255, Keys: []byte{0x68}}, ch57.Key1, 1, 1},
+		{[]string{"macro", strings.TrimSuffix(strings.Repeat("lang2,", 115), ","), "--interval=65535", "--repeat", "1"}, MultiAction{Interval: 65535, Repeat: 1, Keys: bytes.Repeat([]byte{0x91}, 115)}, ch57.Key1, 1, 0},
 	} {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
 			got, err := parsePublic(tc.args)
-			if err != nil || !reflect.DeepEqual(got.action, tc.want) {
-				t.Fatalf("action=%#v want=%#v error=%v", got.action, tc.want, err)
+			if err != nil || !reflect.DeepEqual(got.action, tc.want) || got.control != tc.wantControl || got.layer != tc.wantLayer || got.device != tc.wantDevice {
+				t.Fatalf("action=%#v want=%#v control=%q layer=%d device=%d error=%v", got.action, tc.want, got.control, got.layer, got.device, err)
 			}
 		})
 	}
 	for key := range keyValues {
-		c, err := parsePublic([]string{"multi", key})
+		c, err := parsePublic([]string{"macro", key})
 		if err != nil || c.action.(MultiAction).Keys[0] != byte(keyValues[key]&255) {
 			t.Fatal(key, c, err)
+		}
+	}
+	for _, expr := range []string{"ctrl+c,ctrl+v", "CTRL+SHIFT+TAB,enter", "ctrl,shift"} {
+		c, err := parsePublic([]string{"macro", "key3", expr, "--layer", "3", "--device", "2"})
+		if err != nil || !c.hasMacroModifiers || c.macroCount != 2 || c.control != ch57.Key3 || !c.seenControl || c.layer != 3 || !c.seenLayer || c.device != 2 || c.isReadOnly() {
+			t.Fatalf("expr=%q got=%+v err=%v", expr, c, err)
 		}
 	}
 }
@@ -68,6 +78,7 @@ func TestPublicMediaNames(t *testing.T) {
 
 func TestPublicActionInvalidBeforeAccess(t *testing.T) {
 	cases := [][]string{
+		{"mouse"},
 		{"mouse", ""},
 		{"mouse", "left", "right"},
 		{"mouse", "left+left"},
@@ -81,6 +92,7 @@ func TestPublicActionInvalidBeforeAccess(t *testing.T) {
 		{"mouse", "wheeldown", "--wheel=-1"},
 		{"mouse", "left", "--x=0", "--x=1"},
 		{"mouse", "--x=0"},
+		{"media"},
 		{"media", ""},
 		{"media", "0x0000"},
 		{"media", "0x023d"},
@@ -90,17 +102,38 @@ func TestPublicActionInvalidBeforeAccess(t *testing.T) {
 		{"media", "205"},
 		{"media", "0x+001"},
 		{"media", "0x00gg"},
-		{"multi", ""},
-		{"multi", "a,"},
-		{"multi", ",a"},
-		{"multi", "a,,b"},
-		{"multi", "ctrl+a"},
-		{"multi", "0x04"},
-		{"multi", "lang3"},
-		{"multi", "a", "b"},
-		{"multi", strings.TrimSuffix(strings.Repeat("a,", 116), ",")},
-		{"multi", "--repeat=1"},
-		{"multi", "a", "--repeat=1", "--repeat=2"},
+		{"multi"},
+		{"multi", "a"},
+		{"macro"},
+		{"macro", ""},
+		{"macro", "a,"},
+		{"macro", ",a"},
+		{"macro", "a,,b"},
+		{"macro", "ctrl+ctrl+a"},
+		{"macro", "ctrl+"},
+		{"macro", "+a"},
+		{"macro", "a+b"},
+		{"macro", "a+ctrl"},
+		{"macro", "gui+a"},
+		{"macro", "0x04"},
+		{"macro", "lang3"},
+		{"macro", "a", "b"},
+		{"macro", strings.TrimSuffix(strings.Repeat("a,", 116), ",")},
+		{"macro", "--repeat=1"},
+		{"macro", "a", "--repeat=1", "--repeat=2"},
+		{"mouse", "key2"},
+		{"mouse", "knob1-press"},
+		{"media", "knob-right"},
+		{"macro", "key3"},
+		{"mouse", "key2", "left", "right"},
+		{"media", "knob-right", "volumeup", "extra"},
+		{"macro", "key3", "a", "b"},
+		{"mouse", "left", "--layer", "0"},
+		{"media", "volumeup", "--layer", "16"},
+		{"macro", "a", "--layer", "abc"},
+		{"mouse", "--layer", "2"},
+		{"media", "--layer=2"},
+		{"macro", "--layer", "2"},
 	}
 	for _, flag := range []string{"--x", "--y", "--wheel"} {
 		for _, value := range []string{"-128", "128", "999999999999999999999999", "1.5", "", "no"} {
@@ -110,16 +143,19 @@ func TestPublicActionInvalidBeforeAccess(t *testing.T) {
 	}
 	for _, flag := range []string{"--interval", "--repeat"} {
 		for _, value := range []string{"0", "-1", "65536", "999999999999999999999999", "", "no"} {
-			cases = append(cases, []string{"multi", "a", flag + "=" + value})
+			cases = append(cases, []string{"macro", "a", flag + "=" + value})
 		}
 	}
-	cases = append(cases, []string{"multi", "a", "--repeat=256"})
-	for _, command := range []string{"mouse", "media", "multi"} {
+	cases = append(cases, []string{"macro", "a", "--repeat=256"})
+	for _, command := range []string{"mouse", "media", "macro", "led"} {
 		for _, flag := range []string{"--yes", "--write", "--capture-root=/tmp", "--on=press", "--device=1"} {
 			cases = append(cases, []string{command, "--help", flag})
 		}
 	}
-	access := publicAccess{interactive: func(io.Reader) bool { t.Fatal("invalid input accessed runtime"); return false }}
+	for _, badLED := range []string{"on", "pulse", "static", "2", "256"} {
+		cases = append(cases, []string{"led", badLED})
+	}
+	access := publicAccess{discover: func() ([]Candidate, error) { t.Fatal("invalid input accessed devices"); return nil, nil }}
 	for _, args := range cases {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var out, diagnostic bytes.Buffer
@@ -129,7 +165,7 @@ func TestPublicActionInvalidBeforeAccess(t *testing.T) {
 			}
 		})
 	}
-	for _, command := range []string{"mouse", "media", "multi"} {
+	for _, command := range []string{"mouse", "media", "macro", "led"} {
 		var out bytes.Buffer
 		if err := runPublic([]string{command, "--help"}, &cliRuntime{strings.NewReader(""), &out, io.Discard}, access); err != nil || !strings.Contains(out.String(), "Usage: wonkey "+command) {
 			t.Fatal(out.String(), err)
@@ -139,52 +175,47 @@ func TestPublicActionInvalidBeforeAccess(t *testing.T) {
 
 func TestPublicActionQueries(t *testing.T) {
 	for _, action := range actionExamples() {
-		for _, command := range []string{"key", "mouse", "media", "multi", "rgb"} {
-			t.Run(fmt.Sprintf("%T/%s", action, command), func(t *testing.T) {
-				root := filepath.Join(t.TempDir(), "absent")
-				t.Setenv("XDG_STATE_HOME", root)
-				transport := newSettingsTransport()
-				transport.current = actionConfiguration(t, action)
-				access := publicActionTestAccess(t, transport, nil)
-				access.interactive = func(io.Reader) bool { return false }
-				var out bytes.Buffer
-				if err := runPublic([]string{command}, &cliRuntime{strings.NewReader(""), &out, io.Discard}, access); err != nil {
-					t.Fatal(err)
-				}
-				if command == "rgb" {
-					if !strings.Contains(out.String(), "Colour") || strings.Contains(out.String(), "  Action ") {
-						t.Fatal(out.String())
-					}
-				} else if _, keyboard := action.(KeyboardAction); keyboard {
-					if !strings.Contains(out.String(), "ctrl+shift+alt+super+lang2") || !strings.Contains(out.String(), "release") {
-						t.Fatal(out.String())
-					}
-				} else if !strings.Contains(out.String(), actionDescription(action)) || strings.Contains(out.String(), "  Key ") {
+		t.Run(fmt.Sprintf("%T", action), func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "absent")
+			t.Setenv("XDG_STATE_HOME", root)
+			transport := newSettingsTransport()
+			transport.current = actionConfiguration(t, action)
+			access := publicActionTestAccess(t, transport, nil)
+			var out bytes.Buffer
+			if err := runPublic(nil, &cliRuntime{strings.NewReader(""), &out, io.Discard}, access); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out.String(), "Mode") || !strings.Contains(out.String(), "Colour") {
+				t.Fatal(out.String())
+			}
+			if _, keyboard := action.(KeyboardAction); keyboard {
+				if !strings.Contains(out.String(), "ctrl+shift+alt+super+lang2") || !strings.Contains(out.String(), "release") || strings.Contains(out.String(), "  Action ") {
 					t.Fatal(out.String())
 				}
-				checkNoUpload(t, transport)
-				if len(transport.packets) != 4 {
-					t.Fatal("unexpected query count", len(transport.packets))
-				}
-				if _, err := os.Stat(root); !os.IsNotExist(err) {
-					t.Fatal("query created backup storage", err)
-				}
-			})
-		}
+			} else if !strings.Contains(out.String(), actionDescription(action)) || strings.Contains(out.String(), "  Key ") {
+				t.Fatal(out.String())
+			}
+			checkNoUpload(t, transport)
+			if len(transport.packets) != 4 {
+				t.Fatal("unexpected query count", len(transport.packets))
+			}
+			if _, err := os.Stat(root); !os.IsNotExist(err) {
+				t.Fatal("query created backup storage", err)
+			}
+		})
 	}
 }
 
-func publicActionTestAccess(t *testing.T, first *settingsTransport, apply func(Candidate, string, ApplyTarget, configurationChanges, func(configuration, configuration, string) (bool, error)) (ApplyResult, error)) publicAccess {
+func publicActionTestAccess(t *testing.T, first *settingsTransport, apply func(Candidate, ApplyTarget, configurationChanges, func(configuration, configuration) (bool, error)) (ApplyResult, error)) publicAccess {
 	t.Helper()
 	if apply == nil {
-		apply = func(Candidate, string, ApplyTarget, configurationChanges, func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
+		apply = func(Candidate, ApplyTarget, configurationChanges, func(configuration, configuration) (bool, error)) (ApplyResult, error) {
 			t.Fatal("unexpected apply")
 			return ApplyResult{}, nil
 		}
 	}
 	return publicAccess{
-		interactive: func(io.Reader) bool { return true },
-		discover:    func() ([]Candidate, error) { return []Candidate{{PhysicalPath: "synthetic", Compatible: true}}, nil },
+		discover: func() ([]Candidate, error) { return []Candidate{{PhysicalPath: "synthetic", Compatible: true}}, nil },
 		query: func(c Candidate) (CaptureResult, error) {
 			q, err := queryCapture(first, true)
 			q.result.PhysicalPath = c.PhysicalPath
@@ -195,10 +226,9 @@ func publicActionTestAccess(t *testing.T, first *settingsTransport, apply func(C
 }
 
 func TestPublicActionWorkflow(t *testing.T) {
-	for _, args := range [][]string{{"mouse", "none"}, {"mouse", "left+right", "--x=-127", "--y=127", "--wheel=-1"}, {"media", "bookmarks"}, {"multi", "lang2,f13,a", "--interval=65535", "--repeat=255"}} {
-		for _, state := range []string{"save", "cancel", "eof", "nonterminal", "no-op", "drift", "became-no-op", "backup-failed", "upload-echo", "commit-echo", "deadline", "readback"} {
+	for _, args := range [][]string{{"mouse", "none"}, {"mouse", "left+right", "--x=-127", "--y=127", "--wheel=-1"}, {"media", "bookmarks"}, {"macro", "lang2,f13,a", "--interval=65535", "--repeat=255"}} {
+		for _, state := range []string{"save", "no-op", "drift", "became-no-op", "upload-echo", "commit-echo", "deadline", "readback"} {
 			t.Run(strings.Join(args, " ")+"/"+state, func(t *testing.T) {
-				root := publicTestCaptureRoot(t)
 				first := newSettingsTransport()
 				c, err := parsePublic(args)
 				if err != nil {
@@ -212,9 +242,9 @@ func TestPublicActionWorkflow(t *testing.T) {
 				fresh.current = original
 				applied := false
 				var out bytes.Buffer
-				access := publicActionTestAccess(t, first, func(candidate Candidate, destination string, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
+				access := publicActionTestAccess(t, first, func(candidate Candidate, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration) (bool, error)) (ApplyResult, error) {
 					applied = true
-					if destination != root || target != settingsTarget() || !strings.Contains(out.String(), " -> ") || !strings.Contains(out.String(), "Save settings? [Y/n]: ") {
+					if candidate.PhysicalPath != "synthetic" || target != settingsTarget() || !strings.Contains(out.String(), " -> ") {
 						t.Fatal("missing preview or wrong transaction target", out.String())
 					}
 					switch state {
@@ -231,53 +261,22 @@ func TestPublicActionWorkflow(t *testing.T) {
 					case "readback":
 						fresh.mismatch = true
 					}
-					dir, err := newCapture(destination, candidate)
-					if err != nil {
-						return ApplyResult{}, err
-					}
-					fresh.dir = dir
-					if state == "backup-failed" {
-						if err := saveExclusive(dir, "reply-01.bin", []byte("occupied")); err != nil {
-							t.Fatal(err)
-						}
-					}
-					return applySettingsConfirmed(fresh, dir, target, changes, true, time.Second, guard, true)
+					return applySettingsConfirmed(fresh, target, changes, true, time.Second, guard, true)
 				})
-				input := "\n"
-				if state == "cancel" {
-					input = "n\n"
-				}
-				if state == "eof" {
-					input = ""
-				}
-				if state == "nonterminal" {
-					access.interactive = func(io.Reader) bool { return false }
-					access.discover = func() ([]Candidate, error) { t.Fatal("nonterminal discovered devices"); return nil, nil }
-				}
-				err = runPublic(args, &cliRuntime{strings.NewReader(input), &out, io.Discard}, access)
-				noApply := state == "cancel" || state == "eof" || state == "nonterminal" || state == "no-op"
-				wantError := !noApply && state != "save" || state == "nonterminal"
+				err = runPublic(args, &cliRuntime{strings.NewReader(""), &out, io.Discard}, access)
+				noApply := state == "no-op"
+				wantError := !noApply && state != "save"
 				if (err != nil) != wantError || applied == noApply {
 					t.Fatalf("error=%v applied=%t output=%s", err, applied, out.String())
 				}
 				checkNoUpload(t, first)
-				if noApply || state == "drift" || state == "became-no-op" || state == "backup-failed" {
+				if noApply || state == "drift" || state == "became-no-op" {
 					checkNoUpload(t, fresh.settingsTransport)
-				}
-				if noApply {
-					entries, err := os.ReadDir(root)
-					if err != nil || len(entries) != 0 {
-						t.Fatal("created backup without approval", entries, err)
-					}
 				}
 				if state == "save" {
 					want, err := (ActionChanges{Action: c.action}).configuration(original)
 					if err != nil || fresh.current != want || !fresh.checked || len(fresh.packets) != 11 || !strings.Contains(out.String(), "Settings saved. All 128 readback bytes match.") {
-						t.Fatal("wrong saved configuration or missing durable backup", err, out.String())
-					}
-					_, backup, err := loadCapture(fresh.dir)
-					if err != nil || backup != original {
-						t.Fatal("backup does not match original", err)
+						t.Fatal("wrong saved configuration or missing fresh query", err, out.String())
 					}
 				}
 			})
@@ -287,21 +286,15 @@ func TestPublicActionWorkflow(t *testing.T) {
 
 func TestPublicTypedLayoutReplacement(t *testing.T) {
 	for _, action := range actionExamples()[1:] {
-		for _, args := range [][]string{{"key", "ctrl+f13"}, {"key", "f13", "--on=release"}, {"rgb", "off"}, {"rgb", "static", "123456"}} {
+		for _, args := range [][]string{{"key", "ctrl+f13"}, {"key", "f13"}, {"rgb", "off"}, {"rgb", "static", "123456"}} {
 			t.Run(fmt.Sprintf("%T/%s", action, strings.Join(args, " ")), func(t *testing.T) {
-				publicTestCaptureRoot(t)
 				first := newSettingsTransport()
 				first.current = actionConfiguration(t, action)
 				original := first.current
 				fresh := &backupCheckingTransport{settingsTransport: newSettingsTransport()}
 				fresh.current = original
-				access := publicActionTestAccess(t, first, func(candidate Candidate, root string, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration, string) (bool, error)) (ApplyResult, error) {
-					dir, err := newCapture(root, candidate)
-					if err != nil {
-						return ApplyResult{}, err
-					}
-					fresh.dir = dir
-					return applySettingsConfirmed(fresh, dir, target, changes, true, time.Second, guard, true)
+				access := publicActionTestAccess(t, first, func(_ Candidate, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration) (bool, error)) (ApplyResult, error) {
+					return applySettingsConfirmed(fresh, target, changes, true, time.Second, guard, true)
 				})
 				var out bytes.Buffer
 				if err := runPublic(args, &cliRuntime{strings.NewReader("yes\n"), &out, io.Discard}, access); err != nil || !fresh.checked {
@@ -309,8 +302,8 @@ func TestPublicTypedLayoutReplacement(t *testing.T) {
 				}
 				if args[0] == "key" {
 					want := KeyboardAction{Trigger: 1, Modifiers: 1, Key: 0x68}
-					if len(args) == 3 {
-						want.Trigger, want.Modifiers = 2, 0
+					if args[1] == "f13" {
+						want.Modifiers = 0
 					}
 					got, err := decodeAction(fresh.current)
 					if err != nil || got != want || !bytes.Equal(original[124:], fresh.current[124:]) {
@@ -338,53 +331,56 @@ func TestPublicActionOutput(t *testing.T) {
 		if got := actionDescription(tc.action); got != tc.want {
 			t.Fatalf("got %q, want %q", got, tc.want)
 		}
-		for _, needle := range []string{"Current", "  Action", " -> ", "Save settings?"} {
+		for _, needle := range []string{"[1] XFKEY One Key Max (0112)", "  Action", " -> "} {
 			t.Run(tc.want+"/"+needle, func(t *testing.T) {
-				root := publicTestCaptureRoot(t)
 				first := newSettingsTransport()
 				first.current = actionConfiguration(t, tc.action)
 				access := publicActionTestAccess(t, first, nil)
 				out := &failingHumanOutput{needle: needle}
-				err := runPublic([]string{"key", "f13"}, &cliRuntime{strings.NewReader("yes\n"), out, io.Discard}, access)
+				err := runPublic([]string{"key", "f13"}, &cliRuntime{strings.NewReader(""), out, io.Discard}, access)
 				if err == nil || !out.failed {
 					t.Fatal("output failure was not returned", err)
 				}
 				checkNoUpload(t, first)
-				entries, err := os.ReadDir(root)
-				if err != nil || len(entries) != 0 {
-					t.Fatal("output failure created a backup", err)
-				}
 			})
 		}
 	}
 }
 
-func TestPublicTypedRestoreWithoutSourcesAndAmbiguousTrigger(t *testing.T) {
+func TestPublicTypedAmbiguousTrigger(t *testing.T) {
 	for _, action := range actionExamples()[1:] {
-		for _, args := range [][]string{{"restore"}, {"restore", "absent-source"}, {"key", "f13", "--on=both"}} {
-			t.Run(fmt.Sprintf("%T/%v", action, args), func(t *testing.T) {
-				root := publicTestCaptureRoot(t)
-				first := newSettingsTransport()
-				first.current = actionConfiguration(t, action)
-				access := publicActionTestAccess(t, first, nil)
-				input := strings.NewReader("yes\n")
-				err := runPublic(args, &cliRuntime{input, io.Discard, io.Discard}, access)
-				if (err != nil) != (len(args) > 1) || input.Len() != len("yes\n") {
-					t.Fatal("missing source or ambiguous conversion reached confirmation", err)
-				}
-				checkNoUpload(t, first)
-				entries, err := os.ReadDir(root)
-				if err != nil || len(entries) != 0 {
-					t.Fatal("blocked action created a backup", err)
-				}
-			})
-		}
+		t.Run(fmt.Sprintf("trigger-on-%T", action), func(t *testing.T) {
+			first := newSettingsTransport()
+			first.current = actionConfiguration(t, action)
+			access := publicActionTestAccess(t, first, nil)
+			input := strings.NewReader("yes\n")
+			var diagnostic bytes.Buffer
+			err := runPublic([]string{"trigger", "release"}, &cliRuntime{input, io.Discard, &diagnostic}, access)
+			want := `trigger requires a configured keyboard key; set one with "wonkey key" first`
+			if err == nil || err.Error() != want || !strings.Contains(strings.ReplaceAll(diagnostic.String(), "\n", " "), want) || input.Len() != len("yes\n") {
+				t.Fatalf("non-keyboard trigger reached confirmation: err=%v diag=%q", err, diagnostic.String())
+			}
+			checkNoUpload(t, first)
+		})
+	}
+	for _, args := range [][]string{{"mouse", "left"}, {"media", "play"}, {"macro", "a"}} {
+		t.Run("from-keyboard-both/"+strings.Join(args, " "), func(t *testing.T) {
+			first := newSettingsTransport()
+			first.current = actionConfiguration(t, KeyboardAction{Trigger: 3, Key: 4})
+			access := publicActionTestAccess(t, first, nil)
+			input := strings.NewReader("yes\n")
+			err := runPublic(args, &cliRuntime{input, io.Discard, io.Discard}, access)
+			if err == nil || input.Len() != len("yes\n") {
+				t.Fatal("ambiguous conversion reached confirmation", err)
+			}
+			checkNoUpload(t, first)
+		})
 	}
 }
 
 func TestPublicUnsupportedTypedLayouts(t *testing.T) {
 	for _, raw := range [][]byte{{1, 8, 0, 0, 0}, {1, 0, 128, 0, 0}, {2, 0, 0}, {2, 0x3d, 2}, {3, 0, 0, 1, 1, 4}, {3, 0, 1, 0, 1, 4}, {3, 0, 1, 1, 116}} {
-		for _, args := range [][]string{{"key"}, {"mouse"}, {"media"}, {"multi"}, {"rgb"}, {"mouse", "left"}, {"media", "play"}, {"multi", "a"}, {"rgb", "off"}, {"key", "a"}} {
+		for _, args := range [][]string{nil, {"mouse", "left"}, {"media", "play"}, {"macro", "a"}, {"trigger", "release"}, {"rgb", "off"}, {"key", "a"}} {
 			t.Run(fmt.Sprintf("%x/%v", raw, args), func(t *testing.T) {
 				root := filepath.Join(t.TempDir(), "absent")
 				t.Setenv("XDG_STATE_HOME", root)
@@ -393,7 +389,7 @@ func TestPublicUnsupportedTypedLayouts(t *testing.T) {
 				access := publicActionTestAccess(t, first, nil)
 				var out bytes.Buffer
 				err := runPublic(args, &cliRuntime{strings.NewReader("yes\n"), &out, io.Discard}, access)
-				if len(args) == 1 {
+				if len(args) == 0 {
 					if err != nil || !strings.Contains(out.String(), fmt.Sprintf("0x%02x (byte 0)", raw[0])) || !strings.Contains(out.String(), fmt.Sprintf("%x", first.current[:16])) || !strings.Contains(out.String(), "Fields are not decoded.") {
 						t.Fatal(err, out.String())
 					}
