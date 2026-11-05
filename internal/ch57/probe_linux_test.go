@@ -982,3 +982,203 @@ func TestUSBBulkAndIoctlGuards(t *testing.T) {
 		t.Fatalf("interface 0 attach reached syscall: %v", err)
 	}
 }
+
+func make514CSysfs(t *testing.T, pid uint16, hidrawName string) string {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, "1-4.1")
+	hidrawDir := filepath.Join(dir, "1-4.1:1.0", "0003:514C:8851.0001", "hidraw", hidrawName)
+	if err := os.MkdirAll(hidrawDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	desc := []byte(candidate8851USBDescriptor)
+	if pid == 0x8850 {
+		desc = []byte(candidate8850USBDescriptor)
+	}
+	for name, data := range map[string][]byte{
+		"descriptors": desc,
+		"busnum":      []byte("1\n"),
+		"devnum":      []byte("25\n"),
+		"dev":         []byte("189:24\n"),
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hidDir := filepath.Dir(filepath.Dir(hidrawDir))
+	if err := os.WriteFile(filepath.Join(hidDir, "report_descriptor"), syntheticProbeReportDescriptor(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hidrawDir, "dev"), []byte("241:7\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func TestProbeAndApply514CHidraw(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		pid               uint16
+		keys, knobs, kind int
+		reportCount       int
+		wantFA            [5]byte
+	}{
+		{"514c:8851-kind0", 0x8851, 4, 1, 0, 24, [5]byte{0x03, 0xfa, 0x0f, 0x03, 0x01}},
+		{"514c:8850-kind11", 0x8850, 12, 4, 11, 25, [5]byte{0x03, 0xfa, 0x19, 0x00, 0x01}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := make514CSysfs(t, tc.pid, "hidraw7")
+			candidates, err := DiscoverCandidates(root)
+			if err != nil || len(candidates) != 1 || candidates[0].VID != 0x514c || candidates[0].PID != tc.pid {
+				t.Fatalf("discover: %+v, %v", candidates, err)
+			}
+			candidate := candidates[0]
+			ops := systemProbeOps()
+			node := unix.Stat_t{Mode: unix.S_IFCHR | 0o600, Dev: 3, Ino: 200, Rdev: unix.Mkdev(241, 7)}
+			opened, closed := 0, 0
+			var txReports [][65]byte
+			readIndex := 0
+			ops.lstat = func(path string, st *unix.Stat_t) error {
+				if path != "/dev/hidraw7" {
+					t.Fatalf("unexpected hidraw lstat path: %s", path)
+				}
+				*st = node
+				return nil
+			}
+			ops.open = func(path string, flags int, mode uint32) (int, error) {
+				opened++
+				if path != "/dev/hidraw7" || flags != unix.O_RDWR|unix.O_NOFOLLOW|unix.O_CLOEXEC || mode != 0 {
+					t.Fatalf("unsafe hidraw open: %s %#x %#x", path, flags, mode)
+				}
+				return 88, nil
+			}
+			ops.fstat = func(fd int, st *unix.Stat_t) error {
+				if fd != 88 {
+					t.Fatalf("unexpected fd: %d", fd)
+				}
+				*st = node
+				return nil
+			}
+			ops.close = func(fd int) error {
+				if fd != 88 {
+					t.Fatalf("unexpected close fd: %d", fd)
+				}
+				closed++
+				return nil
+			}
+			ops.writeHidraw = func(fd int, data []byte) (int, error) {
+				if fd != 88 || len(data) != 65 || data[0] != 0x03 {
+					t.Fatalf("invalid hidraw write: fd=%d len=%d", fd, len(data))
+				}
+				var buf [65]byte
+				copy(buf[:], data)
+				txReports = append(txReports, buf)
+				return 65, nil
+			}
+			ops.readHidraw = func(fd int, data []byte, timeoutMs int) (int, error) {
+				if fd != 88 || len(data) != 65 || timeoutMs != 1000 {
+					t.Fatalf("invalid hidraw read: fd=%d len=%d timeout=%d", fd, len(data), timeoutMs)
+				}
+				clear(data)
+				readIndex++
+				if readIndex == 1 {
+					data[0] = 0x03
+					data[1] = 0xfb
+					data[2] = byte(tc.keys & 255)
+					data[3] = byte(tc.knobs & 255)
+					data[4] = byte(tc.kind & 255)
+					return 65, nil
+				}
+				slot := byte((readIndex - 1) & 255)
+				data[0] = 0x03
+				data[1] = 0xfa
+				data[2] = slot
+				data[3] = 1
+				data[4] = 1
+				if tc.kind < 10 {
+					data[10] = 1
+					data[11] = 0
+					data[12] = 0x04
+				} else {
+					data[6] = 1
+					data[9] = 0x04
+				}
+				return 65, nil
+			}
+			probed, err := ops.probe(root, "/dev/bus/usb", candidate)
+			if err != nil || probed.Status != ProbeRawReport || probed.Layout == nil {
+				t.Fatalf("probe514C: %+v, %v", probed, err)
+			}
+			if probed.Layout.Keys != tc.keys || probed.Layout.Knobs != tc.knobs || probed.Layout.Kind != tc.kind {
+				t.Fatalf("wrong layout: %+v", probed.Layout)
+			}
+			if len(txReports) != 2 || txReports[0][1] != 0xfb || !bytes.Equal(txReports[1][:5], tc.wantFA[:]) {
+				t.Fatalf("unexpected probe TX: %x", txReports)
+			}
+			b1 := probed.Layout.Bindings[1]
+			if b1.ActionType != SlotActionKeyboard || len(b1.Strokes) != 1 || b1.Strokes[0] != (Stroke{Modifiers: 0, Usage: 0x04}) {
+				t.Fatalf("wrong slot 1 binding: %+v", b1)
+			}
+
+			txReports = nil
+			profile := K884xProfile(tc.pid, tc.kind, 1)
+			reports, err := EncodeKeyboard(profile, Key1, []Stroke{{Modifiers: 0x01, Usage: 0x06}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			applied, err := ops.apply(root, "/dev/bus/usb", candidate, reports)
+			if err != nil || !applied.WriteAttempted || applied.ReportsWritten != len(reports) || len(txReports) != len(reports) {
+				t.Fatalf("apply514C: %+v, %v, tx=%d", applied, err, len(txReports))
+			}
+			if opened != 2 || closed != 2 {
+				t.Fatalf("opens=%d closes=%d", opened, closed)
+			}
+		})
+	}
+}
+
+func TestDecodeFASlotKindLt10AndGe10(t *testing.T) {
+	var rLtMod [65]byte
+	rLtMod[0], rLtMod[1], rLtMod[2], rLtMod[3], rLtMod[4] = 0x03, 0xfa, 1, 1, 1
+	rLtMod[10], rLtMod[11], rLtMod[12] = 0, 0x05, 0x00
+	if b := DecodeFASlotKindLt10(rLtMod[:]); len(b.Strokes) != 1 || b.Strokes[0] != (Stroke{Modifiers: 0x05, Usage: 0}) {
+		t.Fatalf("lt10 mod-only: %+v", b)
+	}
+
+	var rLtMedia [65]byte
+	rLtMedia[0], rLtMedia[1], rLtMedia[2], rLtMedia[3], rLtMedia[4] = 0x03, 0xfa, 16, 1, 2
+	rLtMedia[11], rLtMedia[12] = 0xe9, 0x00
+	if b := DecodeFASlotKindLt10(rLtMedia[:]); b.MediaUsage != 0x00e9 {
+		t.Fatalf("lt10 media: %+v", b)
+	}
+
+	var rLtMouse [65]byte
+	rLtMouse[0], rLtMouse[1], rLtMouse[2], rLtMouse[3], rLtMouse[4] = 0x03, 0xfa, 17, 1, 3
+	rLtMouse[11], rLtMouse[12], rLtMouse[13], rLtMouse[14], rLtMouse[15] = 0x01, 0x02, 0xfe, 0x03, 0x00
+	if b := DecodeFASlotKindLt10(rLtMouse[:]); b.Mouse.Action != MouseDrag || b.Mouse.Buttons != MouseRight || b.Mouse.DX != -2 || b.Mouse.DY != 3 || b.Mouse.Modifier != MouseCtrl {
+		t.Fatalf("lt10 mouse: %+v", b)
+	}
+
+	var rGeKey [65]byte
+	rGeKey[0], rGeKey[1], rGeKey[2], rGeKey[3], rGeKey[4], rGeKey[6] = 0x03, 0xfa, 13, 1, 1, 4
+	rGeKey[9], rGeKey[12], rGeKey[15], rGeKey[18] = 0xf1, 0xf2, 0x06, 0xf1
+	bGe := DecodeFASlotKindGe10(rGeKey[:])
+	wantStrokes := []Stroke{{Modifiers: 0x03, Usage: 0x06}, {Modifiers: 0x01, Usage: 0}}
+	if !bytes.Equal(rGeKey[:2], []byte{0x03, 0xfa}) || len(bGe.Strokes) != 2 || bGe.Strokes[0] != wantStrokes[0] || bGe.Strokes[1] != wantStrokes[1] {
+		t.Fatalf("ge10 strokes: %+v", bGe)
+	}
+
+	var rGeMedia [65]byte
+	rGeMedia[0], rGeMedia[1], rGeMedia[2], rGeMedia[3], rGeMedia[4] = 0x03, 0xfa, 14, 1, 2
+	rGeMedia[9], rGeMedia[12] = 0x92, 0x01
+	if b := DecodeFASlotKindGe10(rGeMedia[:]); b.MediaUsage != 0x0192 {
+		t.Fatalf("ge10 media: %+v", b)
+	}
+
+	var rGeMouse [65]byte
+	rGeMouse[0], rGeMouse[1], rGeMouse[2], rGeMouse[3], rGeMouse[4] = 0x03, 0xfa, 15, 1, 3
+	rGeMouse[9], rGeMouse[12], rGeMouse[15], rGeMouse[18], rGeMouse[21] = 0xf3, 0x00, 0x00, 0x00, 0xff
+	if b := DecodeFASlotKindGe10(rGeMouse[:]); b.Mouse.Action != MouseWheel || b.Mouse.Wheel != -1 || b.Mouse.Modifier != MouseAlt {
+		t.Fatalf("ge10 mouse: %+v", b)
+	}
+}

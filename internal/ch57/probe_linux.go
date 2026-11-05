@@ -42,6 +42,32 @@ const (
 	ProbeCloseFailed      ProbeStatus = "close-failed"
 )
 
+type SlotActionType byte
+
+const (
+	SlotActionNone     SlotActionType = 0
+	SlotActionKeyboard SlotActionType = 1
+	SlotActionMedia    SlotActionType = 2
+	SlotActionMouse    SlotActionType = 3
+	SlotActionMacro    SlotActionType = 5
+)
+
+type SlotBinding struct {
+	Slot       byte
+	Layer      byte
+	ActionType SlotActionType
+	Strokes    []Stroke
+	MediaUsage uint16
+	Mouse      MouseEvent
+}
+
+type LayoutInfo struct {
+	Keys     int
+	Knobs    int
+	Kind     int
+	Bindings map[byte]SlotBinding
+}
+
 // ProbeResult preserves raw GET_REPORT bytes, including an invalid short reply.
 // A valid report is not proof of settings readback or firmware identity.
 type ProbeResult struct {
@@ -52,6 +78,7 @@ type ProbeResult struct {
 	ReportDescriptorCount    int
 	ReportDescriptorVerified bool
 	Warning                  string
+	Layout                   *LayoutInfo
 }
 
 // ApplyResult records whether a write sequence was started and how many encoded reports completed.
@@ -114,6 +141,8 @@ type probeOps struct {
 	detachDriver     func(int, int32) error
 	attachDriver     func(int, int32) error
 	bulkOut          func(int, *usbBulkTransfer) (int, error)
+	writeHidraw      func(int, []byte) (int, error)
+	readHidraw       func(int, []byte, int) (int, error)
 }
 
 func systemProbeOps() probeOps {
@@ -123,6 +152,7 @@ func systemProbeOps() probeOps {
 		close: unix.Close, ioctl: controlIN,
 		claimInterface: claimUSBInterface, releaseInterface: releaseUSBInterface,
 		detachDriver: detachUSBDriver, attachDriver: attachUSBDriver, bulkOut: writeBulkOut,
+		writeHidraw: writeHidrawReport, readHidraw: readHidrawReport,
 	}
 }
 
@@ -295,6 +325,9 @@ func (ops probeOps) revalidate(sysRoot string, candidate DiscoveredCandidate) er
 }
 
 func (ops probeOps) probe(sysRoot, devRoot string, candidate DiscoveredCandidate) (ProbeResult, error) {
+	if candidate.VID == 0x514c && (candidate.PID == 0x8851 || candidate.PID == 0x8850) {
+		return ops.probe514C(sysRoot, devRoot, candidate)
+	}
 	return ops.probeReport(sysRoot, devRoot, candidate, false)
 }
 
@@ -452,6 +485,9 @@ func (ops probeOps) apply(sysRoot, devRoot string, candidate DiscoveredCandidate
 	if !filepath.IsAbs(devRoot) {
 		return result, fmt.Errorf("USB device root must be absolute")
 	}
+	if candidate.VID == 0x514c && (candidate.PID == 0x8851 || candidate.PID == 0x8850) {
+		return ops.apply514C(sysRoot, devRoot, candidate, reports)
+	}
 	if err := ops.revalidate(sysRoot, candidate); err != nil {
 		return result, err
 	}
@@ -589,4 +625,365 @@ func writeBulkOut(fd int, transfer *usbBulkTransfer) (int, error) {
 		return 0, errno
 	}
 	return int(n), nil
+}
+
+func writeHidrawReport(fd int, data []byte) (int, error) {
+	if len(data) != 65 || data[0] != 0x03 {
+		return 0, fmt.Errorf("refused hidraw write outside 65-byte report ID 3")
+	}
+	return unix.Write(fd, data)
+}
+
+func readHidrawReport(fd int, data []byte, timeoutMs int) (int, error) {
+	if fd < 0 || fd > 0x7fffffff || len(data) != 65 || timeoutMs <= 0 {
+		return 0, fmt.Errorf("invalid hidraw read buffer or timeout")
+	}
+	pfd := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+	n, err := unix.Poll(pfd, timeoutMs)
+	if err != nil {
+		return 0, err
+	}
+	if n == 0 {
+		return 0, unix.ETIMEDOUT
+	}
+	return unix.Read(fd, data)
+}
+
+func hidrawRoot(devRoot string) string {
+	if filepath.Clean(devRoot) == "/dev/bus/usb" {
+		return "/dev"
+	}
+	return devRoot
+}
+
+func parseDevNumbers(raw string) (uint32, uint32, error) {
+	parts := strings.Split(strings.TrimSpace(raw), ":")
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("invalid dev attribute")
+	}
+	maj, errMaj := strconv.ParseUint(parts[0], 10, 32)
+	min, errMin := strconv.ParseUint(parts[1], 10, 32)
+	if errMaj != nil || errMin != nil || maj == 0 {
+		return 0, 0, fmt.Errorf("invalid dev attribute")
+	}
+	return uint32(maj), uint32(min), nil
+}
+
+func checkHidrawNode(st unix.Stat_t, wantMajor, wantMinor uint32) error {
+	if st.Mode&unix.S_IFMT != unix.S_IFCHR || unix.Major(st.Rdev) != wantMajor || unix.Minor(st.Rdev) != wantMinor {
+		return fmt.Errorf("selected node is not the expected hidraw character device")
+	}
+	return nil
+}
+
+func (ops probeOps) locate514CHidraw(candidate DiscoveredCandidate) (string, []byte, uint32, uint32, error) {
+	ifaceDir := filepath.Join(candidate.SysfsPath, candidate.PhysicalPath+":1.0")
+	entries, err := ops.readDir(ifaceDir)
+	if err != nil {
+		return "", nil, 0, 0, err
+	}
+	var hidDirs []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.IsDir() && entry.Type()&os.ModeSymlink == 0 {
+			continue
+		}
+		if name == "power" || name == "subsystem" || name == "driver" || name == "usbmisc" || strings.HasPrefix(name, "ep_") {
+			continue
+		}
+		hidDirs = append(hidDirs, filepath.Join(ifaceDir, name))
+	}
+	if len(hidDirs) != 1 {
+		return "", nil, 0, 0, fmt.Errorf("interface 0 requires exactly one HID device")
+	}
+	hidDir := hidDirs[0]
+	descriptor, err := ops.readFile(filepath.Join(hidDir, "report_descriptor"), len(candidateReportDescriptor))
+	if err != nil {
+		return "", descriptor, 0, 0, fmt.Errorf("read interface 0 report descriptor: %w", err)
+	}
+	if len(descriptor) != len(candidateReportDescriptor) || string(descriptor) != candidateReportDescriptor {
+		return "", descriptor, 0, 0, fmt.Errorf("interface 0 report descriptor differs from published report ID 3 layout")
+	}
+	hidrawEntries, err := ops.readDir(filepath.Join(hidDir, "hidraw"))
+	if err != nil || len(hidrawEntries) != 1 || !strings.HasPrefix(hidrawEntries[0].Name(), "hidraw") {
+		return "", descriptor, 0, 0, fmt.Errorf("interface 0 requires exactly one hidraw node")
+	}
+	hidrawName := hidrawEntries[0].Name()
+	devBytes, err := ops.readFile(filepath.Join(hidDir, "hidraw", hidrawName, "dev"), 32)
+	if err != nil {
+		return "", descriptor, 0, 0, err
+	}
+	wantMajor, wantMinor, err := parseDevNumbers(string(devBytes))
+	if err != nil {
+		return "", descriptor, 0, 0, err
+	}
+	return hidrawName, descriptor, wantMajor, wantMinor, nil
+}
+
+func (ops probeOps) validateHidrawOpen(sysRoot, node string, fd int, candidate DiscoveredCandidate, before unix.Stat_t, wantMajor, wantMinor uint32) error {
+	if err := ops.revalidate(sysRoot, candidate); err != nil {
+		return err
+	}
+	var opened, named unix.Stat_t
+	if err := ops.fstat(fd, &opened); err != nil {
+		return err
+	}
+	if err := ops.lstat(node, &named); err != nil {
+		return err
+	}
+	if err := checkHidrawNode(opened, wantMajor, wantMinor); err != nil {
+		return err
+	}
+	if named.Mode&unix.S_IFMT != unix.S_IFCHR || opened.Dev != before.Dev || opened.Ino != before.Ino ||
+		opened.Rdev != before.Rdev || opened.Dev != named.Dev || opened.Ino != named.Ino || opened.Rdev != named.Rdev {
+		return fmt.Errorf("opened hidraw node identity changed")
+	}
+	return nil
+}
+
+func (ops probeOps) probe514C(sysRoot, devRoot string, candidate DiscoveredCandidate) (result ProbeResult, err error) {
+	result.Status = ProbeRefused
+	if !filepath.IsAbs(devRoot) {
+		return result, fmt.Errorf("USB device root must be absolute")
+	}
+	if err := ops.revalidate(sysRoot, candidate); err != nil {
+		return result, err
+	}
+	hidrawName, descriptor, wantMajor, wantMinor, err := ops.locate514CHidraw(candidate)
+	result.ReportDescriptor = descriptor
+	result.ReportDescriptorCount = len(descriptor)
+	if err != nil {
+		if descriptor != nil {
+			result.Status = ProbeDescriptorFailed
+		}
+		return result, err
+	}
+	result.ReportDescriptorVerified = true
+	node := filepath.Join(hidrawRoot(devRoot), hidrawName)
+	var named unix.Stat_t
+	if err := ops.lstat(node, &named); err != nil {
+		return result, err
+	}
+	if err := checkHidrawNode(named, wantMajor, wantMinor); err != nil {
+		return result, err
+	}
+	fd, err := ops.open(node, unix.O_RDWR|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return result, err
+	}
+	defer func() {
+		if closeErr := ops.close(fd); closeErr != nil {
+			err = errors.Join(err, closeErr)
+			if result.Status == ProbeRawReport {
+				result.Status = ProbeCloseFailed
+			}
+		}
+	}()
+	if err := ops.validateHidrawOpen(sysRoot, node, fd, candidate, named, wantMajor, wantMinor); err != nil {
+		return result, err
+	}
+	return ops.exchange514CLayoutAndSettings(fd, result)
+}
+
+func (ops probeOps) exchange514CLayoutAndSettings(fd int, result ProbeResult) (ProbeResult, error) {
+	result.Status = ProbeTransferFailed
+	fbReq := [65]byte{0x03, 0xfb, 0xfb, 0xfb}
+	if n, err := ops.writeHidraw(fd, fbReq[:]); err != nil || n != 65 {
+		if err != nil {
+			return result, fmt.Errorf("write 0xFB layout query: %w", err)
+		}
+		return result, fmt.Errorf("write 0xFB layout query wrote %d bytes, want 65", n)
+	}
+	var fbReply [65]byte
+	n, err := ops.readHidraw(fd, fbReply[:], 1000)
+	result.Count = n
+	if n >= 0 && n <= len(fbReply) {
+		result.Raw = fbReply[:n]
+	}
+	if err != nil {
+		return result, fmt.Errorf("read 0xFB layout reply: %w", err)
+	}
+	result.Status = ProbeInvalidReport
+	if n != 65 || fbReply[0] != 0x03 || fbReply[1] != 0xfb {
+		return result, fmt.Errorf("invalid 0xFB layout reply")
+	}
+	keys, knobs, kind := int(fbReply[2]), int(fbReply[3]), int(fbReply[4])
+	if keys < 1 || keys > 12 || knobs < 0 || knobs > 4 {
+		return result, fmt.Errorf("unsupported 0xFB layout (%d keys, %d knobs)", keys, knobs)
+	}
+	result.Status = ProbeTransferFailed
+	faReq := [65]byte{0x03, 0xfa, 0x0f, 0x03, 0x01}
+	reportCount := 24
+	if kind >= 10 {
+		faReq = [65]byte{0x03, 0xfa, 0x19, 0x00, 0x01}
+		reportCount = 25
+	}
+	if n, err := ops.writeHidraw(fd, faReq[:]); err != nil || n != 65 {
+		if err != nil {
+			return result, fmt.Errorf("write 0xFA settings query: %w", err)
+		}
+		return result, fmt.Errorf("write 0xFA settings query wrote %d bytes, want 65", n)
+	}
+	bindings := make(map[byte]SlotBinding, reportCount)
+	for i := range reportCount {
+		var r [65]byte
+		n, err := ops.readHidraw(fd, r[:], 1000)
+		if err != nil {
+			return result, fmt.Errorf("read 0xFA report %d: %w", i+1, err)
+		}
+		if n != 65 || r[0] != 0x03 || r[1] != 0xfa {
+			result.Status = ProbeInvalidReport
+			return result, fmt.Errorf("invalid 0xFA report %d", i+1)
+		}
+		if kind >= 10 {
+			b := DecodeFASlotKindGe10(r[:])
+			bindings[b.Slot] = b
+		} else {
+			b := DecodeFASlotKindLt10(r[:])
+			bindings[b.Slot] = b
+		}
+	}
+	result.Status = ProbeRawReport
+	result.Layout = &LayoutInfo{Keys: keys, Knobs: knobs, Kind: kind, Bindings: bindings}
+	return result, nil
+}
+
+// DecodeFASlotKindLt10 decodes a 65-byte 0xFA slot report for kind < 10 firmware.
+func DecodeFASlotKindLt10(r []byte) SlotBinding {
+	b := SlotBinding{
+		Slot:       r[2],
+		Layer:      r[3],
+		ActionType: SlotActionType(r[4]),
+	}
+	switch b.ActionType {
+	case SlotActionKeyboard, SlotActionMacro:
+		count := int(r[10])
+		if count == 0 && r[11] != 0 && r[12] == 0 {
+			b.Strokes = []Stroke{{Modifiers: int(r[11]), Usage: 0}}
+			return b
+		}
+		for i := 0; i < count && 12+2*i < len(r); i++ {
+			mod := int(r[11+2*i])
+			usage := int(r[12+2*i])
+			if mod != 0 || usage != 0 {
+				b.Strokes = append(b.Strokes, Stroke{Modifiers: mod, Usage: usage})
+			}
+		}
+	case SlotActionMedia:
+		b.MediaUsage = uint16(r[11]) | (uint16(r[12]) << 8)
+	case SlotActionMouse:
+		b.Mouse = decodeMouseEvent(MouseModifier(r[11]), MouseButtons(r[12]), signedReportByte(r[13]), signedReportByte(r[14]), signedReportByte(r[15]))
+	}
+	return b
+}
+
+// DecodeFASlotKindGe10 decodes a 65-byte 0xFA slot report for kind >= 10 firmware.
+func DecodeFASlotKindGe10(r []byte) SlotBinding {
+	b := SlotBinding{
+		Slot:       r[2],
+		Layer:      r[3],
+		ActionType: SlotActionType(r[4]),
+	}
+	switch b.ActionType {
+	case SlotActionKeyboard, SlotActionMacro:
+		entryCount := int(r[6])
+		pendingMods := 0
+		for i := 0; i < entryCount && 9+3*i < len(r); i++ {
+			code := r[9+3*i]
+			switch {
+			case code >= 0xf1 && code <= 0xf8:
+				bit := 1 << (code - 0xf1)
+				if pendingMods&bit != 0 {
+					b.Strokes = append(b.Strokes, Stroke{Modifiers: pendingMods, Usage: 0})
+					pendingMods = bit
+				} else {
+					pendingMods |= bit
+				}
+			case code != 0 && code < 0xf0:
+				b.Strokes = append(b.Strokes, Stroke{Modifiers: pendingMods, Usage: int(code)})
+				pendingMods = 0
+			}
+		}
+		if pendingMods != 0 {
+			b.Strokes = append(b.Strokes, Stroke{Modifiers: pendingMods, Usage: 0})
+		}
+	case SlotActionMedia:
+		b.MediaUsage = uint16(r[9]) | (uint16(r[12]) << 8)
+	case SlotActionMouse:
+		modCode := r[9]
+		var mod MouseModifier
+		if modCode >= 0xf1 && modCode <= 0xf8 {
+			mod = MouseModifier(1 << (modCode - 0xf1))
+		} else {
+			mod = MouseModifier(modCode)
+		}
+		b.Mouse = decodeMouseEvent(mod, MouseButtons(r[12]), signedReportByte(r[15]), signedReportByte(r[18]), signedReportByte(r[21]))
+	}
+	return b
+}
+
+func signedReportByte(value byte) int {
+	if value > 127 {
+		return int(value) - 256
+	}
+	return int(value)
+}
+
+func decodeMouseEvent(mod MouseModifier, buttons MouseButtons, dx, dy, wheel int) MouseEvent {
+	var action MouseAction
+	switch {
+	case wheel != 0:
+		action = MouseWheel
+	case buttons != 0 && (dx != 0 || dy != 0):
+		action = MouseDrag
+	case buttons != 0:
+		action = MouseClick
+	case dx != 0 || dy != 0:
+		action = MouseMove
+	}
+	return MouseEvent{Action: action, Buttons: buttons, DX: dx, DY: dy, Wheel: wheel, Modifier: mod}
+}
+
+func (ops probeOps) apply514C(sysRoot, devRoot string, candidate DiscoveredCandidate, reports []Report) (result ApplyResult, err error) {
+	if err := ops.revalidate(sysRoot, candidate); err != nil {
+		return result, err
+	}
+	hidrawName, _, wantMajor, wantMinor, err := ops.locate514CHidraw(candidate)
+	if err != nil {
+		return result, err
+	}
+	node := filepath.Join(hidrawRoot(devRoot), hidrawName)
+	var named unix.Stat_t
+	if err := ops.lstat(node, &named); err != nil {
+		return result, err
+	}
+	if err := checkHidrawNode(named, wantMajor, wantMinor); err != nil {
+		return result, err
+	}
+	fd, err := ops.open(node, unix.O_RDWR|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return result, err
+	}
+	defer func() {
+		if closeErr := ops.close(fd); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+	}()
+	if err := ops.validateHidrawOpen(sysRoot, node, fd, candidate, named, wantMajor, wantMinor); err != nil {
+		return result, err
+	}
+	result.WriteAttempted = true
+	for i, report := range reports {
+		var raw [65]byte
+		copy(raw[:64], report[:])
+		n, err := ops.writeHidraw(fd, raw[:])
+		if err != nil {
+			return result, fmt.Errorf("write report %d: %w", i+1, err)
+		}
+		if n != 65 {
+			return result, fmt.Errorf("write report %d: wrote %d bytes, want 65", i+1, n)
+		}
+		result.ReportsWritten++
+	}
+	return result, nil
 }

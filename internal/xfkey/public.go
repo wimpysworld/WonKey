@@ -49,7 +49,7 @@ Run "wonkey <command> --help" for values and options.
 const keyHelp = `Usage: wonkey key [CONTROL] <COMBINATION> [--layer N] [--device N]
 
 Run "wonkey" without arguments to inspect connected devices.
-Controls (multi-control devices, default: key1): key1-key12, knob-left, knob-press, knob-right, knob1-left..knob3-right
+Controls (multi-control devices, default: key1): key1-key12, knob-left, knob-press, knob-right, knob1-left..knob4-right
 A combination contains exactly one base key from the names below.
 Optional modifiers precede the key: ctrl+, shift+, alt+ or super+, each at most once.
 Key names ignore case. Uppercase letters do not add Shift.
@@ -136,7 +136,7 @@ Examples:
 const mouseHelp = `Usage: wonkey mouse [CONTROL] <BUTTONS> [--x N] [--y N] [--wheel N] [--layer N] [--device N]
 
 Run "wonkey" without arguments to inspect connected devices.
-Controls (multi-control devices, default: key1): key1-key12, knob-left, knob-press, knob-right, knob1-left..knob3-right
+Controls (multi-control devices, default: key1): key1-key12, knob-left, knob-press, knob-right, knob1-left..knob4-right
 Buttons: left, right, middle, none. Join buttons with +, for example left+right.
 Use none alone for movement without a button, or a zero action.
 Use wheelup or wheeldown alone for one wheel tick. Do not combine with --wheel.
@@ -155,7 +155,7 @@ Examples:
 const mediaHelp = `Usage: wonkey media [CONTROL] <ACTION|0xHHHH> [--layer N] [--device N]
 
 Run "wonkey" without arguments to inspect connected devices.
-Controls (multi-control devices, default: key1): key1-key12, knob-left, knob-press, knob-right, knob1-left..knob3-right
+Controls (multi-control devices, default: key1): key1-key12, knob-left, knob-press, knob-right, knob1-left..knob4-right
 Names ignore case:
   play, pause, record, fastforward, rewind, next, prev, previous, stop, eject
   playpause, mute, volumeup, volumedown, calculator, mycomputer, browser, email
@@ -175,7 +175,7 @@ Examples:
 const macroHelp = `Usage: wonkey macro [CONTROL] <STROKE[,STROKE...]> [--interval MS] [--repeat COUNT] [--layer N] [--device N]
 
 Run "wonkey" without arguments to inspect connected devices.
-Controls (multi-control devices, default: key1): key1-key12, knob-left, knob-press, knob-right, knob1-left..knob3-right
+Controls (multi-control devices, default: key1): key1-key12, knob-left, knob-press, knob-right, knob1-left..knob4-right
 Use 1..115 comma-separated key strokes using base key names from "wonkey key --help".
 On devices that support per-stroke modifiers, prefix strokes with ctrl+, shift+, alt+ or super+.
 --interval accepts 1..65535 milliseconds (default: 50).
@@ -238,7 +238,8 @@ func parseControlName(raw string) (ch57.Control, bool) {
 		ch57.KnobLeft, ch57.KnobPress, ch57.KnobRight,
 		ch57.Knob1Left, ch57.Knob1Press, ch57.Knob1Right,
 		ch57.Knob2Left, ch57.Knob2Press, ch57.Knob2Right,
-		ch57.Knob3Left, ch57.Knob3Press, ch57.Knob3Right:
+		ch57.Knob3Left, ch57.Knob3Press, ch57.Knob3Right,
+		ch57.Knob4Left, ch57.Knob4Press, ch57.Knob4Right:
 		return c, true
 	default:
 		return "", false
@@ -807,7 +808,7 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 	byCH57Path := make(map[string]ch57.DiscoveredCandidate, len(chCandidates))
 	for _, candidate := range chCandidates {
 		candidates = append(candidates, Candidate{
-			PhysicalPath: candidate.PhysicalPath, Product: "CH57x Macropad (1189:8890)", Compatible: true,
+			PhysicalPath: candidate.PhysicalPath, Product: ch57ProductName(candidate), Compatible: true,
 			VendorNode: NodeMetadata{Path: fmt.Sprintf("%s/%03d/%03d", devRoot, candidate.BusNumber, candidate.DeviceNumber)},
 		})
 		byCH57Path[candidate.PhysicalPath] = candidate
@@ -824,7 +825,7 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 		return err
 	}
 	if chSelected, ok := byCH57Path[selected.PhysicalPath]; ok {
-		if err := c.checkCH57Capabilities(); err != nil {
+		if err := c.checkCH57CapabilitiesFor(chSelected); err != nil {
 			return err
 		}
 		return c.runCH57Write(chSelected, deviceID, h, access)
@@ -853,38 +854,111 @@ func (c publicCommand) checkXFKEYCapabilities() error {
 	return nil
 }
 
+func ch57VIDPID(candidate ch57.DiscoveredCandidate) (uint16, uint16) {
+	if candidate.VID == 0 && candidate.PID == 0 {
+		return 0x1189, 0x8890
+	}
+	return candidate.VID, candidate.PID
+}
+
+func ch57ProductName(candidate ch57.DiscoveredCandidate) string {
+	vid, pid := ch57VIDPID(candidate)
+	return fmt.Sprintf("CH57x Macropad (%04x:%04x)", vid, pid)
+}
+
+func controlKeyAndKnobIndex(control ch57.Control) (int, int) {
+	switch control {
+	case ch57.Key1:
+		return 1, 0
+	case ch57.Key2:
+		return 2, 0
+	case ch57.Key3:
+		return 3, 0
+	case ch57.Key4:
+		return 4, 0
+	case ch57.Key5:
+		return 5, 0
+	case ch57.Key6:
+		return 6, 0
+	case ch57.Key7:
+		return 7, 0
+	case ch57.Key8:
+		return 8, 0
+	case ch57.Key9:
+		return 9, 0
+	case ch57.Key10:
+		return 10, 0
+	case ch57.Key11:
+		return 11, 0
+	case ch57.Key12:
+		return 12, 0
+	case ch57.KnobLeft, ch57.KnobPress, ch57.KnobRight, ch57.Knob1Left, ch57.Knob1Press, ch57.Knob1Right:
+		return 0, 1
+	case ch57.Knob2Left, ch57.Knob2Press, ch57.Knob2Right:
+		return 0, 2
+	case ch57.Knob3Left, ch57.Knob3Press, ch57.Knob3Right:
+		return 0, 3
+	case ch57.Knob4Left, ch57.Knob4Press, ch57.Knob4Right:
+		return 0, 4
+	default:
+		return 0, 0
+	}
+}
+
+func validateCH57Control(vid, pid uint16, keys, knobs int, control ch57.Control) error {
+	k, m := controlKeyAndKnobIndex(control)
+	if k > keys {
+		return fmt.Errorf("CH57x Macropad (%04x:%04x) has %d keys; %s is not available", vid, pid, keys, control)
+	}
+	if m > knobs {
+		return fmt.Errorf("CH57x Macropad (%04x:%04x) has %d knob(s); %s is not available", vid, pid, knobs, control)
+	}
+	return nil
+}
+
 func (c publicCommand) checkCH57Capabilities() error {
+	return c.checkCH57CapabilitiesFor(ch57.DiscoveredCandidate{})
+}
+
+func (c publicCommand) checkCH57CapabilitiesFor(selected ch57.DiscoveredCandidate) error {
+	vid, pid := ch57VIDPID(selected)
+	product := ch57ProductName(selected)
 	switch c.name {
 	case "key", "macro", "mouse", "media":
 		if _, ok := parseControlName(string(c.control)); !ok {
-			return fmt.Errorf("CH57x Macropad (1189:8890) does not support control %q", c.control)
+			return fmt.Errorf("%s does not support control %q", product, c.control)
+		}
+		if vid == 0x1189 && pid == 0x8890 {
+			if err := validateCH57Control(vid, pid, 12, 3, c.control); err != nil {
+				return err
+			}
 		}
 		if c.layer < 1 || c.layer > 15 {
-			return fmt.Errorf("CH57x Macropad (1189:8890) supports layers 1..15 only")
+			return fmt.Errorf("%s supports layers 1..15 only", product)
 		}
 	}
 	switch c.name {
 	case "trigger":
-		return fmt.Errorf("CH57x Macropad (1189:8890) does not support trigger (key release triggers)")
+		return fmt.Errorf("%s does not support trigger (key release triggers)", product)
 	case "rgb":
-		return fmt.Errorf("CH57x Macropad (1189:8890) does not support rgb; use \"wonkey led\" instead")
+		return fmt.Errorf("%s does not support rgb; use \"wonkey led\" instead", product)
 	case "key":
 		if c.changes["key"] < 0x04 || c.changes["key"] > 0x73 {
-			return fmt.Errorf("CH57x Macropad (1189:8890) supports keys a-z, 0-9, and f1-f24 (usages 0x04..0x73) only")
+			return fmt.Errorf("%s supports keys a-z, 0-9, and f1-f24 (usages 0x04..0x73) only", product)
 		}
 	case "macro":
 		if c.hasMultiOptions {
-			return fmt.Errorf("CH57x Macropad (1189:8890) does not support --interval or --repeat")
+			return fmt.Errorf("%s does not support --interval or --repeat", product)
 		}
 		if c.macroCount > 5 {
-			return fmt.Errorf("CH57x Macropad (1189:8890) supports up to 5 strokes per macro")
+			return fmt.Errorf("%s supports up to 5 strokes per macro", product)
 		}
 		if c.hasUnsupportedCH57MacroKey {
-			return fmt.Errorf("CH57x Macropad (1189:8890) supports keys a-z, 0-9, and f1-f24 (usages 0x04..0x73) only")
+			return fmt.Errorf("%s supports keys a-z, 0-9, and f1-f24 (usages 0x04..0x73) only", product)
 		}
 	case "mouse":
 		if mouse, ok := c.action.(MouseAction); ok {
-			if _, err := ch57MouseEvent(mouse); err != nil {
+			if _, err := ch57MouseEventFor(product, mouse); err != nil {
 				return err
 			}
 		}
@@ -896,7 +970,7 @@ func (c publicCommand) checkCH57Capabilities() error {
 				ch57.MediaVolumeUp, ch57.MediaVolumeDown, ch57.MediaFavorites, ch57.MediaCalculator, ch57.MediaScreenLock,
 				ch57.MediaWebPageHome, ch57.MediaWebPageBack, ch57.MediaWebPageForward:
 			default:
-				return fmt.Errorf("CH57x Macropad (1189:8890) does not support that media action")
+				return fmt.Errorf("%s does not support that media action", product)
 			}
 		}
 	}
@@ -904,11 +978,15 @@ func (c publicCommand) checkCH57Capabilities() error {
 }
 
 func ch57MouseEvent(a MouseAction) (ch57.MouseEvent, error) {
+	return ch57MouseEventFor("CH57x Macropad (1189:8890)", a)
+}
+
+func ch57MouseEventFor(product string, a MouseAction) (ch57.MouseEvent, error) {
 	switch {
 	case a.Wheel != 0 && a.Buttons == 0 && a.X == 0 && a.Y == 0:
 		return ch57.MouseEvent{Action: ch57.MouseWheel, Wheel: a.Wheel}, nil
 	case a.Wheel != 0:
-		return ch57.MouseEvent{}, fmt.Errorf("CH57x Macropad (1189:8890) does not combine mouse wheel with buttons or movement")
+		return ch57.MouseEvent{}, fmt.Errorf("%s does not combine mouse wheel with buttons or movement", product)
 	case a.Buttons != 0 && (a.X != 0 || a.Y != 0):
 		return ch57.MouseEvent{Action: ch57.MouseDrag, Buttons: ch57.MouseButtons(a.Buttons), DX: a.X, DY: a.Y}, nil
 	case a.Buttons != 0:
@@ -916,7 +994,7 @@ func ch57MouseEvent(a MouseAction) (ch57.MouseEvent, error) {
 	case a.X != 0 || a.Y != 0:
 		return ch57.MouseEvent{Action: ch57.MouseMove, DX: a.X, DY: a.Y}, nil
 	default:
-		return ch57.MouseEvent{}, fmt.Errorf("CH57x Macropad (1189:8890) mouse action requires buttons, movement or wheel")
+		return ch57.MouseEvent{}, fmt.Errorf("%s mouse action requires buttons, movement or wheel", product)
 	}
 }
 
@@ -926,14 +1004,71 @@ func formatCH57Stroke(stroke ch57.Stroke) string {
 		return mods
 	}
 	key := settingName(keyValues, stroke.Usage)
+	if key == "" {
+		key = fmt.Sprintf("0x%02x", stroke.Usage)
+	}
 	if stroke.Modifiers != 0 {
 		return mods + "+" + key
 	}
 	return key
 }
 
+func formatCH57SlotBinding(b ch57.SlotBinding) string {
+	switch b.ActionType {
+	case ch57.SlotActionKeyboard, ch57.SlotActionMacro:
+		if len(b.Strokes) == 0 {
+			return "none"
+		}
+		parts := make([]string, len(b.Strokes))
+		for i, stroke := range b.Strokes {
+			parts[i] = formatCH57Stroke(stroke)
+		}
+		return strings.Join(parts, ",")
+	case ch57.SlotActionMedia:
+		if b.MediaUsage == 0 {
+			return "none"
+		}
+		return actionDescription(MediaAction{Usage: int(b.MediaUsage)})
+	case ch57.SlotActionMouse:
+		return actionDescription(MouseAction{
+			Buttons: int(b.Mouse.Buttons),
+			X:       b.Mouse.DX,
+			Y:       b.Mouse.DY,
+			Wheel:   b.Mouse.Wheel,
+		})
+	default:
+		return "none"
+	}
+}
+
+func formatLayoutSummary(keys, knobs int) string {
+	keyWord := "keys"
+	if keys == 1 {
+		keyWord = "key"
+	}
+	knobWord := "knobs"
+	if knobs == 1 {
+		knobWord = "knob"
+	}
+	return fmt.Sprintf("%d %s, %d %s", keys, keyWord, knobs, knobWord)
+}
+
+func k884xLEDModeByte(ledMode int) int {
+	switch ledMode {
+	case 1:
+		return 4
+	case 2:
+		return 1
+	default:
+		return 0
+	}
+}
+
 func (c publicCommand) encodeCH57Reports() ([]ch57.Report, []changeView, error) {
-	profile := ch57.TwelveKeyThreeKnob(c.layer)
+	return c.encodeCH57ReportsWithProfile(ch57.TwelveKeyThreeKnob(c.layer), "write-only")
+}
+
+func (c publicCommand) encodeCH57ReportsWithProfile(profile ch57.Profile, before string) ([]ch57.Report, []changeView, error) {
 	setting := string(c.control)
 	if c.layer > 1 {
 		setting = fmt.Sprintf("%s (layer %d)", c.control, c.layer)
@@ -945,7 +1080,7 @@ func (c publicCommand) encodeCH57Reports() ([]ch57.Report, []changeView, error) 
 		if err != nil {
 			return nil, nil, err
 		}
-		return reports, []changeView{{Setting: setting, Before: "write-only", After: formatCH57Stroke(stroke)}}, nil
+		return reports, []changeView{{Setting: setting, Before: before, After: formatCH57Stroke(stroke)}}, nil
 	case "macro":
 		reports, err := ch57.EncodeKeyboard(profile, c.control, c.macroStrokes)
 		if err != nil {
@@ -955,7 +1090,7 @@ func (c publicCommand) encodeCH57Reports() ([]ch57.Report, []changeView, error) 
 		for i, stroke := range c.macroStrokes {
 			formatted[i] = formatCH57Stroke(stroke)
 		}
-		return reports, []changeView{{Setting: setting, Before: "write-only", After: strings.Join(formatted, ",")}}, nil
+		return reports, []changeView{{Setting: setting, Before: before, After: strings.Join(formatted, ",")}}, nil
 	case "mouse":
 		mouse, ok := c.action.(MouseAction)
 		if !ok {
@@ -969,7 +1104,7 @@ func (c publicCommand) encodeCH57Reports() ([]ch57.Report, []changeView, error) 
 		if err != nil {
 			return nil, nil, err
 		}
-		return reports, []changeView{{Setting: setting, Before: "write-only", After: actionDescription(c.action)}}, nil
+		return reports, []changeView{{Setting: setting, Before: before, After: actionDescription(c.action)}}, nil
 	case "media":
 		media, ok := c.action.(MediaAction)
 		if !ok {
@@ -979,9 +1114,13 @@ func (c publicCommand) encodeCH57Reports() ([]ch57.Report, []changeView, error) 
 		if err != nil {
 			return nil, nil, err
 		}
-		return reports, []changeView{{Setting: setting, Before: "write-only", After: actionDescription(c.action)}}, nil
+		return reports, []changeView{{Setting: setting, Before: before, After: actionDescription(c.action)}}, nil
 	case "led":
-		reports, err := ch57.EncodeLED(profile, c.ledMode)
+		wireMode := c.ledMode
+		if profile.VID == 0x514c {
+			wireMode = k884xLEDModeByte(c.ledMode)
+		}
+		reports, err := ch57.EncodeLED(profile, wireMode)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -998,22 +1137,69 @@ func (c publicCommand) encodeCH57Reports() ([]ch57.Report, []changeView, error) 
 	}
 }
 
+func default514CLayout(pid uint16) (int, int, int) {
+	if pid == 0x8850 {
+		return 12, 4, 11
+	}
+	return 4, 1, 0
+}
+
 func (c publicCommand) runCH57Write(selected ch57.DiscoveredCandidate, deviceID int, h human, access publicAccess) error {
 	const sysRoot, devRoot = "/sys/bus/usb/devices", "/dev/bus/usb"
-	reports, views, err := c.encodeCH57Reports()
-	if err != nil {
-		return err
-	}
-	if err := c.runCH57Selected(selected, deviceID, h, access); err != nil {
-		return err
+	var reports []ch57.Report
+	var views []changeView
+	if selected.VID == 0x514c {
+		probed, probeErr := access.probeCH57(sysRoot, devRoot, selected)
+		if probeErr != nil {
+			c.renderCH57CardHeading(selected, deviceID, h)
+			renderCH57ProbeOutcome(probed, h)
+			return errors.Join(probeErr, h.out.err)
+		}
+		keys, knobs, kind := default514CLayout(selected.PID)
+		if probed.Layout != nil {
+			keys, knobs, kind = probed.Layout.Keys, probed.Layout.Knobs, probed.Layout.Kind
+		}
+		switch c.name {
+		case "key", "macro", "mouse", "media":
+			if err := validateCH57Control(selected.VID, selected.PID, keys, knobs, c.control); err != nil {
+				return err
+			}
+		}
+		before := "write-only"
+		if probed.Layout != nil && c.layer == 1 && c.name != "led" {
+			if slot, ok := ch57.K884xSlot(c.control); ok {
+				if b, has := probed.Layout.Bindings[slot]; has && b.ActionType != ch57.SlotActionNone {
+					before = formatCH57SlotBinding(b)
+				}
+			}
+		}
+		var err error
+		reports, views, err = c.encodeCH57ReportsWithProfile(ch57.K884xProfile(selected.PID, kind, c.layer), before)
+		if err != nil {
+			return err
+		}
+		c.renderCH57CardHeading(selected, deviceID, h)
+		renderCH57ProbeOutcome(probed, h)
+		if h.out.err != nil {
+			return h.out.err
+		}
+	} else {
+		var err error
+		reports, views, err = c.encodeCH57Reports()
+		if err != nil {
+			return err
+		}
+		if err := c.runCH57Selected(selected, deviceID, h, access); err != nil {
+			return err
+		}
 	}
 	h.changes(views)
 	if h.out.err != nil {
 		return h.out.err
 	}
-	result, err := access.applyCH57(sysRoot, devRoot, selected, reports)
+	applied, err := access.applyCH57(sysRoot, devRoot, selected, reports)
 	if err != nil {
-		if result.WriteAttempted {
+		if applied.WriteAttempted {
 			h.line("31", "Device state uncertain. A submitted write can still complete.")
 		} else {
 			h.line("", "Stopped before settings upload.")
@@ -1025,11 +1211,59 @@ func (c publicCommand) runCH57Write(selected ch57.DiscoveredCandidate, deviceID 
 	return h.out.err
 }
 
+func (c publicCommand) renderCH57CardHeading(selected ch57.DiscoveredCandidate, deviceID int, h human) {
+	h.heading(fmt.Sprintf("[%d] %s", deviceID, ch57ProductName(selected)))
+	h.field("USB path", selected.PhysicalPath)
+	if selected.VID != 0x514c {
+		h.field("Supports", "key, mouse, media, macro, led")
+	}
+}
+
+func renderCH57ProbeOutcome(probed ch57.ProbeResult, h human) {
+	if probed.Layout != nil {
+		h.field("Layout", formatLayoutSummary(probed.Layout.Keys, probed.Layout.Knobs))
+		h.field("Supports", "key, mouse, media, macro, led")
+		for k := 1; k <= probed.Layout.Keys; k++ {
+			h.field(fmt.Sprintf("key%d", k), formatCH57SlotBinding(probed.Layout.Bindings[byte(k)]))
+		}
+		for m := 1; m <= probed.Layout.Knobs; m++ {
+			leftSlot, pressSlot, rightSlot, ok := ch57.K884xKnobSlots(m)
+			if !ok {
+				continue
+			}
+			val := fmt.Sprintf("left: %s, press: %s, right: %s",
+				formatCH57SlotBinding(probed.Layout.Bindings[leftSlot]),
+				formatCH57SlotBinding(probed.Layout.Bindings[pressSlot]),
+				formatCH57SlotBinding(probed.Layout.Bindings[rightSlot]))
+			h.field(fmt.Sprintf("knob%d", m), val)
+		}
+		return
+	}
+	if probed.Status == ch57.ProbeRawReport {
+		if probed.Count == 1 && len(probed.Raw) == 1 && probed.Raw[0] == 0xaa {
+			h.field("Settings", "Write-only (not readable over USB)")
+			return
+		}
+		h.field("Settings", "Write-only (not readable over USB)")
+		h.field("Input hex", hex.EncodeToString(probed.Raw))
+		return
+	}
+	h.field("Status", string(probed.Status))
+	if probed.ReportDescriptor != nil || probed.ReportDescriptorCount != 0 {
+		h.field("Descriptor bytes", strconv.Itoa(probed.ReportDescriptorCount))
+		h.field("Descriptor hex", hex.EncodeToString(probed.ReportDescriptor))
+	}
+	if probed.Raw != nil || probed.Count != 0 || probed.Status == ch57.ProbeTransferFailed {
+		h.field("Input bytes", strconv.Itoa(probed.Count))
+		h.field("Input hex", hex.EncodeToString(probed.Raw))
+	}
+}
+
 func (c publicCommand) runReadAll(matches []Candidate, byCH57Path map[string]ch57.DiscoveredCandidate, h human, access publicAccess) error {
 	for i, selected := range matches {
 		deviceID := i + 1
 		if i > 0 {
-			fmt.Fprintln(h.out)
+			_, _ = io.WriteString(h.out, "\n")
 		}
 		if chCandidate, ok := byCH57Path[selected.PhysicalPath]; ok {
 			if err := c.runCH57Selected(chCandidate, deviceID, h, access); err != nil {
@@ -1064,33 +1298,30 @@ func (c publicCommand) runXFKEYSelected(selected Candidate, deviceID int, h huma
 
 func (c publicCommand) runCH57Selected(selected ch57.DiscoveredCandidate, deviceID int, h human, access publicAccess) error {
 	const sysRoot, devRoot = "/sys/bus/usb/devices", "/dev/bus/usb"
-	h.heading(fmt.Sprintf("[%d] CH57x Macropad (1189:8890)", deviceID))
-	h.field("USB path", selected.PhysicalPath)
-	h.field("Supports", "key, mouse, media, macro, led")
+	c.renderCH57CardHeading(selected, deviceID, h)
 	if h.out.err != nil {
 		return h.out.err
 	}
-	result, err := access.probeCH57(sysRoot, devRoot, selected)
-	if err == nil {
-		if result.Count == 1 && len(result.Raw) == 1 && result.Raw[0] == 0xaa {
-			h.field("Settings", "Write-only (not readable over USB)")
-			return h.out.err
+	probed, err := access.probeCH57(sysRoot, devRoot, selected)
+	if err != nil && selected.VID == 0x514c {
+		h.field("Supports", "key, mouse, media, macro, led")
+	}
+	if err == nil && probed.Status != ch57.ProbeRawReport && probed.Count == 1 && len(probed.Raw) == 1 && probed.Raw[0] == 0xaa {
+		probed.Status = ch57.ProbeRawReport
+	}
+	if err != nil && probed.Status == ch57.ProbeRawReport {
+		h.field("Status", string(probed.Status))
+		if probed.ReportDescriptor != nil || probed.ReportDescriptorCount != 0 {
+			h.field("Descriptor bytes", strconv.Itoa(probed.ReportDescriptorCount))
+			h.field("Descriptor hex", hex.EncodeToString(probed.ReportDescriptor))
 		}
-		if result.Status == ch57.ProbeRawReport {
-			h.field("Settings", "Write-only (not readable over USB)")
-			h.field("Input hex", hex.EncodeToString(result.Raw))
-			return h.out.err
+		if probed.Raw != nil || probed.Count != 0 {
+			h.field("Input bytes", strconv.Itoa(probed.Count))
+			h.field("Input hex", hex.EncodeToString(probed.Raw))
 		}
+		return errors.Join(err, h.out.err)
 	}
-	h.field("Status", string(result.Status))
-	if result.ReportDescriptor != nil || result.ReportDescriptorCount != 0 {
-		h.field("Descriptor bytes", strconv.Itoa(result.ReportDescriptorCount))
-		h.field("Descriptor hex", hex.EncodeToString(result.ReportDescriptor))
-	}
-	if result.Raw != nil || result.Count != 0 || result.Status == ch57.ProbeTransferFailed {
-		h.field("Input bytes", strconv.Itoa(result.Count))
-		h.field("Input hex", hex.EncodeToString(result.Raw))
-	}
+	renderCH57ProbeOutcome(probed, h)
 	return errors.Join(err, h.out.err)
 }
 

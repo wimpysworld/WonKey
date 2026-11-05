@@ -48,6 +48,42 @@ func EncodeKeyboard(profile Profile, control Control, strokes []Stroke) ([]Repor
 		}
 	}
 
+	switch profile.Variant {
+	case K884xFE:
+		r := Report{0x03, 0xfe, slot, layer, 0x01, 0, 0, 0, 0, 0, byte(count)}
+		if count == 1 && strokes[0].Usage == 0 {
+			r[10] = 0
+			r[11] = byte(strokes[0].Modifiers & 255)
+			r[12] = 0
+		} else {
+			for i, stroke := range strokes {
+				r[11+2*i] = byte(stroke.Modifiers & 255)
+				r[12+2*i] = byte(stroke.Usage & 255)
+			}
+		}
+		return k884xFEReports(r), nil
+	case K884xFD:
+		var entries []byte
+		for _, stroke := range strokes {
+			for b := range 8 {
+				if stroke.Modifiers&(1<<b) != 0 {
+					entries = append(entries, byte(0xf1+b))
+				}
+			}
+			if stroke.Usage != 0 {
+				entries = append(entries, byte(stroke.Usage&255))
+			}
+		}
+		if len(entries) > 18 {
+			return nil, fmt.Errorf("keyboard binding exceeds 18 k884x entries")
+		}
+		r := Report{0x03, 0xfd, slot, layer, 0x01, 0x00, byte(len(entries) & 255)}
+		for i, code := range entries {
+			r[9+3*i] = code
+		}
+		return k884xFDReports(r), nil
+	}
+
 	kind := (layer << 4) | 0x01
 	records := make([]Report, 0, count+1)
 	// The source inserts an empty record at index zero, outside the stroke count.
@@ -56,6 +92,22 @@ func EncodeKeyboard(profile Profile, control Control, strokes []Stroke) ([]Repor
 		records = append(records, Report{0x03, slot, kind, byte(count), byte(i + 1), byte(stroke.Modifiers & 255), byte(stroke.Usage & 255)})
 	}
 	return bindingReports(layer, records...), nil
+}
+
+func k884xFEReports(r Report) []Report {
+	return []Report{
+		r,
+		{0x03, 0xaa, 0xaa},
+		{0x03, 0xfd, 0xfe, 0xff},
+		{0x03, 0xaa, 0xaa},
+	}
+}
+
+func k884xFDReports(r Report) []Report {
+	return []Report{
+		r,
+		{0x03, 0xfd, 0xfe, 0xff},
+	}
 }
 
 func bindingReports(layer byte, records ...Report) []Report {

@@ -427,3 +427,46 @@ func assertReports(t *testing.T, got, want []Report) {
 		}
 	}
 }
+
+func TestEncodeKeyboardK884xFEAndFD(t *testing.T) {
+	feProfile := K884xProfile(0x8851, 0, 1)
+	feGot, err := EncodeKeyboard(feProfile, Knob1Right, []Stroke{
+		{Modifiers: 0x01, Usage: 0x06},
+		{Modifiers: 0x01, Usage: 0x19},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	feWant := []Report{
+		{0x03, 0xfe, 18, 1, 0x01, 0, 0, 0, 0, 0, 2, 0x01, 0x06, 0x01, 0x19},
+		{0x03, 0xaa, 0xaa},
+		{0x03, 0xfd, 0xfe, 0xff},
+		{0x03, 0xaa, 0xaa},
+	}
+	if !slices.Equal(feGot, feWant) {
+		t.Fatalf("K884xFE keyboard:\n got %x\nwant %x", feGot, feWant)
+	}
+
+	feModOnly, err := EncodeKeyboard(feProfile, Key1, []Stroke{{Modifiers: 0x03, Usage: 0x00}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if feModOnly[0][10] != 0 || feModOnly[0][11] != 0x03 || feModOnly[0][12] != 0x00 {
+		t.Fatalf("K884xFE mod-only: %x", feModOnly[0])
+	}
+
+	fdProfile := K884xProfile(0x8850, 11, 1)
+	fdGot, err := EncodeKeyboard(fdProfile, Knob4Left, []Stroke{
+		{Modifiers: 0x03, Usage: 0x68},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fdWant := []Report{
+		{0x03, 0xfd, 13, 1, 0x01, 0x00, 3, 0x00, 0x00, 0xf1, 0x00, 0x00, 0xf2, 0x00, 0x00, 0x68},
+		{0x03, 0xfd, 0xfe, 0xff},
+	}
+	if !slices.Equal(fdGot, fdWant) {
+		t.Fatalf("K884xFD keyboard:\n got %x\nwant %x", fdGot, fdWant)
+	}
+}

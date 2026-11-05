@@ -138,6 +138,7 @@ func TestPublicParser(t *testing.T) {
 		ch57.Knob1Left, ch57.Knob1Press, ch57.Knob1Right,
 		ch57.Knob2Left, ch57.Knob2Press, ch57.Knob2Right,
 		ch57.Knob3Left, ch57.Knob3Press, ch57.Knob3Right,
+		ch57.Knob4Left, ch57.Knob4Press, ch57.Knob4Right,
 	} {
 		for _, rawControl := range []string{string(control), strings.ToUpper(string(control))} {
 			got, err := parsePublic([]string{"key", rawControl, "ctrl+shift+f13", "--layer", "15", "--device=2"})
@@ -403,7 +404,7 @@ func TestPublicRefusesInvalidBeforeAccess(t *testing.T) {
 		{"key", "knob-right"},
 		{"key", "key2", "f13", "extra"},
 		{"key", "key13", "f13"},
-		{"key", "knob4-left", "f13"},
+		{"key", "knob5-left", "f13"},
 		{"--layer", "1"},
 		{"--layer=1"},
 		{"key", "--layer"},
@@ -1441,4 +1442,126 @@ func TestPublicLiveBoundaryOffline(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPublic514CReadValidationAndWrite(t *testing.T) {
+	c8851 := ch57.DiscoveredCandidate{
+		Candidate:    ch57.Candidate{PhysicalPath: "1-4.1", VID: 0x514c, PID: 0x8851},
+		BusNumber:    1,
+		DeviceNumber: 23,
+	}
+	c8850 := ch57.DiscoveredCandidate{
+		Candidate:    ch57.Candidate{PhysicalPath: "1-4.2", VID: 0x514c, PID: 0x8850},
+		BusNumber:    1,
+		DeviceNumber: 18,
+	}
+	probe514C := func(_ string, _ string, selected ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
+		if selected.PID == 0x8851 {
+			return ch57.ProbeResult{
+				Status: ch57.ProbeRawReport,
+				Layout: &ch57.LayoutInfo{
+					Keys: 4, Knobs: 1, Kind: 0,
+					Bindings: map[byte]ch57.SlotBinding{
+						1:  {Slot: 1, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x04}}},
+						2:  {Slot: 2, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x05}}},
+						3:  {Slot: 3, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x06}}},
+						4:  {Slot: 4, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x07}}},
+						16: {Slot: 16, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x20}}},
+						17: {Slot: 17, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x1f}}},
+						18: {Slot: 18, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x1e}}},
+					},
+				},
+			}, nil
+		}
+		bindings := map[byte]ch57.SlotBinding{
+			1:  {Slot: 1, Layer: 1, ActionType: ch57.SlotActionKeyboard, Strokes: []ch57.Stroke{{Usage: 0x04}}},
+			13: {Slot: 13, Layer: 1, ActionType: ch57.SlotActionMedia, MediaUsage: 0x00ea},
+			14: {Slot: 14, Layer: 1, ActionType: ch57.SlotActionMedia, MediaUsage: 0x00e2},
+			15: {Slot: 15, Layer: 1, ActionType: ch57.SlotActionMedia, MediaUsage: 0x00e9},
+		}
+		return ch57.ProbeResult{
+			Status: ch57.ProbeRawReport,
+			Layout: &ch57.LayoutInfo{Keys: 12, Knobs: 4, Kind: 11, Bindings: bindings},
+		}, nil
+	}
+
+	t.Run("bare-read-cards", func(t *testing.T) {
+		access := ch57TestAccess(t)
+		access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
+			return []ch57.DiscoveredCandidate{c8851, c8850}, nil
+		}
+		access.probeCH57 = probe514C
+		var out, diag bytes.Buffer
+		if err := runPublic(nil, &cliRuntime{strings.NewReader(""), &out, &diag}, access); err != nil {
+			t.Fatalf("err=%v diag=%q", err, diag.String())
+		}
+		for _, want := range []string{
+			"[1] CH57x Macropad (514c:8851)\n  USB path   1-4.1\n  Layout     4 keys, 1 knob\n  Supports   key, mouse, media, macro, led\n",
+			"  key1       a\n  key2       b\n  key3       c\n  key4       d\n  knob1      left: 3, press: 2, right: 1\n",
+			"[2] CH57x Macropad (514c:8850)\n  USB path   1-4.2\n  Layout     12 keys, 4 knobs\n  Supports   key, mouse, media, macro, led\n",
+			"  knob4      left: media volumedown (0x00ea), press: media mute (0x00e2), right: media volumeup (0x00e9)\n",
+		} {
+			if !strings.Contains(out.String(), want) {
+				t.Fatalf("missing %q in:\n%s", want, out.String())
+			}
+		}
+	})
+
+	t.Run("per-device-control-validation", func(t *testing.T) {
+		for _, tc := range []struct {
+			candidate ch57.DiscoveredCandidate
+			args      []string
+			want      string
+		}{
+			{c8851, []string{"key", "key5", "f13"}, "CH57x Macropad (514c:8851) has 4 keys; key5 is not available"},
+			{c8851, []string{"key", "key12", "f13"}, "CH57x Macropad (514c:8851) has 4 keys; key12 is not available"},
+			{c8851, []string{"media", "knob2-left", "volumeup"}, "CH57x Macropad (514c:8851) has 1 knob(s); knob2-left is not available"},
+			{c8851, []string{"mouse", "knob4-press", "left"}, "CH57x Macropad (514c:8851) has 1 knob(s); knob4-press is not available"},
+		} {
+			access := ch57TestAccess(t)
+			access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
+				return []ch57.DiscoveredCandidate{tc.candidate}, nil
+			}
+			access.probeCH57 = probe514C
+			var out, diag bytes.Buffer
+			err := runPublic(tc.args, &cliRuntime{strings.NewReader(""), &out, &diag}, access)
+			if err == nil || err.Error() != tc.want || !strings.Contains(strings.ReplaceAll(diag.String(), "\n", " "), tc.want) {
+				t.Fatalf("args=%v err=%v diag=%q want=%q", tc.args, err, diag.String(), tc.want)
+			}
+		}
+	})
+
+	t.Run("live-programming-fe-and-fd", func(t *testing.T) {
+		for _, tc := range []struct {
+			candidate  ch57.DiscoveredCandidate
+			args       []string
+			wantChange string
+			wantFirst  [7]byte
+			wantCount  int
+		}{
+			{c8851, []string{"key", "key1", "f13"}, "  key1: a -> f13\n", [7]byte{0x03, 0xfe, 1, 1, 0x01, 0, 0}, 4},
+			{c8851, []string{"media", "knob-right", "volumeup"}, "  knob-right: 1 -> media volumeup (0x00e9)\n", [7]byte{0x03, 0xfe, 18, 1, 0x02, 0, 0}, 4},
+			{c8851, []string{"led", "reactive"}, "  led: write-only -> reactive\n", [7]byte{0x03, 0xfe, 0xb0, 1, 0x08, 0, 0}, 2},
+			{c8850, []string{"key", "knob4-left", "ctrl+f13"}, "  knob4-left: media volumedown (0x00ea) -> ctrl+f13\n", [7]byte{0x03, 0xfd, 13, 1, 0x01, 0, 2}, 2},
+			{c8850, []string{"led", "cycle"}, "  led: write-only -> cycle\n", [7]byte{0x03, 0xfe, 0xb0, 0, 0x01, 0, 0}, 2},
+		} {
+			access := ch57TestAccess(t)
+			access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
+				return []ch57.DiscoveredCandidate{tc.candidate}, nil
+			}
+			access.probeCH57 = probe514C
+			var written []ch57.Report
+			access.applyCH57 = func(_ string, _ string, _ ch57.DiscoveredCandidate, reports []ch57.Report) (ch57.ApplyResult, error) {
+				written = reports
+				return ch57.ApplyResult{WriteAttempted: true, ReportsWritten: len(reports)}, nil
+			}
+			var out, diag bytes.Buffer
+			if err := runPublic(tc.args, &cliRuntime{strings.NewReader(""), &out, &diag}, access); err != nil {
+				t.Fatalf("args=%v err=%v diag=%q", tc.args, err, diag.String())
+			}
+			if !strings.Contains(out.String(), tc.wantChange) || len(written) != tc.wantCount || !bytes.Equal(written[0][:7], tc.wantFirst[:]) {
+				t.Fatalf("args=%v out=%q written=%x", tc.args, out.String(), written)
+			}
+		}
+	})
 }

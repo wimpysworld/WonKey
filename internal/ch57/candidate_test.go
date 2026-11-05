@@ -146,8 +146,43 @@ func TestMatchCandidatePhysicalPath(t *testing.T) {
 	}
 }
 
+func TestMatchCandidate514C(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		descriptors []byte
+		pid         uint16
+		ep0, ep1    byte
+	}{
+		{"514c:8851", []byte(candidate8851USBDescriptor), 0x8851, 0x82, 0x81},
+		{"514c:8850", []byte(candidate8850USBDescriptor), 0x8850, 0x84, 0x82},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := MatchCandidate("1-4.1", tc.descriptors)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := Candidate{
+				PhysicalPath:  "1-4.1",
+				VID:           0x514c,
+				PID:           tc.pid,
+				Revision:      0x0100,
+				Configuration: 1,
+				Interfaces: [4]CandidateInterface{
+					{0, 0, 3, 0, 0, 0x0111, 36, CandidateEndpoint{tc.ep0, 3, 64, 1}},
+					{1, 0, 3, 1, 1, 0x0201, 207, CandidateEndpoint{tc.ep1, 3, 16, 1}},
+				},
+			}
+			if got != want {
+				t.Fatalf("got %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
 func FuzzMatchCandidate(f *testing.F) {
 	f.Add("1-2", syntheticCandidateDescriptors())
+	f.Add("1-2", []byte(candidate8851USBDescriptor))
+	f.Add("1-2", []byte(candidate8850USBDescriptor))
 	f.Add("1-2", []byte{})
 	f.Add("hidraw0", syntheticCandidateDescriptors())
 	f.Fuzz(func(t *testing.T, path string, descriptors []byte) {
@@ -158,7 +193,10 @@ func FuzzMatchCandidate(f *testing.F) {
 			}
 			return
 		}
-		if !bytes.Equal(descriptors, syntheticCandidateDescriptors()) || got.PhysicalPath != path {
+		valid := bytes.Equal(descriptors, syntheticCandidateDescriptors()) ||
+			bytes.Equal(descriptors, []byte(candidate8851USBDescriptor)) ||
+			bytes.Equal(descriptors, []byte(candidate8850USBDescriptor))
+		if !valid || got.PhysicalPath != path {
 			t.Fatal("accepted an unknown structure or changed the physical path")
 		}
 	})
