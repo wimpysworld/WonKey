@@ -3,7 +3,7 @@
 ## Architecture notes
 
 - Keep `cmd/wonkey` limited to process entry and exit handling. Keep CLI, protocol, and Linux device logic in `internal/xfkey` and `internal/ch57`.
-- Expose only `key`, `mouse`, `media`, `multi`, and `rgb`, with help and validated command-specific options. Do not add developer commands, legacy aliases, or a second transaction engine.
+- Expose only `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, and `led`, with help and validated command-specific options. Do not add developer commands, legacy aliases, or a second transaction engine.
 - Use WonKey/`wonkey` for project branding and the executable, not for genuine hardware or compatibility identifiers.
 - Preserve `XFKEY`, One Key Max, `internal/xfkey`, upstream URLs, and captured metadata.
 - Keep protocol changes grounded in the [protocol and source evidence](wiki/protocol.md#evidence). The upstream TECH.md has known descriptor/layout errors.
@@ -86,9 +86,9 @@ Obtain explicit user authority before device access.
 - Refuse public changes without a terminal before device access. Read and show current-to-proposed values before confirmation.
 - Use `Save settings? [Y/n]:` followed by one space, with no bypass. Accept Enter, `y`, or `yes`, ignoring letter case. Cancel on EOF, `n`, `no`, or invalid input.
 - Reject settings drift after preview, including drift that makes the request a no-op.
-- Keep bare `wonkey` query-only. Keep help and rejected syntax (including bare `key`, `mouse`, `media`, `multi`, and `rgb`) free of hardware access. No-op and cancellation must send no settings upload or commit.
+- Keep bare `wonkey` query-only. Keep help and rejected syntax (including bare `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, and `led`) free of hardware access. No-op and cancellation must send no settings upload or commit.
 - A saved offline plan never authorises a live write.
-- Treat a public key expression as the complete combination, clearing unspecified modifiers. When `--on` is omitted, preserve an existing keyboard trigger, or use press when replacing another action. Preserve omitted RGB colour.
+- Treat a public key expression as the complete combination, clearing unspecified modifiers. Preserve an existing keyboard trigger, or use press when replacing another action. Use `trigger` to change `press`, `release`, or `both` on devices that support key triggers. Preserve omitted RGB colour.
 - Accept only supported, validated keyboard, mouse, media, and multi layouts. Reject ambiguous action conversions. Change no unrelated bytes. Reject unsupported current layouts even for RGB-only changes.
 
 ## Gotchas

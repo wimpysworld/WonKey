@@ -16,7 +16,7 @@ model `0112`, version `1014`, identifier `be077ba2`, <kbd>Enter</kbd> on press w
 The four report descriptors also match. Separate user-run tests confirmed upload/commit echoes and full 128-byte readback after <kbd>F13</kbd> and steady-blue changes.
 The user confirmed <kbd>F13</kbd> press/release events, steady-blue RGB, and persistence of both settings after reconnect.
 Other settings and devices remain unverified.
-All other selectable keys, including the added keyboard usages through `0x91`, and all mouse, consumer media, and multi-key actions remain hardware-unverified.
+All other selectable keys, including the added keyboard usages through `0x91`, and all mouse, consumer media, and macro (`03` multi-key) actions remain hardware-unverified.
 Existing parser output and fixture metadata retain the status `host-derived, hardware-unverified`.
 The included query fixture does not record the later upload tests.
 
@@ -42,13 +42,13 @@ The 128-byte configuration uses byte 0 as an action type. These layouts apply on
 | `00` keyboard | 1 trigger (`01` press, `02` release, `03` both), 2 left-modifier mask (`0x00` to `0x0f`), 3 count (`01`), 4 keyboard-page usage | Defined keyboard usages `0x04` to `0x91`; right modifiers are unsupported. |
 | `01` relative mouse | 1 button bitmap (left `01`, right `02`, middle `04`), 2 signed X, 3 signed Y, 4 signed wheel | Button mask `0..7`; X, Y, and wheel each `-127..127` (signed byte). |
 | `02` consumer media | 1 low usage byte, 2 high usage byte | Consumer-page usage `0x0001..0x023c`; little-endian bytes, for example volume up `0x00e9` is `e9 00`. |
-| `03` multi-key | 1 to 2 interval in milliseconds (big-endian), 3 repeat count, 4 key count, 5 onward keyboard-page usage bytes | Interval `1..65535`, repeat `1..255`, count `1..115`; each key uses the supported keyboard name table. |
+| `03` multi-key (`macro`) | 1 to 2 interval in milliseconds (big-endian), 3 repeat count, 4 key count, 5 onward keyboard-page usage bytes | Interval `1..65535`, repeat `1..255`, count `1..115`; each key uses the supported keyboard name table. |
 
-The multi-key count stops at 115 because keys occupy bytes 5 to 119. WonKey preserves bytes 120 to 123 and RGB bytes 124 to 127.
+The `03` multi-key (`macro`) count stops at 115 because keys occupy bytes 5 to 119. WonKey preserves bytes 120 to 123 and RGB bytes 124 to 127.
 Only active fields change. On a type change, WonKey clears the previous active span. On a shorter same-type action, it clears retired active bytes.
 It preserves unknown bytes outside those spans. Keyboard trigger `both` can involve separate release fields, so conversion to or from another type is rejected.
 Unsupported special (`04`), macro (`06`), touch (`07`), unknown types, and malformed known actions fail closed, including RGB-only changes.
-The public command is not a raw packet writer. See [action syntax](usage#mouse-media-and-multi-key-actions).
+The public command is not a raw packet writer. See [action syntax](usage#mouse-media-and-macro-actions).
 
 ## Evidence
 

@@ -70,11 +70,16 @@ func TestSupportedKeys(t *testing.T) {
 					t.Fatalf("RGB change lost extended key or unrelated bytes: %v", err)
 				}
 			}
-			command, err := parsePublic([]string{"key", name, "--on", "release"})
-			if err != nil || !reflect.DeepEqual(command.changes, Changes{"key": usage, "modifiers": 0, "trigger": 2}) {
-				t.Fatal(command, err)
+			if _, err := parsePublic([]string{"key", name, "--on", "release"}); err == nil {
+				t.Fatalf("accepted retired --on for %s", name)
 			}
 		})
+	}
+	for name, trigger := range triggerValues {
+		command, err := parsePublic([]string{"trigger", name})
+		if err != nil || !reflect.DeepEqual(command.changes, Changes{"trigger": trigger}) {
+			t.Fatal(name, command, err)
+		}
 	}
 }
 

@@ -22,10 +22,12 @@ Without a command, inspect all connected supported devices.
 
 Commands:
   key <COMBINATION>   Change the key.
+  trigger <WHEN>      Change when the key fires.
+  macro <STROKE,...>  Change the macro key sequence.
   mouse <BUTTONS>     Change the mouse action.
   media <ACTION>      Change the media action.
-  multi <KEY,...>     Change the key sequence.
   rgb <MODE> [RGB]    Change the RGB lighting.
+  led <MODE>          Change the LED backlight mode.
 
 Options:
   --device N          Select device N when multiple devices are connected.
@@ -34,20 +36,21 @@ Options:
 Examples:
   wonkey
 ` + `  wonkey key f13
-  wonkey key ctrl+shift+f13 --on release
+  wonkey trigger release
+  wonkey macro ctrl+c,ctrl+v
   wonkey rgb static 0000ff
-  wonkey rgb off
+  wonkey led on
 
 Run "wonkey <command> --help" for values and options.
 `
 
-const keyHelp = `Usage: wonkey key <COMBINATION> [--on WHEN] [--device N]
+const keyHelp = `Usage: wonkey key <COMBINATION> [--device N]
 
 Run "wonkey" without arguments to inspect connected devices.
 A combination contains exactly one base key from the names below.
 Optional modifiers precede the key: ctrl+, shift+, alt+ or super+, each at most once.
 Key names ignore case. Uppercase letters do not add Shift.
-Unspecified modifiers are cleared. Omitted --on preserves a keyboard trigger.
+Unspecified modifiers are cleared. An existing keyboard trigger is preserved.
 When replacing another action, the default trigger is press.
 
 Base keys:
@@ -72,14 +75,34 @@ Raw usage numbers, punctuation symbols and right modifiers are unsupported.
 Added keys fit the captured descriptor but remain hardware-unverified.
 
 Options:
-  --on WHEN     press, release or both. Requires a key combination.
   --device N    Select device N when multiple devices are connected.
   -h, --help    Show help without device access.
 
 Examples:
   wonkey key f13
   wonkey key ctrl+shift+f13
-  wonkey key f13 --on release
+
+At [Y/n], Enter accepts. No or EOF cancels.
+`
+
+const triggerHelp = `Usage: wonkey trigger <press|release|both> [--device N]
+
+Run "wonkey" without arguments to inspect connected devices.
+Set when the configured key fires on devices that support key triggers.
+Requires the device to have a keyboard key configured.
+
+Values:
+  press      Fire when the key is pressed
+  release    Fire when the key is released
+  both       Fire on both press and release
+
+Options:
+  --device N   Select device N when multiple devices are connected.
+  -h, --help   Show help without device access.
+
+Examples:
+  wonkey trigger press
+  wonkey trigger release
 
 At [Y/n], Enter accepts. No or EOF cancels.
 `
@@ -143,11 +166,11 @@ Options:
 At [Y/n], Enter accepts. No or EOF cancels.
 `
 
-const multiHelp = `Usage: wonkey multi <KEY[,KEY...]> [--interval MS] [--repeat COUNT] [--device N]
+const macroHelp = `Usage: wonkey macro <STROKE[,STROKE...]> [--interval MS] [--repeat COUNT] [--device N]
 
 Run "wonkey" without arguments to inspect connected devices.
-Use 1..115 comma-separated base key names from "wonkey key --help".
-Modifiers and raw usage numbers are unsupported.
+Use 1..115 comma-separated key strokes using base key names from "wonkey key --help".
+On devices that support per-stroke modifiers, prefix strokes with ctrl+, shift+, alt+ or super+.
 --interval accepts 1..65535 milliseconds (default: 50).
 --repeat accepts 1..255 repetitions (default: 1).
 
@@ -155,15 +178,47 @@ Options:
   --device N    Select device N when multiple devices are connected.
   -h, --help    Show help without device access.
 
+Examples:
+  wonkey macro a,b,c
+  wonkey macro ctrl+c,ctrl+v
+
+At [Y/n], Enter accepts. No or EOF cancels.
+`
+
+const ledHelp = `Usage: wonkey led <MODE> [--device N]
+
+Run "wonkey" without arguments to inspect connected devices.
+Configure the LED backlight mode on devices that support LED modes.
+
+Modes:
+  off            Backlight off (mode 0)
+  on, static     Steady backlight (mode 1)
+  0..255         Raw LED mode number
+
+Options:
+  --device N   Select device N when multiple devices are connected.
+  -h, --help   Show help without device access.
+
+Examples:
+  wonkey led on
+  wonkey led off
+  wonkey led 2
+
 At [Y/n], Enter accepts. No or EOF cancels.
 `
 
 type publicCommand struct {
-	name    string
-	changes Changes
-	action  Action
-	device  int
-	help    bool
+	name                       string
+	changes                    Changes
+	action                     Action
+	device                     int
+	ledMode                    int
+	hasLED                     bool
+	hasMultiOptions            bool
+	hasMacroModifiers          bool
+	hasUnsupportedCH57MacroKey bool
+	macroCount                 int
+	help                       bool
 }
 
 func parsePublic(args []string) (publicCommand, error) {
@@ -180,13 +235,12 @@ func parsePublic(args []string) (publicCommand, error) {
 	}
 	c.name = args[0]
 	switch c.name {
-	case "key", "mouse", "media", "multi", "rgb":
+	case "key", "trigger", "macro", "mouse", "media", "rgb", "led":
 	default:
-		return c, fmt.Errorf("unknown command %q; use key, mouse, media, multi or rgb", c.name)
+		return c, fmt.Errorf("unknown command %q; use key, trigger, macro, mouse, media, rgb or led", c.name)
 	}
 	var positional []string
 	options := map[string]int{}
-	on, seenOn := "", false
 	args = args[1:]
 	for len(args) > 0 {
 		arg := args[0]
@@ -194,23 +248,6 @@ func parsePublic(args []string) (publicCommand, error) {
 		switch {
 		case arg == "--help" || arg == "-h":
 			c.help = true
-		case arg == "--on" || strings.HasPrefix(arg, "--on="):
-			if c.name != "key" || seenOn {
-				return c, fmt.Errorf("--on is accepted once, for key only")
-			}
-			seenOn = true
-			if arg == "--on" {
-				if len(args) == 0 {
-					return c, fmt.Errorf("--on needs press, release or both")
-				}
-				on = args[0]
-				args = args[1:]
-			} else {
-				on = strings.TrimPrefix(arg, "--on=")
-			}
-			if _, ok := triggerValues[strings.ToLower(on)]; !ok {
-				return c, fmt.Errorf("--on needs press, release or both")
-			}
 		case arg == "--device" || strings.HasPrefix(arg, "--device="):
 			if c.device != 0 {
 				return c, fmt.Errorf("--device is accepted once")
@@ -239,7 +276,7 @@ func parsePublic(args []string) (publicCommand, error) {
 			positional = append(positional, arg)
 		}
 	}
-	return c.parsePositionals(positional, options, on, seenOn)
+	return c.parsePositionals(positional, options)
 }
 
 func parseDeviceNumber(value string) (int, error) {
@@ -258,11 +295,24 @@ func parseDeviceNumber(value string) (int, error) {
 	return n, nil
 }
 
-func (c publicCommand) parsePositionals(positional []string, options map[string]int, on string, seenOn bool) (publicCommand, error) {
-	if len(positional) == 0 {
-		if seenOn {
-			return c, fmt.Errorf("--on requires a key combination")
+func parseBoundedInt(value string, min, max int) (int, bool) {
+	if len(value) == 0 || (len(value) > 1 && value[0] == '0') {
+		return 0, false
+	}
+	for i := 0; i < len(value); i++ {
+		if value[i] < '0' || value[i] > '9' {
+			return 0, false
 		}
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n < min || n > max {
+		return 0, false
+	}
+	return n, true
+}
+
+func (c publicCommand) parsePositionals(positional []string, options map[string]int) (publicCommand, error) {
+	if len(positional) == 0 {
 		if c.device > 0 {
 			return c, fmt.Errorf("--device requires a command value")
 		}
@@ -275,20 +325,24 @@ func (c publicCommand) parsePositionals(positional []string, options map[string]
 		switch c.name {
 		case "key":
 			return c, fmt.Errorf("key requires a key combination, for example \"wonkey key f13\"; run \"wonkey key --help\" for supported keys")
+		case "trigger":
+			return c, fmt.Errorf("trigger requires press, release or both, for example \"wonkey trigger release\"; run \"wonkey trigger --help\" for values")
+		case "macro":
+			return c, fmt.Errorf("macro requires a comma-separated key list, for example \"wonkey macro ctrl+c,ctrl+v\" or \"wonkey macro a,b,c\"; run \"wonkey macro --help\" for options")
 		case "mouse":
 			return c, fmt.Errorf("mouse requires buttons or wheel direction, for example \"wonkey mouse left\"; run \"wonkey mouse --help\" for options")
 		case "media":
 			return c, fmt.Errorf("media requires a media action, for example \"wonkey media volumeup\"; run \"wonkey media --help\" for actions")
-		case "multi":
-			return c, fmt.Errorf("multi requires a comma-separated key list, for example \"wonkey multi ctrl,c\"; run \"wonkey multi --help\" for options")
+		case "led":
+			return c, fmt.Errorf("led requires a mode, for example \"wonkey led on\" or \"wonkey led off\"; run \"wonkey led --help\" for modes")
 		default:
 			return c, fmt.Errorf("rgb requires a lighting mode, for example \"wonkey rgb static 0000ff\" or \"wonkey rgb off\"; run \"wonkey rgb --help\" for modes")
 		}
 	}
-	if c.name == "mouse" || c.name == "media" || c.name == "multi" {
+	if c.name == "mouse" || c.name == "media" || c.name == "macro" {
 		return c.parseAction(positional, options)
 	}
-	return c.parseValues(positional, on)
+	return c.parseValues(positional, options)
 }
 
 func parseActionOption(command, arg string, args []string, options map[string]int) ([]string, error) {
@@ -296,9 +350,9 @@ func parseActionOption(command, arg string, args []string, options map[string]in
 	min, max := -127, 127
 	switch {
 	case command == "mouse" && (option == "--x" || option == "--y" || option == "--wheel"):
-	case command == "multi" && option == "--interval":
+	case command == "macro" && option == "--interval":
 		min, max = 1, 65535
-	case command == "multi" && option == "--repeat":
+	case command == "macro" && option == "--repeat":
 		min, max = 1, 255
 	default:
 		return args, fmt.Errorf("unknown option %q", arg)
@@ -315,6 +369,35 @@ func parseActionOption(command, arg string, args []string, options map[string]in
 	}
 	options[option] = n
 	return args, nil
+}
+
+func parseMacroStroke(stroke string) (ch57.Stroke, error) {
+	if stroke == "" {
+		return ch57.Stroke{}, fmt.Errorf("unsupported macro key %q; use wonkey key --help", stroke)
+	}
+	parts := strings.Split(stroke, "+")
+	seen := map[string]bool{}
+	modifiers := 0
+	for i, part := range parts {
+		bit, isMod := map[string]int{"ctrl": 1, "shift": 2, "alt": 4, "super": 8}[part]
+		if isMod {
+			if seen[part] {
+				return ch57.Stroke{}, fmt.Errorf("invalid modifier %q", part)
+			}
+			seen[part] = true
+			modifiers |= bit
+			continue
+		}
+		if i != len(parts)-1 {
+			return ch57.Stroke{}, fmt.Errorf("invalid modifier %q", part)
+		}
+		code, ok := keyValues[canonicalKeyName(part)]
+		if !ok {
+			return ch57.Stroke{}, fmt.Errorf("unsupported macro key %q; use wonkey key --help", stroke)
+		}
+		return ch57.Stroke{Modifiers: modifiers, Usage: code}, nil
+	}
+	return ch57.Stroke{Modifiers: modifiers, Usage: 0}, nil
 }
 
 func (c publicCommand) parseAction(positional []string, options map[string]int) (publicCommand, error) {
@@ -357,7 +440,8 @@ func (c publicCommand) parseAction(positional []string, options map[string]int) 
 			return c, fmt.Errorf("unsupported media action %q; use wonkey media --help", value)
 		}
 		c.action = MediaAction{Usage: usage}
-	case "multi":
+	case "macro":
+		c.hasMultiOptions = len(options) > 0
 		a := MultiAction{Interval: 50, Repeat: 1}
 		if n, present := options["--interval"]; present {
 			a.Interval = n
@@ -365,16 +449,28 @@ func (c publicCommand) parseAction(positional []string, options map[string]int) 
 		if n, present := options["--repeat"]; present {
 			a.Repeat = n
 		}
-		keys := strings.Split(value, ",")
-		if len(keys) > 115 {
-			return c, fmt.Errorf("multi requires 1..115 keys")
+		strokes := strings.Split(value, ",")
+		if len(strokes) > 115 {
+			return c, fmt.Errorf("macro accepts 1..115 comma-separated keys")
 		}
-		for _, key := range keys {
-			code, ok := keyValues[canonicalKeyName(key)]
-			if !ok {
-				return c, fmt.Errorf("unsupported multi key %q; use wonkey key --help", key)
+		c.macroCount = len(strokes)
+		for _, raw := range strokes {
+			stroke, err := parseMacroStroke(raw)
+			if err != nil {
+				return c, err
 			}
-			a.Keys = append(a.Keys, byte(code&255))
+			if stroke.Modifiers != 0 || stroke.Usage == 0 {
+				c.hasMacroModifiers = true
+			}
+			if stroke.Usage != 0 && (stroke.Usage < 0x04 || stroke.Usage > 0x73) {
+				c.hasUnsupportedCH57MacroKey = true
+			}
+			if !c.hasMacroModifiers {
+				a.Keys = append(a.Keys, byte(stroke.Usage&255))
+			}
+		}
+		if c.hasMacroModifiers {
+			return c, nil
 		}
 		c.action = a
 	}
@@ -382,9 +478,13 @@ func (c publicCommand) parseAction(positional []string, options map[string]int) 
 	return c, err
 }
 
-func (c publicCommand) parseValues(positional []string, on string) (publicCommand, error) {
+func (c publicCommand) parseValues(positional []string, options map[string]int) (publicCommand, error) {
 	var err error
-	if c.name == "key" {
+	switch c.name {
+	case "key":
+		if len(options) > 0 {
+			return c, fmt.Errorf("key accepts no action options")
+		}
 		if len(positional) != 1 {
 			return c, fmt.Errorf("key accepts one complete combination")
 		}
@@ -402,8 +502,43 @@ func (c publicCommand) parseValues(positional []string, on string) (publicComman
 			}
 			modifiers = strings.Join(parts[:len(parts)-1], ",")
 		}
-		c.changes, err = parseSettings(parts[len(parts)-1], on, modifiers, "", "")
-	} else {
+		c.changes, err = parseSettings(parts[len(parts)-1], "", modifiers, "", "")
+	case "trigger":
+		if len(options) > 0 {
+			return c, fmt.Errorf("trigger accepts no action options")
+		}
+		if len(positional) != 1 {
+			return c, fmt.Errorf("trigger requires exactly one value: press, release or both")
+		}
+		value, ok := triggerValues[strings.ToLower(positional[0])]
+		if !ok {
+			return c, fmt.Errorf("trigger needs press, release or both")
+		}
+		c.changes = Changes{"trigger": value}
+		return c, nil
+	case "led":
+		if len(options) > 0 {
+			return c, fmt.Errorf("led accepts no action options")
+		}
+		if len(positional) != 1 {
+			return c, fmt.Errorf("led accepts one mode argument, not RGB colours; use \"wonkey rgb\" on RGB devices")
+		}
+		mode := strings.ToLower(positional[0])
+		switch mode {
+		case "off":
+			c.ledMode = 0
+		case "on", "static":
+			c.ledMode = 1
+		default:
+			n, ok := parseBoundedInt(mode, 0, 255)
+			if !ok {
+				return c, fmt.Errorf("invalid led mode %q; use off, on, static or 0..255", positional[0])
+			}
+			c.ledMode = n
+		}
+		c.hasLED = true
+		return c, nil
+	default:
 		if len(positional) > 2 {
 			return c, fmt.Errorf("rgb accepts a mode and optional six-digit colour")
 		}
@@ -480,19 +615,21 @@ func runPublic(args []string, rt *cliRuntime, access publicAccess) error {
 	if err == nil {
 		if c.help {
 			text := publicHelp
-			if c.name == "key" {
-				text = keyHelp
-			}
-			if c.name == "rgb" {
-				text = rgbHelp
-			}
 			switch c.name {
+			case "key":
+				text = keyHelp
+			case "trigger":
+				text = triggerHelp
+			case "macro":
+				text = macroHelp
 			case "mouse":
 				text = mouseHelp
 			case "media":
 				text = mediaHelp
-			case "multi":
-				text = multiHelp
+			case "rgb":
+				text = rgbHelp
+			case "led":
+				text = ledHelp
 			}
 			return printHumanHelp(rt.out, text)
 		}
@@ -581,7 +718,7 @@ func (c publicCommand) selectWriteDevice(matches []Candidate) (Candidate, int, e
 }
 
 func (c publicCommand) isReadOnly() bool {
-	return len(c.changes) == 0 && c.action == nil
+	return c.name == "" && len(c.changes) == 0 && c.action == nil && !c.hasLED && !c.hasMacroModifiers
 }
 
 func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
@@ -628,9 +765,62 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 		return err
 	}
 	if _, ok := byCH57Path[selected.PhysicalPath]; ok {
+		if err := c.checkCH57Capabilities(); err != nil {
+			return err
+		}
 		return fmt.Errorf("live writes are not supported for 1189:8890; no settings write sent")
 	}
+	if err := c.checkXFKEYCapabilities(); err != nil {
+		return err
+	}
 	return c.runXFKEYSelected(selected, deviceID, input, h, access)
+}
+
+func (c publicCommand) checkXFKEYCapabilities() error {
+	switch c.name {
+	case "led":
+		return fmt.Errorf("XFKEY One Key Max (0112) does not support led; use \"wonkey rgb\" instead")
+	case "macro":
+		if c.hasMacroModifiers {
+			return fmt.Errorf("XFKEY One Key Max (0112) does not support modifiers in macro sequences; use base key names only")
+		}
+	}
+	return nil
+}
+
+func (c publicCommand) checkCH57Capabilities() error {
+	switch c.name {
+	case "trigger":
+		return fmt.Errorf("CH57x Macropad (1189:8890) does not support trigger (key release triggers)")
+	case "rgb":
+		return fmt.Errorf("CH57x Macropad (1189:8890) does not support rgb; use \"wonkey led\" instead")
+	case "key":
+		if c.changes["key"] < 0x04 || c.changes["key"] > 0x73 {
+			return fmt.Errorf("CH57x Macropad (1189:8890) supports keys a-z, 0-9, and f1-f24 (usages 0x04..0x73) only")
+		}
+	case "macro":
+		if c.hasMultiOptions {
+			return fmt.Errorf("CH57x Macropad (1189:8890) does not support --interval or --repeat")
+		}
+		if c.macroCount > 5 {
+			return fmt.Errorf("CH57x Macropad (1189:8890) supports up to 5 strokes per macro")
+		}
+		if c.hasUnsupportedCH57MacroKey {
+			return fmt.Errorf("CH57x Macropad (1189:8890) supports keys a-z, 0-9, and f1-f24 (usages 0x04..0x73) only")
+		}
+	case "media":
+		if media, ok := c.action.(MediaAction); ok {
+			switch ch57.MediaUsage(media.Usage) {
+			case ch57.MediaScreenBrightnessUp, ch57.MediaScreenBrightnessDown,
+				ch57.MediaNext, ch57.MediaPrevious, ch57.MediaStop, ch57.MediaPlay, ch57.MediaMute,
+				ch57.MediaVolumeUp, ch57.MediaVolumeDown, ch57.MediaFavorites, ch57.MediaCalculator, ch57.MediaScreenLock,
+				ch57.MediaWebPageHome, ch57.MediaWebPageBack, ch57.MediaWebPageForward:
+			default:
+				return fmt.Errorf("CH57x Macropad (1189:8890) does not support that media action")
+			}
+		}
+	}
+	return nil
 }
 
 func (c publicCommand) runReadAll(matches []Candidate, byCH57Path map[string]ch57.DiscoveredCandidate, h human, access publicAccess) error {
@@ -684,9 +874,11 @@ func (c publicCommand) runCH57Selected(selected ch57.DiscoveredCandidate, device
 		if shortAA {
 			h.field("Status", "Connected (write-only firmware)")
 			h.field("Settings", "Not readable over USB")
+			h.field("Supports", "key, mouse, media, macro, led")
 		} else if result.Status == ch57.ProbeRawReport {
 			h.field("Status", "Connected")
 			h.field("Settings", "Not readable over USB")
+			h.field("Supports", "key, mouse, media, macro, led")
 			h.field("Input hex", hex.EncodeToString(result.Raw))
 		}
 		return h.out.err
@@ -704,6 +896,7 @@ func (c publicCommand) showCurrentSettings(current configuration, selected Candi
 	h.field("USB path", selected.PhysicalPath)
 	h.field("Identifier", target.Identifier)
 	h.field("Version", target.Version)
+	h.field("Supports", "key, trigger, mouse, media, macro, rgb")
 	if c.supportedConfiguration(current) != nil {
 		h.field("Layout", "Unknown (unsupported configuration)")
 		h.field("Raw type", fmt.Sprintf("0x%02x (byte 0)", current[0]))
@@ -767,12 +960,15 @@ func (c publicCommand) runObserved(observed CaptureResult, selected Candidate, d
 		return fmt.Errorf("device settings need exactly 128 bytes")
 	}
 	copy(current[:], raw)
-	if len(c.changes) == 0 && c.action == nil {
+	if c.isReadOnly() {
 		c.showCurrentSettings(current, selected, deviceID, target, h)
 		return h.out.err
 	}
 	if err := c.supportedConfiguration(current); err != nil {
 		return err
+	}
+	if c.name == "trigger" && current[0] != 0 {
+		return fmt.Errorf("trigger requires a configured keyboard key; set one with \"wonkey key\" first")
 	}
 	c.showCurrentSettings(current, selected, deviceID, target, h)
 	if h.out.err != nil {

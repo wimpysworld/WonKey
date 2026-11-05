@@ -2,7 +2,7 @@
 
 [Wiki home](Home) · [Usage and configuration](usage)
 
-`key <COMBINATION>`, `mouse <BUTTONS>`, `media <ACTION>`, `multi <KEY,...>`, and `rgb <MODE> [RGB]` change settings on an XFKEY One Key Max (`0112`) after confirmation.
+`key <COMBINATION>`, `trigger <press|release|both>`, `macro <STROKE,...>`, `mouse <BUTTONS>`, `media <ACTION>`, and `rgb <MODE> [RGB]` change settings on an XFKEY One Key Max (`0112`) after confirmation (`led <MODE>` is for CH57 `1189:8890` only).
 Bare `wonkey` reads all compatible XFKEY One Key Max (`0112`) and CH57 (`1189:8890`) devices without modifying them.
 
 [Device access](#device-selection-and-access) · [Hardware checks](#check-hardware-effects-and-persistence) · [Apply safety](#apply-safety)
@@ -24,7 +24,7 @@ Bare `wonkey` enumerates and inspects all compatible devices automatically in de
 ## Check hardware effects and persistence
 
 An exact readback comparison on `0112` proves the returned configuration bytes, not emitted key events or visible lighting effects.
-Check the configured keyboard, mouse, media, or multi-key action and lighting separately after a successful change.
+Check the configured keyboard, trigger, mouse, media, or macro action and lighting separately after a successful change.
 The new action types and expanded keyboard usages have no hardware validation yet.
 If keyd holds an exclusive input grab, another event viewer can report no events.
 Silence does not prove that configuration failed.
