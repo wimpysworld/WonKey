@@ -243,8 +243,19 @@ func TestPrepareAndMergeV2AndV1Records(t *testing.T) {
 		if err := MergeLightRecordV1(&p1, 0, reqRGB); err != nil {
 			t.Fatal(err)
 		}
-		_, _ = DecodeLightV2(p2[24:32])
-		_, _ = DecodeLightV1(p1[5:12])
+		wantMode, wantColour := mode, "#102030"
+		switch mode {
+		case "cycle-fast":
+			wantMode = "cycle-slow"
+		case "off":
+			wantColour = "#000000"
+		}
+		if gotMode, gotColour := DecodeLightV2(p2[24:32]); gotMode != wantMode || gotColour != wantColour {
+			t.Fatalf("DecodeLightV2(%q) = (%q, %q), want (%q, %q)", mode, gotMode, gotColour, wantMode, wantColour)
+		}
+		if gotMode, gotColour := DecodeLightV1(p1[5:12]); gotMode != wantMode || gotColour != wantColour {
+			t.Fatalf("DecodeLightV1(%q) = (%q, %q), want (%q, %q)", mode, gotMode, gotColour, wantMode, wantColour)
+		}
 	}
 	if _, ok := DetectProtocolVersion([]byte{0x05, 0x01}); ok {
 		t.Fatal("unexpected protocol match on non-vendor descriptor")
