@@ -479,7 +479,8 @@ func (ops probeOps) readV1InfoOrBootloader(fd int, pid uint16) (uint16, uint16, 
 		if err != nil {
 			return 0, 0, true, fwRx, fmt.Errorf("read bootloader CHECK_FW reply: %w", err)
 		}
-		if n != 64 || fwRx[0] != 0x02 || (!bootStatusOK(fwRx, errForSize, true) && !(fwRx[1] == 0x00 && fwRx[2] == 0x04)) {
+		validBootStatus := bootStatusOK(fwRx, errForSize, true) || (fwRx[1] == 0x00 && fwRx[2] == 0x04)
+		if n != 64 || fwRx[0] != 0x02 || !validBootStatus {
 			return 0, 0, true, fwRx, fmt.Errorf("invalid bootloader CHECK_FW reply")
 		}
 		fwVer := binary.BigEndian.Uint16(fwRx[3:5])
