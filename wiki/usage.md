@@ -42,7 +42,7 @@ When a CH57x Macropad (Gen 1 or Gen 2) is selected for a write command, WonKey c
 
 On each SayoDevice Macropad (`8089:0002..0005`, `0009..000c`, `000e`, such as `8089:000c`), bare `wonkey` queries `Info` (`0x00`) for the model code and firmware version, reads key and rotary knob bindings across layers `1..5` (`0x10` on HID v2, `0x16` on HID v1), and reads RGB lighting (`0x11` on HID v2, `0x10` on HID v1). On SayoDevice Bootloader units (`8089:0006..0008`), bare `wonkey` queries the model and firmware version via `CHECK_FW` (`0x01`) and reports `Supports   firmware`.
 
-`wonkey --help` and help for each command show help without device access. Running `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, or `led` without arguments returns usage guidance without device access. Running `wonkey firmware` or `wonkey firmware check` checks for official SayoDevice vendor firmware updates without modifying the device, and `wonkey firmware update` installs the latest official vendor firmware or recovers a SayoDevice in bootloader mode. `wonkey firmware` requires `curl` in `PATH` to download vendor firmware manifests and binaries over HTTPS.
+`wonkey --help` and help for each command show help without device access. Running `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, or `led` without arguments returns usage guidance without device access. Running `wonkey firmware` or `wonkey firmware check` checks for official SayoDevice vendor firmware updates without modifying the device, and `wonkey firmware update` installs the latest official vendor firmware or recovers a SayoDevice in bootloader mode.
 
 ## Set the key
 

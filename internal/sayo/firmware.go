@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
+	"io"
+	"net/http"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -97,25 +97,45 @@ func FirmwareBinaryURL(baseURL string, pid uint16, filePath string) (string, err
 	return fmt.Sprintf("%s/%d/%s", strings.TrimRight(baseURL, "/"), ManifestPID(pid), trimmed), nil
 }
 
-// defaultHTTPGet downloads up to maxBytes from url via curl over HTTPS.
-// Invoking curl avoids importing net/http, which triggers stdlib govulncheck findings.
-func defaultHTTPGet(url string, maxBytes int) ([]byte, error) {
-	if !strings.HasPrefix(url, FirmwareCDNBaseURL+"/") {
-		return nil, fmt.Errorf("refused firmware URL outside %s", FirmwareCDNBaseURL)
+// defaultHTTPGet downloads up to maxBytes from rawURL over HTTPS.
+func defaultHTTPGet(rawURL string, maxBytes int) (data []byte, err error) {
+	if !strings.HasPrefix(rawURL, "https://") {
+		return nil, fmt.Errorf("refusing non-HTTPS firmware URL %q", rawURL)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	// #nosec G204 -- arguments are fixed flags, bounded integer, and validated vendor CDN URL prefix
-	cmd := exec.CommandContext(ctx, "curl", "-fsSL", "--proto", "=https", "--proto-redir", "=https", "--max-time", "15", "--max-filesize", strconv.Itoa(maxBytes), "--", url)
-	data, err := cmd.Output()
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if req.URL.Scheme != "https" {
+				return fmt.Errorf("refusing non-HTTPS redirect")
+			}
+			if len(via) >= 5 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, rawURL, nil)
 	if err != nil {
-		if errors.Is(err, exec.ErrNotFound) {
-			return nil, fmt.Errorf("curl is required for wonkey firmware; install curl and retry: %w", err)
+		return nil, err
+	}
+	resp, err := client.Do(req) // #nosec G107 -- URL scheme validated above and redirects restricted to HTTPS
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil && err == nil {
+			err = closeErr
 		}
-		return nil, fmt.Errorf("download %s: %w", url, err)
+	}()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, rawURL)
+	}
+	data, err = io.ReadAll(io.LimitReader(resp.Body, int64(maxBytes)+1))
+	if err != nil {
+		return nil, err
 	}
 	if len(data) > maxBytes {
-		return nil, fmt.Errorf("response from %s exceeds %d bytes", url, maxBytes)
+		return nil, fmt.Errorf("response from %s exceeds %d bytes", rawURL, maxBytes)
 	}
 	return data, nil
 }
@@ -160,7 +180,7 @@ func FetchFirmwareBinaryFrom(baseURL string, pid uint16, filePath string, httpGe
 // ValidateFirmwareBinary checks that fwBytes has a valid SayoDevice length, fits within entry.ROMSize,
 // and satisfies optional manifest command opcode and address-length bounds.
 func ValidateFirmwareBinary(fwBytes []byte, entry FirmwareManifestEntry, manifests ...FirmwareManifest) error {
-	if len(fwBytes) < 64 || (len(fwBytes)-16)%32 != 0 {
+	if len(fwBytes) < 64 || len(fwBytes)%16 != 0 {
 		return fmt.Errorf("invalid SayoDevice firmware binary length %d", len(fwBytes))
 	}
 	if entry.ROMSize > 0 && len(fwBytes) > entry.ROMSize+16 {

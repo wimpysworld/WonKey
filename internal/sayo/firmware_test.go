@@ -95,6 +95,9 @@ func TestManifestPIDAndManifestHelpers(t *testing.T) {
 	if err := ValidateFirmwareBinary(make([]byte, 80), entry, manifest); err != nil {
 		t.Fatalf("ValidateFirmwareBinary(80): %v", err)
 	}
+	if err := ValidateFirmwareBinary(make([]byte, 49152), entry, manifest); err != nil {
+		t.Fatalf("ValidateFirmwareBinary(49152): %v", err)
+	}
 	for _, badLen := range []int{0, 16, 48, 63, 65, 95, 61280 + 48} {
 		if err := ValidateFirmwareBinary(make([]byte, badLen), entry, manifest); err == nil {
 			t.Fatalf("accepted invalid firmware binary length %d", badLen)
@@ -117,6 +120,10 @@ func TestManifestPIDAndManifestHelpers(t *testing.T) {
 		if err := ValidateFirmwareBinary(make([]byte, 80), entry, FirmwareManifest{Cmd: badCmd}); err == nil {
 			t.Fatalf("accepted non-standard Cmd opcodes %+v", badCmd)
 		}
+	}
+	badURLBytes, err := defaultHTTPGet("http://a.sayobot.cn/firmware/update/12/config.json", 1024)
+	if err == nil || badURLBytes != nil {
+		t.Fatal("accepted non-HTTPS URL in defaultHTTPGet")
 	}
 }
 
