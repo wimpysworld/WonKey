@@ -97,6 +97,8 @@ func FirmwareBinaryURL(baseURL string, pid uint16, filePath string) (string, err
 	return fmt.Sprintf("%s/%d/%s", strings.TrimRight(baseURL, "/"), ManifestPID(pid), trimmed), nil
 }
 
+// defaultHTTPGet downloads up to maxBytes from url via curl over HTTPS.
+// Invoking curl avoids importing net/http, which triggers stdlib govulncheck findings.
 func defaultHTTPGet(url string, maxBytes int) ([]byte, error) {
 	if !strings.HasPrefix(url, FirmwareCDNBaseURL+"/") {
 		return nil, fmt.Errorf("refused firmware URL outside %s", FirmwareCDNBaseURL)
