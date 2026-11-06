@@ -71,7 +71,7 @@ Inspect connected macropads and read current settings without changing them:
 wonkey
 ```
 
-`wonkey` lists each connected macropad with its `[N]` device number, USB path, layout, supported commands, and readable settings. When multiple macropads are connected, pass `--device <N>` to target device `[N]` (for example `wonkey key f13 --device 2`).
+`wonkey` lists each connected macropad with its `[N]` device number, USB path, layout where readable, supported commands, and readable settings. When multiple macropads are connected, pass `--device <N>` to target device `[N]` (for example `wonkey key f13 --device 2`).
 
 Bind keys, rotary knobs, and key triggers:
 
