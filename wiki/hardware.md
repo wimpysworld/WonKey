@@ -30,6 +30,7 @@ An exact readback comparison on `0112` proves the returned configuration bytes, 
 Check the configured keyboard, trigger, mouse, media, or macro action and lighting separately after a successful change.
 Hardware checks on one XFKEY One Key Max (`0112`) unit confirmed <kbd>F13</kbd> press/release events, steady-blue lighting, and persistence after reconnect.
 Hardware checks on one 3-key, 1-knob CH57x Macropad (`1189:8890`) unit confirmed `key1`..`key3` key bindings, `knob-left`/`knob-right`/`knob-press` consumer media volume actions, and `led` backlight modes (`off` = `0`, `reactive` = `1`, `cycle` = `2`).
+Hardware checks on a 4-key, 1-knob CH57x Macropad (`514c:8851`), a 12-key, 4-knob CH57x Macropad (`514c:8850`), and a 6-key SayoDevice 2x3P (`8089:000c`) confirmed layout discovery, slot readback, and live programming of `key`, `macro`, `mouse`, `media`, and lighting (`led` or `rgb`, plus `firmware` check on `8089:000c`).
 Other selectable keys and unverified mouse, media, and macro actions have no hardware validation yet.
 If keyd holds an exclusive input grab, another event viewer can report no events.
 Silence does not prove that configuration failed.

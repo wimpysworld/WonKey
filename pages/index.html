@@ -156,7 +156,7 @@
                 <td><code>af88:6688</code></td>
                 <td>1 key</td>
                 <td><code>key</code>, <code>trigger</code>, <code>macro</code>, <code>mouse</code>, <code>media</code>, <code>rgb</code></td>
-                <td>Full 128-byte readback</td>
+                <td>Full settings readback</td>
               </tr>
               <tr>
                 <th scope="row">CH57x Macropad (Gen 1)</th>
@@ -170,21 +170,21 @@
                 <td><code>1189</code> / <code>514c</code> : <code>8830</code>, <code>8831</code>, <code>8832</code>, <code>8833</code>, <code>8840</code>, <code>8842</code>, <code>8850</code>, <code>8851</code></td>
                 <td>Up to 12 keys, 4 knobs, 15 layers</td>
                 <td><code>key</code>, <code>macro</code>, <code>mouse</code>, <code>media</code>, <code>led</code></td>
-                <td>Layout (<code>0xFB</code>) and Layer 1 (<code>0xFA</code>) readback</td>
+                <td>Layout and Layer 1 bindings</td>
               </tr>
               <tr>
-                <th scope="row">SayoDevice Macropad (HID v1 / v2)</th>
+                <th scope="row">SayoDevice Macropad</th>
                 <td><code>8089:0002</code>, <code>0003</code>, <code>0004</code>, <code>0005</code>, <code>0009</code>, <code>000a</code>, <code>000b</code>, <code>000c</code>, <code>000e</code></td>
                 <td>Up to 12 keys, 4 knobs, 5 layers</td>
                 <td><code>key</code>, <code>macro</code>, <code>mouse</code>, <code>media</code>, <code>rgb</code>, <code>firmware</code></td>
-                <td>Key (<code>0x10</code> / <code>0x16</code>), Light (<code>0x11</code> / <code>0x10</code>), and Info (<code>0x00</code>) readback</td>
+                <td>Key bindings, lighting, and firmware version</td>
               </tr>
               <tr>
                 <th scope="row">SayoDevice Bootloader (Recovery)</th>
                 <td><code>8089:0006</code>, <code>0007</code>, <code>0008</code></td>
                 <td>Bootloader mode only</td>
                 <td><code>firmware</code></td>
-                <td>Model and version via <code>CHECK_FW</code> (<code>0x01</code>)</td>
+                <td>Model and firmware version</td>
               </tr>
             </tbody>
           </table>
