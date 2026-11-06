@@ -28,6 +28,7 @@ Commands:
   media [CONTROL] <ACTION>      Change the media action.
   rgb <MODE> [RGB]              Change the RGB lighting.
   led <MODE>                    Change the LED backlight mode.
+  firmware [check|update]       Check or update device firmware.
 
 Options:
   --layer N                     Select layer 1..15 on multi-layer devices (default: 1).
@@ -43,6 +44,7 @@ Examples:
   wonkey media knob-right volumeup
   wonkey rgb static 0000ff
   wonkey led reactive
+  wonkey firmware check
 
 Run "wonkey <command> --help" for values and options.
 `
@@ -212,6 +214,26 @@ Examples:
   wonkey led off
 `
 
+const firmwareHelp = `Usage: wonkey firmware [check|update] [--device N]
+
+Run "wonkey" without arguments to inspect connected devices.
+Check or update official vendor firmware on supported SayoDevice macropads.
+Without an action, "wonkey firmware" checks for updates without modifying the device.
+
+Actions:
+  check      Query current firmware and check the vendor CDN (default)
+  update     Download and install the latest official vendor firmware
+
+Options:
+  --device N   Select device N when multiple devices are connected.
+  -h, --help   Show help without device access.
+
+Examples:
+  wonkey firmware
+  wonkey firmware check
+  wonkey firmware update
+`
+
 type publicCommand struct {
 	name                       string
 	control                    ch57.Control
@@ -223,6 +245,7 @@ type publicCommand struct {
 	device                     int
 	ledMode                    int
 	hasLED                     bool
+	firmwareAction             string
 	hasMultiOptions            bool
 	hasMacroModifiers          bool
 	hasUnsupportedCH57MacroKey bool
@@ -264,9 +287,9 @@ func parsePublic(args []string) (publicCommand, error) {
 	}
 	c.name = args[0]
 	switch c.name {
-	case "key", "trigger", "macro", "mouse", "media", "rgb", "led":
+	case "key", "trigger", "macro", "mouse", "media", "rgb", "led", "firmware":
 	default:
-		return c, fmt.Errorf("unknown command %q; use key, trigger, macro, mouse, media, rgb or led", c.name)
+		return c, fmt.Errorf("unknown command %q; use key, trigger, macro, mouse, media, rgb, led or firmware", c.name)
 	}
 	var positional []string
 	options := map[string]int{}
@@ -382,6 +405,9 @@ func missingCommandValueError(name string) error {
 }
 
 func (c publicCommand) parsePositionals(positional []string, options map[string]int) (publicCommand, error) {
+	if c.name == "firmware" {
+		return c.parseFirmware(positional, options)
+	}
 	if (c.name == "key" || c.name == "macro" || c.name == "mouse" || c.name == "media") && len(positional) > 0 {
 		if control, ok := parseControlName(positional[0]); ok {
 			c.control = control
@@ -411,6 +437,30 @@ func (c publicCommand) parsePositionals(positional []string, options map[string]
 		return c.parseAction(positional, options)
 	}
 	return c.parseValues(positional, options)
+}
+
+func (c publicCommand) parseFirmware(positional []string, options map[string]int) (publicCommand, error) {
+	if len(options) > 0 {
+		return c, fmt.Errorf("firmware accepts no action options")
+	}
+	if len(positional) == 0 {
+		if c.help && c.device > 0 {
+			return c, fmt.Errorf("--device requires a command value")
+		}
+		c.firmwareAction = "check"
+		return c, nil
+	}
+	if len(positional) > 1 {
+		return c, fmt.Errorf("firmware accepts at most one action: check or update")
+	}
+	action := strings.ToLower(positional[0])
+	switch action {
+	case "check", "update":
+		c.firmwareAction = action
+		return c, nil
+	default:
+		return c, fmt.Errorf("invalid firmware action %q; use check or update", positional[0])
+	}
 }
 
 func parseActionOption(command, arg string, args []string, options map[string]int) ([]string, error) {
@@ -631,15 +681,18 @@ func (c publicCommand) parseValues(positional []string, options map[string]int) 
 }
 
 type publicAccess struct {
-	discoverCH57 func(string) ([]ch57.DiscoveredCandidate, error)
-	probeCH57    func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error)
-	applyCH57    func(string, string, ch57.DiscoveredCandidate, []ch57.Report) (ch57.ApplyResult, error)
-	discoverSayo func(string) ([]sayo.DiscoveredCandidate, error)
-	probeSayo    func(string, string, sayo.DiscoveredCandidate) (sayo.ProbeResult, error)
-	applySayo    func(string, string, sayo.DiscoveredCandidate, sayo.WriteRequest) (sayo.ApplyResult, error)
-	discover     func() ([]Candidate, error)
-	query        func(Candidate) (CaptureResult, error)
-	apply        func(Candidate, ApplyTarget, configurationChanges, func(configuration, configuration) (bool, error)) (ApplyResult, error)
+	discoverCH57      func(string) ([]ch57.DiscoveredCandidate, error)
+	probeCH57         func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error)
+	applyCH57         func(string, string, ch57.DiscoveredCandidate, []ch57.Report) (ch57.ApplyResult, error)
+	discoverSayo      func(string) ([]sayo.DiscoveredCandidate, error)
+	probeSayo         func(string, string, sayo.DiscoveredCandidate) (sayo.ProbeResult, error)
+	applySayo         func(string, string, sayo.DiscoveredCandidate, sayo.WriteRequest) (sayo.ApplyResult, error)
+	fetchSayoManifest func(uint16) (sayo.FirmwareManifest, error)
+	fetchSayoBinary   func(uint16, string) ([]byte, error)
+	flashSayoFirmware func(string, string, sayo.DiscoveredCandidate, sayo.ProtocolVersion, bool, sayo.FirmwareManifest, sayo.FirmwareManifestEntry, []byte, sayo.FirmwareProgressFunc) (sayo.ApplyResult, error)
+	discover          func() ([]Candidate, error)
+	query             func(Candidate) (CaptureResult, error)
+	apply             func(Candidate, ApplyTarget, configurationChanges, func(configuration, configuration) (bool, error)) (ApplyResult, error)
 }
 
 func publicDeviceAccess() publicAccess {
@@ -658,10 +711,13 @@ func publicDeviceAccess() publicAccess {
 			}
 			return sayo.DiscoverCandidates(sysRoot)
 		},
-		probeSayo: sayo.ProbeCandidate,
-		applySayo: sayo.ApplyCandidate,
-		discover:  func() ([]Candidate, error) { return liveDiscover("/sys/bus/usb/devices", "/dev") },
-		query:     func(selected Candidate) (CaptureResult, error) { return querySelected(selected, true) },
+		probeSayo:         sayo.ProbeCandidate,
+		applySayo:         sayo.ApplyCandidate,
+		fetchSayoManifest: sayo.FetchFirmwareManifest,
+		fetchSayoBinary:   sayo.FetchFirmwareBinary,
+		flashSayoFirmware: sayo.FlashFirmware,
+		discover:          func() ([]Candidate, error) { return liveDiscover("/sys/bus/usb/devices", "/dev") },
+		query:             func(selected Candidate) (CaptureResult, error) { return querySelected(selected, true) },
 		apply: func(selected Candidate, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration) (bool, error)) (ApplyResult, error) {
 			return liveApplyBound(selected.PhysicalPath, target, changes, true, guard, &selected, true)
 		},
@@ -707,6 +763,8 @@ func runPublic(args []string, rt *cliRuntime, access publicAccess) error {
 				text = rgbHelp
 			case "led":
 				text = ledHelp
+			case "firmware":
+				text = firmwareHelp
 			}
 			return printHumanHelp(rt.out, text)
 		}
@@ -856,6 +914,9 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 		if err := c.checkSayoCapabilitiesFor(sayoSelected); err != nil {
 			return err
 		}
+		if c.name == "firmware" {
+			return c.runSayoFirmware(sayoSelected, deviceID, h, access)
+		}
 		return c.runSayoWrite(sayoSelected, deviceID, h, access)
 	}
 	if chSelected, ok := byCH57Path[selected.PhysicalPath]; ok {
@@ -878,6 +939,8 @@ func (c publicCommand) checkXFKEYCapabilities() error {
 		return fmt.Errorf("XFKEY One Key Max (0112) has a single key and does not support %s", c.control)
 	}
 	switch c.name {
+	case "firmware":
+		return fmt.Errorf("XFKEY One Key Max (0112) does not support firmware updates")
 	case "led":
 		return fmt.Errorf("XFKEY One Key Max (0112) does not support led; use \"wonkey rgb\" instead")
 	case "macro":
@@ -927,7 +990,7 @@ func ch57SupportsSummary(_ ch57.DiscoveredCandidate) string {
 }
 
 func sayoSupportsSummary() string {
-	return "key, mouse, media, macro, rgb"
+	return "key, mouse, media, macro, rgb, firmware"
 }
 
 func controlKeyAndKnobIndex(control ch57.Control) (int, int) {
@@ -1005,6 +1068,8 @@ func (c publicCommand) checkCH57CapabilitiesFor(selected ch57.DiscoveredCandidat
 		}
 	}
 	switch c.name {
+	case "firmware":
+		return fmt.Errorf("%s does not support firmware updates", product)
 	case "trigger":
 		return fmt.Errorf("%s does not support trigger (key release triggers)", product)
 	case "rgb":
@@ -1353,6 +1418,106 @@ func (c publicCommand) runSayoWrite(selected sayo.DiscoveredCandidate, deviceID 
 	return h.out.err
 }
 
+func (c publicCommand) runSayoFirmware(selected sayo.DiscoveredCandidate, deviceID int, h human, access publicAccess) error {
+	const sysRoot, devRoot = "/sys/bus/usb/devices", "/dev/bus/usb"
+	probed, probeErr := access.probeSayo(sysRoot, devRoot, selected)
+	if probeErr != nil {
+		c.renderSayoCardHeading(selected, deviceID, h)
+		renderSayoProbeOutcome(probed, h)
+		return errors.Join(probeErr, h.out.err)
+	}
+	if probed.Layout == nil {
+		return fmt.Errorf("device firmware information is unavailable")
+	}
+	_, pid := sayoVIDPID(selected)
+	fetchManifest := access.fetchSayoManifest
+	if fetchManifest == nil {
+		fetchManifest = sayo.FetchFirmwareManifest
+	}
+	manifest, err := fetchManifest(pid)
+	if err != nil {
+		return err
+	}
+	entry, ok := manifest.FindEntry(probed.Layout.ModelCode)
+	if !ok {
+		return fmt.Errorf("model code 0x%04x not found in vendor firmware manifest for %s", probed.Layout.ModelCode, sayoProductName(selected))
+	}
+	if c.firmwareAction == "check" {
+		c.renderSayoFirmwareHeader(selected, deviceID, probed.Layout, entry, h)
+		status := `Update available - run "wonkey firmware update" to install`
+		if probed.Layout.Bootloader {
+			status = `Bootloader mode - run "wonkey firmware update" to recover`
+		} else if probed.Layout.FirmwareVersion >= entry.Version {
+			status = "Up to date"
+		}
+		h.field("Status", status)
+		return h.out.err
+	}
+	return c.runSayoFirmwareUpdate(sysRoot, devRoot, selected, deviceID, pid, probed.Layout, manifest, entry, h, access)
+}
+
+func (c publicCommand) renderSayoFirmwareHeader(selected sayo.DiscoveredCandidate, deviceID int, layout *sayo.DeviceLayout, entry sayo.FirmwareManifestEntry, h human) {
+	c.renderSayoCardHeading(selected, deviceID, h)
+	h.field("Model", fmt.Sprintf("%s (0x%04x)", entry.Model, layout.ModelCode))
+	h.field("Current", fmt.Sprintf("%d (0x%04x)", layout.FirmwareVersion, layout.FirmwareVersion))
+	h.field("Latest", fmt.Sprintf("%d (0x%04x)", entry.Version, entry.Version))
+	h.field("Firmware", entry.FilePath)
+}
+
+func (c publicCommand) runSayoFirmwareUpdate(sysRoot, devRoot string, selected sayo.DiscoveredCandidate, deviceID int, pid uint16, layout *sayo.DeviceLayout, manifest sayo.FirmwareManifest, entry sayo.FirmwareManifestEntry, h human, access publicAccess) error {
+	if !layout.Bootloader && layout.FirmwareVersion >= entry.Version {
+		c.renderSayoFirmwareHeader(selected, deviceID, layout, entry, h)
+		h.line("", "Firmware is already up to date. No firmware write sent.")
+		return h.out.err
+	}
+	fetchBin := access.fetchSayoBinary
+	if fetchBin == nil {
+		fetchBin = sayo.FetchFirmwareBinary
+	}
+	fwBytes, err := fetchBin(pid, entry.FilePath)
+	if err != nil {
+		return err
+	}
+	if err := sayo.ValidateFirmwareBinary(fwBytes, entry); err != nil {
+		return err
+	}
+	c.renderSayoFirmwareHeader(selected, deviceID, layout, entry, h)
+	before := fmt.Sprintf("%d (0x%04x)", layout.FirmwareVersion, layout.FirmwareVersion)
+	if layout.Bootloader {
+		before = fmt.Sprintf("bootloader (%d / 0x%04x)", layout.FirmwareVersion, layout.FirmwareVersion)
+	}
+	after := fmt.Sprintf("%d (0x%04x) (%s)", entry.Version, entry.Version, entry.Model)
+	h.changes([]changeView{{Setting: "firmware", Before: before, After: after}})
+	if h.out.err != nil {
+		return h.out.err
+	}
+	flashFn := access.flashSayoFirmware
+	if flashFn == nil {
+		flashFn = sayo.FlashFirmware
+	}
+	progressOpen := false
+	applied, err := flashFn(sysRoot, devRoot, selected, layout.Protocol, layout.Bootloader, manifest, entry, fwBytes, func(written, total int) {
+		h.progress("Flashing", written, total)
+		if h.tty {
+			progressOpen = written < total
+		}
+	})
+	if err != nil {
+		if progressOpen {
+			_, _ = io.WriteString(h.out, "\n")
+		}
+		if applied.WriteAttempted {
+			h.line("31", "Device state uncertain. Run \"wonkey firmware update\" to recover if in bootloader mode.")
+		} else {
+			h.line("", "Stopped before firmware update.")
+		}
+		h.line("33", "Stop. No automatic retry or rollback.")
+		return err
+	}
+	h.line("32", "Firmware updated.")
+	return h.out.err
+}
+
 func (c publicCommand) prepareSayoWrite(sysRoot, devRoot string, selected sayo.DiscoveredCandidate, deviceID int, h human, access publicAccess) (sayo.WriteRequest, []changeView, error) {
 	product := sayoProductName(selected)
 	probed, probeErr := access.probeSayo(sysRoot, devRoot, selected)
@@ -1360,6 +1525,9 @@ func (c publicCommand) prepareSayoWrite(sysRoot, devRoot string, selected sayo.D
 		c.renderSayoCardHeading(selected, deviceID, h)
 		renderSayoProbeOutcome(probed, h)
 		return sayo.WriteRequest{}, nil, errors.Join(probeErr, h.out.err)
+	}
+	if probed.Layout != nil && probed.Layout.Bootloader {
+		return sayo.WriteRequest{}, nil, fmt.Errorf("%s is in bootloader mode, run \"wonkey firmware update\" to recover", product)
 	}
 	keys, knobs, slotCount := 6, 0, 6
 	if probed.Layout != nil {
@@ -1599,6 +1767,12 @@ func renderCH57ProbeOutcome(selected ch57.DiscoveredCandidate, probed ch57.Probe
 
 func renderSayoProbeOutcome(probed sayo.ProbeResult, h human) {
 	if probed.Layout != nil {
+		if probed.Layout.Bootloader {
+			h.field("Layout", "Bootloader recovery mode")
+			h.field("Supports", "firmware")
+			h.field("Settings", `Bootloader mode - run "wonkey firmware update" to recover`)
+			return
+		}
 		h.field("Layout", formatLayoutSummary(probed.Layout.Keys, probed.Layout.Knobs))
 		h.field("Supports", sayoSupportsSummary())
 		for k := 1; k <= probed.Layout.Keys; k++ {

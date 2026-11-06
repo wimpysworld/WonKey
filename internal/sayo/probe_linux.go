@@ -1,6 +1,7 @@
 package sayo
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -71,6 +73,8 @@ type probeOps struct {
 	close        func(int) error
 	writeHidraw  func(int, []byte) (int, error)
 	readHidraw   func(int, []byte, int) (int, error)
+	sleep        func(time.Duration)
+	bootAttempts int
 }
 
 func systemProbeOps() probeOps {
@@ -78,6 +82,7 @@ func systemProbeOps() probeOps {
 		readDir: os.ReadDir, readFile: readProbeFile, evalSymlinks: filepath.EvalSymlinks,
 		stat: os.Stat, lstat: unix.Lstat, open: unix.Open, fstat: unix.Fstat,
 		close: unix.Close, writeHidraw: writeHidrawReport, readHidraw: readHidrawReport,
+		sleep: time.Sleep, bootAttempts: 50,
 	}
 }
 
@@ -415,10 +420,79 @@ func (ops probeOps) probe(sysRoot, devRoot string, candidate DiscoveredCandidate
 	if err := ops.validateHidrawOpen(sysRoot, node, fd, candidate, named, wantMajor, wantMinor); err != nil {
 		return result, err
 	}
-	if proto == ProtocolV1 {
-		return ops.exchangeV1LayoutAndSettings(fd, result)
+	if proto == ProtocolV1 || IsBootloaderPID(candidate.VID, candidate.PID) {
+		return ops.exchangeV1LayoutAndSettings(fd, candidate.PID, result)
 	}
 	return ops.exchangeV2LayoutAndSettings(fd, result)
+}
+
+func (ops probeOps) readV2Info(fd int) (uint16, uint16, error) {
+	req := QueryInfoPacketV2()
+	if n, err := ops.writeHidraw(fd, req[:]); err != nil || n != 64 {
+		if err != nil {
+			return 0, 0, fmt.Errorf("write 0x00 info query: %w", err)
+		}
+		return 0, 0, fmt.Errorf("write 0x00 info query wrote %d bytes, want 64", n)
+	}
+	var rx Packet
+	n, err := ops.readHidraw(fd, rx[:], 1000)
+	if err != nil {
+		return 0, 0, fmt.Errorf("read 0x00 info reply: %w", err)
+	}
+	if n != 64 || rx[0] != 0x21 || rx[5]&0x40 != 0 || rx[6] != 0x00 {
+		return 0, 0, fmt.Errorf("invalid 0x00 info reply")
+	}
+	return binary.LittleEndian.Uint16(rx[8:10]), binary.LittleEndian.Uint16(rx[10:12]), nil
+}
+
+func (ops probeOps) readV1InfoOrBootloader(fd int, pid uint16) (uint16, uint16, bool, Packet, error) {
+	req := QueryInfoPacketV1()
+	if n, err := ops.writeHidraw(fd, req[:]); err != nil || n != 64 {
+		if err != nil {
+			return 0, 0, false, Packet{}, fmt.Errorf("write 0x00 info query: %w", err)
+		}
+		return 0, 0, false, Packet{}, fmt.Errorf("write 0x00 info query wrote %d bytes, want 64", n)
+	}
+	var rx Packet
+	n, err := ops.readHidraw(fd, rx[:], 1000)
+	if err != nil {
+		return 0, 0, false, rx, fmt.Errorf("read 0x00 info reply: %w", err)
+	}
+	if n != 64 || rx[0] != 0x02 {
+		return 0, 0, false, rx, fmt.Errorf("invalid 0x00 info reply")
+	}
+	if rx[1] == 0x02 {
+		errForSize := 0
+		if ManifestPID(pid) == 2 {
+			errForSize = 1
+		}
+		useChecksum := ManifestPID(pid) != 2
+		chkReq := BootCheckFWPacket(useChecksum)
+		if n, err := ops.writeHidraw(fd, chkReq[:]); err != nil || n != 64 {
+			if err != nil {
+				return 0, 0, true, rx, fmt.Errorf("write bootloader CHECK_FW query: %w", err)
+			}
+			return 0, 0, true, rx, fmt.Errorf("write bootloader CHECK_FW query wrote %d bytes, want 64", n)
+		}
+		var fwRx Packet
+		n, err := ops.readHidraw(fd, fwRx[:], 1000)
+		if err != nil {
+			return 0, 0, true, fwRx, fmt.Errorf("read bootloader CHECK_FW reply: %w", err)
+		}
+		validBootStatus := bootStatusOK(fwRx, errForSize, true) || (fwRx[1] == 0x00 && fwRx[2] == 0x04)
+		if n != 64 || fwRx[0] != 0x02 || !validBootStatus {
+			return 0, 0, true, fwRx, fmt.Errorf("invalid bootloader CHECK_FW reply")
+		}
+		fwVer := binary.BigEndian.Uint16(fwRx[3:5])
+		modelCode := binary.BigEndian.Uint16(fwRx[5:7])
+		return modelCode, fwVer, true, fwRx, nil
+	}
+	if rx[1] != 0x00 {
+		return 0, 0, false, rx, fmt.Errorf("unexpected 0x00 info status %#02x", rx[1])
+	}
+	fwVer := binary.BigEndian.Uint16(rx[3:5])
+	modelCode := binary.BigEndian.Uint16(rx[5:7])
+	return modelCode, fwVer, false, rx, nil
 }
 
 func (ops probeOps) exchangeV2LayoutAndSettings(fd int, result ProbeResult) (ProbeResult, error) {
@@ -480,16 +554,43 @@ func (ops probeOps) exchangeV2LayoutAndSettings(fd int, result ProbeResult) (Pro
 		return result, fmt.Errorf("invalid 0x11 light reply")
 	}
 	mode, colour := DecodeLightV2(lightRx[24:32])
+	modelCode, fwVer, infoErr := ops.readV2Info(fd)
+	if infoErr != nil {
+		modelCode, fwVer = 0, 0
+	}
 	layout, err := BuildDeviceLayout(ProtocolV2, records, mode, colour)
 	if err != nil {
+		result.Status = ProbeInvalidReport
 		return result, err
 	}
+	layout.ModelCode = modelCode
+	layout.FirmwareVersion = fwVer
 	result.Status = ProbeRawReport
 	result.Layout = layout
 	return result, nil
 }
 
-func (ops probeOps) exchangeV1LayoutAndSettings(fd int, result ProbeResult) (ProbeResult, error) {
+func (ops probeOps) exchangeV1LayoutAndSettings(fd int, pid uint16, result ProbeResult) (ProbeResult, error) {
+	result.Status = ProbeTransferFailed
+	modelCode, fwVer, isBoot, bootRx, err := ops.readV1InfoOrBootloader(fd, pid)
+	if err != nil {
+		if strings.HasPrefix(err.Error(), "invalid ") || strings.HasPrefix(err.Error(), "unexpected ") {
+			result.Status = ProbeInvalidReport
+		}
+		return result, err
+	}
+	if isBoot {
+		result.Count = 64
+		result.Raw = append([]byte(nil), bootRx[:]...)
+		result.Status = ProbeRawReport
+		result.Layout = &DeviceLayout{
+			Protocol:        ProtocolV1,
+			ModelCode:       modelCode,
+			FirmwareVersion: fwVer,
+			Bootloader:      true,
+		}
+		return result, nil
+	}
 	var records []RawSlotRecord
 	for index := range 24 {
 		result.Status = ProbeTransferFailed
@@ -549,6 +650,8 @@ func (ops probeOps) exchangeV1LayoutAndSettings(fd int, result ProbeResult) (Pro
 	if err != nil {
 		return result, err
 	}
+	layout.ModelCode = modelCode
+	layout.FirmwareVersion = fwVer
 	result.Status = ProbeRawReport
 	result.Layout = layout
 	return result, nil

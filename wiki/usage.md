@@ -17,7 +17,8 @@ Changes require a supported device from the table below (`0112`, CH57x `1189`/`5
 | XFKEY One Key Max (`0112`) | `af88:6688` | 1 key | `key`, `trigger`, `macro`, `mouse`, `media`, `rgb` | Full 128-byte readback |
 | CH57x Macropad (Gen 1) | `1189:8890`, `514c:8890` | Up to 12 keys, 3 knobs, 15 layers | `key`, `macro`, `mouse`, `media`, `led` | Write-only firmware |
 | CH57x Macropad (Gen 2) | `1189` / `514c` : `8830`, `8831`, `8832`, `8833`, `8840`, `8842`, `8850`, `8851` | Up to 12 keys, 4 knobs, 15 layers | `key`, `macro`, `mouse`, `media`, `led` | Layout (`0xFB`) and Layer 1 (`0xFA`) readback |
-| SayoDevice Macropad (HID v1 / v2) | `8089:0002`, `0003`, `0004`, `0005`, `0009`, `000a`, `000b`, `000c`, `000e` | Up to 12 keys, 4 knobs, 5 layers | `key`, `macro`, `mouse`, `media`, `rgb` | Key (`0x10` / `0x16`) and Light (`0x11` / `0x10`) readback |
+| SayoDevice Macropad (HID v1 / v2) | `8089:0002`, `0003`, `0004`, `0005`, `0009`, `000a`, `000b`, `000c`, `000e` | Up to 12 keys, 4 knobs, 5 layers | `key`, `macro`, `mouse`, `media`, `rgb`, `firmware` | Key (`0x10` / `0x16`), Light (`0x11` / `0x10`), and Info (`0x00`) readback |
+| SayoDevice Bootloader (Recovery) | `8089:0006`, `0007`, `0008` | Bootloader mode only | `firmware` | Model and version via CHECK_FW (`0x01`) |
 
 ## Read settings
 
@@ -37,7 +38,7 @@ The USB check requests Input report ID 3.
 Stock `1189:8890` write-only firmware returns a 1-byte `0xaa` status response to `GET_REPORT`. WonKey accepts that 1-byte `0xaa` status (exit 0) alongside 65-byte report ID 3 replies.
 When a CH57x Macropad (`1189:8890`) is selected for a write command, WonKey checks per-device capabilities first (accepting optional `[CONTROL]` in `key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right` defaulting to `key1` and `--layer <1..15>` defaulting to `1` on `key`, `macro`, `mouse`, and `media`, and rejecting `trigger`, keys outside `0x04..0x73`, `macro` options `--interval` or `--repeat`, sequences over 5 strokes, `rgb` with a hint to use `wonkey led`, and unsupported media usages), shows the proposed change, revalidates the USB and HID report descriptors, and writes the 64-byte report sequence to endpoint `0x02`.
 
-`wonkey --help` and help for each command show help without device access. Running `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, or `led` without arguments returns usage guidance without device access.
+`wonkey --help` and help for each command show help without device access. Running `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, or `led` without arguments returns usage guidance without device access. Running `wonkey firmware` or `wonkey firmware check` checks for official SayoDevice vendor firmware updates without modifying the device, and `wonkey firmware update` installs the latest official vendor firmware or recovers a SayoDevice in bootloader mode. `wonkey firmware` requires `curl` in `PATH` to download vendor firmware manifests and binaries over HTTPS.
 
 ## Set the key
 
@@ -217,4 +218,4 @@ Output escapes control characters in external text.
 Public flags are `-h`/`--help`, `--device`, `--layer`, `mouse --x`/`--y`/`--wheel`, and `macro --interval`/`--repeat`.
 Unknown or retired commands and flags, including `multi`, `show`, `set`, `advanced`, `apply`, `plan`, `--on`, `--report`, `--json`, `--yes`, and `--dry-run`, fail before hardware access.
 There is one executable, `wonkey`. The developer executable, protocol commands, and helper scripts are removed.
-WonKey has no arbitrary packet sender, firmware writer, reset, or bootloader command.
+WonKey has no arbitrary packet sender or reset command, and `wonkey firmware` supports only official SayoDevice vendor firmware checks and updates.

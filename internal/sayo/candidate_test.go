@@ -7,6 +7,15 @@ import (
 	"testing"
 )
 
+const candidateSayo000CUSBDescriptor = "\x12\x01\x10\x01\x00\x00\x00\x40\x89\x80\x0c\x00\x9a\x08\x01\x02\x03\x01" +
+	"\x09\x02\x42\x00\x02\x01\x00\xe0\x32" +
+	"\x09\x04\x00\x00\x01\x03\x01\x01\x00\x09\x21\x10\x01\x00\x01\x22\x41\x00\x07\x05\x81\x03\x08\x00\x01" +
+	"\x09\x04\x01\x00\x02\x03\x00\x00\x00\x09\x21\x11\x01\x00\x01\x22\x9a\x00\x07\x05\x82\x03\x40\x00\x01\x07\x05\x03\x03\x40\x00\x01"
+
+const candidateSayoSingleInterfaceBootloaderUSBDescriptor = "\x12\x01\x10\x01\x00\x00\x00\x40\x89\x80\x06\x00\x00\x01\x01\x02\x03\x01" +
+	"\x09\x02\x29\x00\x01\x01\x00\xe0\x32" +
+	"\x09\x04\x00\x00\x02\x03\x00\x00\x00\x09\x21\x11\x01\x00\x01\x22\x14\x00\x07\x05\x81\x03\x40\x00\x01\x07\x05\x01\x03\x40\x00\x01"
+
 func TestMatchCandidate000C(t *testing.T) {
 	descriptors := []byte(candidateSayo000CUSBDescriptor)
 	original := bytes.Clone(descriptors)
@@ -49,11 +58,19 @@ func TestMatchCandidateApplicationAndBootloaderPIDs(t *testing.T) {
 	for _, pid := range bootloaderPIDs {
 		d := []byte(candidateSayo000CUSBDescriptor)
 		binary.LittleEndian.PutUint16(d[10:12], pid)
-		if !IsBootloaderPID(0x8089, pid) || IsSupportedPID(0x8089, pid) {
+		if !IsBootloaderPID(0x8089, pid) || IsSupportedPID(0x8089, pid) || !IsSayoCandidatePID(0x8089, pid) {
 			t.Fatalf("bootloader PID 8089:%04x classification wrong", pid)
 		}
-		if got, err := MatchCandidate("7-1.4.3.4", d); err == nil || got != (Candidate{}) {
-			t.Fatalf("accepted bootloader PID 8089:%04x: %+v", pid, got)
+		got, err := MatchCandidate("7-1.4.3.4", d)
+		if err != nil || got.VID != 0x8089 || got.PID != pid {
+			t.Fatalf("bootloader PID 8089:%04x: got %+v, %v", pid, got, err)
+		}
+
+		single := []byte(candidateSayoSingleInterfaceBootloaderUSBDescriptor)
+		binary.LittleEndian.PutUint16(single[10:12], pid)
+		gotSingle, err := MatchCandidate("7-1.4.3.4", single)
+		if err != nil || gotSingle.VID != 0x8089 || gotSingle.PID != pid || gotSingle.VendorInterface != 0 {
+			t.Fatalf("single-interface bootloader PID 8089:%04x: got %+v, %v", pid, gotSingle, err)
 		}
 	}
 

@@ -1637,7 +1637,7 @@ func TestPublicSayo000CReadValidationAndWrite(t *testing.T) {
 			"[1] SayoDevice 2x3P (8089:000c)\n" +
 			"  USB path   7-1.4.3.4\n" +
 			"  Layout     6 keys\n" +
-			"  Supports   key, mouse, media, macro, rgb\n" +
+			"  Supports   key, mouse, media, macro, rgb, firmware\n" +
 			"  key1       1\n" +
 			"  key2       2\n" +
 			"  key3       3\n" +
@@ -1818,6 +1818,211 @@ func TestPublicExpandedCH57AndSayoFamilies(t *testing.T) {
 				!strings.Contains(out.String(), tc.wantSaved) || gotReq.SlotIndex != 5 || gotReq.SlotPayload[4] != 22 {
 				t.Fatalf("pid=%04x got:\n%s\nreq=%+v", tc.pid, out.String(), gotReq)
 			}
+		}
+	})
+}
+
+func TestPublicFirmwareCheckAndUpdate(t *testing.T) {
+	cSayo := sayo.DiscoveredCandidate{
+		Candidate:    sayo.Candidate{PhysicalPath: "7-1.4.3.4", VID: 0x8089, PID: 0x000c},
+		ProductName:  "SayoDevice 2x3P",
+		BusNumber:    7,
+		DeviceNumber: 12,
+	}
+	manifest := sayo.FirmwareManifest{
+		VID: 0x8089,
+		PID: 12,
+		Data: []sayo.FirmwareManifestEntry{
+			{Model: "SayoDevice 2x3P", ModelCode: 0x233c, ROMSize: 61280, Version: 2205, FilePath: "2x3P_v2205.bin"},
+		},
+	}
+
+	t.Run("help-and-syntax", func(t *testing.T) {
+		access := publicAccess{discover: func() ([]Candidate, error) { t.Fatal("help accessed devices"); return nil, nil }}
+		for _, args := range [][]string{{"firmware", "--help"}, {"firmware", "-h"}, {"firmware", "check", "--help"}, {"firmware", "update", "--help"}} {
+			var out bytes.Buffer
+			if err := runPublic(args, &cliRuntime{strings.NewReader(""), &out, io.Discard}, access); err != nil {
+				t.Fatalf("args=%v err=%v", args, err)
+			}
+			if !strings.Contains(out.String(), "Usage: wonkey firmware [check|update] [--device N]") {
+				t.Fatalf("unexpected help output: %q", out.String())
+			}
+		}
+		for _, badArgs := range [][]string{
+			{"firmware", "invalid"},
+			{"firmware", "check", "update"},
+			{"firmware", "--layer", "1"},
+			{"firmware", "--help", "--device", "1"},
+		} {
+			var out, diag bytes.Buffer
+			err := runPublic(badArgs, &cliRuntime{strings.NewReader(""), &out, &diag}, access)
+			if err == nil || ExitCode(err) != 2 {
+				t.Fatalf("badArgs=%v err=%v diag=%q", badArgs, err, diag.String())
+			}
+		}
+	})
+
+	t.Run("capability-gating-non-sayo", func(t *testing.T) {
+		accessXFKEY := publicAccess{
+			discover: func() ([]Candidate, error) { return []Candidate{{PhysicalPath: "1-1", Compatible: true}}, nil },
+		}
+		var diag bytes.Buffer
+		err := runPublic([]string{"firmware"}, &cliRuntime{strings.NewReader(""), io.Discard, &diag}, accessXFKEY)
+		wantXFKEY := "XFKEY One Key Max (0112) does not support firmware updates"
+		if err == nil || err.Error() != wantXFKEY {
+			t.Fatalf("xfkey firmware err=%v, want %q", err, wantXFKEY)
+		}
+
+		accessCH57 := ch57TestAccess(t)
+		accessCH57.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
+			return []ch57.DiscoveredCandidate{{Candidate: ch57.Candidate{PhysicalPath: "1-2", VID: 0x514c, PID: 0x8851}, BusNumber: 1, DeviceNumber: 2}}, nil
+		}
+		diag.Reset()
+		err = runPublic([]string{"firmware", "update"}, &cliRuntime{strings.NewReader(""), io.Discard, &diag}, accessCH57)
+		wantCH57 := "CH57x Macropad (514c:8851) does not support firmware updates"
+		if err == nil || err.Error() != wantCH57 {
+			t.Fatalf("ch57 firmware err=%v, want %q", err, wantCH57)
+		}
+	})
+
+	t.Run("check-up-to-date-and-update-available-and-bootloader", func(t *testing.T) {
+		for _, tc := range []struct {
+			name       string
+			args       []string
+			fwVer      uint16
+			bootloader bool
+			wantStatus string
+		}{
+			{"bare-firmware-up-to-date", []string{"firmware"}, 2205, false, "  Status     Up to date\n"},
+			{"check-update-available", []string{"firmware", "check"}, 2202, false, "  Status     Update available - run \"wonkey firmware update\" to install\n"},
+			{"check-bootloader", []string{"firmware", "check"}, 2205, true, "  Status     Bootloader mode - run \"wonkey firmware update\" to recover\n"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				access := ch57TestAccess(t)
+				access.discoverSayo = func(string) ([]sayo.DiscoveredCandidate, error) { return []sayo.DiscoveredCandidate{cSayo}, nil }
+				access.probeSayo = func(string, string, sayo.DiscoveredCandidate) (sayo.ProbeResult, error) {
+					return sayo.ProbeResult{
+						Status: sayo.ProbeRawReport,
+						Layout: &sayo.DeviceLayout{
+							Protocol:        sayo.ProtocolV2,
+							ModelCode:       0x233c,
+							FirmwareVersion: tc.fwVer,
+							Bootloader:      tc.bootloader,
+						},
+					}, nil
+				}
+				access.fetchSayoManifest = func(pid uint16) (sayo.FirmwareManifest, error) {
+					if pid != 0x000c {
+						t.Fatalf("unexpected pid %#04x", pid)
+					}
+					return manifest, nil
+				}
+				access.flashSayoFirmware = func(string, string, sayo.DiscoveredCandidate, sayo.ProtocolVersion, bool, sayo.FirmwareManifest, sayo.FirmwareManifestEntry, []byte, sayo.FirmwareProgressFunc) (sayo.ApplyResult, error) {
+					t.Fatal("check should not flash firmware")
+					return sayo.ApplyResult{}, nil
+				}
+				var out, diag bytes.Buffer
+				if err := runPublic(tc.args, &cliRuntime{strings.NewReader(""), &out, &diag}, access); err != nil {
+					t.Fatalf("err=%v diag=%q", err, diag.String())
+				}
+				for _, want := range []string{
+					"[1] SayoDevice 2x3P (8089:000c)\n",
+					"  Model      SayoDevice 2x3P (0x233c)\n",
+					fmt.Sprintf("  Current    %d (0x%04x)\n", tc.fwVer, tc.fwVer),
+					"  Latest     2205 (0x089d)\n",
+					"  Firmware   2x3P_v2205.bin\n",
+					tc.wantStatus,
+				} {
+					if !strings.Contains(out.String(), want) {
+						t.Fatalf("missing %q in:\n%s", want, out.String())
+					}
+				}
+			})
+		}
+	})
+
+	t.Run("update-noop-and-live-and-bootloader-recovery", func(t *testing.T) {
+		for _, tc := range []struct {
+			name       string
+			fwVer      uint16
+			bootloader bool
+			wantFlash  bool
+			wantOut    string
+		}{
+			{"already-up-to-date", 2205, false, false, "Firmware is already up to date. No firmware write sent.\n"},
+			{"app-mode-update", 2202, false, true, "  firmware: 2202 (0x089a) -> 2205 (0x089d) (SayoDevice 2x3P)\n  Flashing   [####################] 100% (80/80 B)\nFirmware updated.\n"},
+			{"bootloader-recovery-even-at-latest-ver", 2205, true, true, "  firmware: bootloader (2205 / 0x089d) -> 2205 (0x089d) (SayoDevice 2x3P)\n  Flashing   [####################] 100% (80/80 B)\nFirmware updated.\n"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				access := ch57TestAccess(t)
+				access.discoverSayo = func(string) ([]sayo.DiscoveredCandidate, error) { return []sayo.DiscoveredCandidate{cSayo}, nil }
+				access.probeSayo = func(string, string, sayo.DiscoveredCandidate) (sayo.ProbeResult, error) {
+					return sayo.ProbeResult{
+						Status: sayo.ProbeRawReport,
+						Layout: &sayo.DeviceLayout{
+							Protocol:        sayo.ProtocolV2,
+							ModelCode:       0x233c,
+							FirmwareVersion: tc.fwVer,
+							Bootloader:      tc.bootloader,
+						},
+					}, nil
+				}
+				access.fetchSayoManifest = func(uint16) (sayo.FirmwareManifest, error) { return manifest, nil }
+				access.fetchSayoBinary = func(uint16, string) ([]byte, error) {
+					if !tc.wantFlash {
+						t.Fatal("already up to date should not fetch firmware binary")
+					}
+					return make([]byte, 80), nil
+				}
+				flashed := false
+				access.flashSayoFirmware = func(_ string, _ string, _ sayo.DiscoveredCandidate, _ sayo.ProtocolVersion, inBoot bool, _ sayo.FirmwareManifest, _ sayo.FirmwareManifestEntry, fw []byte, onProgress sayo.FirmwareProgressFunc) (sayo.ApplyResult, error) {
+					flashed = true
+					if inBoot != tc.bootloader || len(fw) != 80 {
+						t.Fatalf("inBoot=%v len=%d", inBoot, len(fw))
+					}
+					if onProgress != nil {
+						onProgress(0, len(fw))
+						onProgress(32, len(fw))
+						onProgress(64, len(fw))
+						onProgress(len(fw), len(fw))
+					}
+					return sayo.ApplyResult{WriteAttempted: true, ReportsWritten: 10}, nil
+				}
+				var out, diag bytes.Buffer
+				if err := runPublic([]string{"firmware", "update"}, &cliRuntime{strings.NewReader(""), &out, &diag}, access); err != nil {
+					t.Fatalf("err=%v diag=%q", err, diag.String())
+				}
+				if flashed != tc.wantFlash || !strings.Contains(out.String(), tc.wantOut) {
+					t.Fatalf("flashed=%v wantFlash=%v out=\n%s\nwantOut=\n%s", flashed, tc.wantFlash, out.String(), tc.wantOut)
+				}
+			})
+		}
+	})
+
+	t.Run("progress-tty-and-non-tty", func(t *testing.T) {
+		var nonTTYOut bytes.Buffer
+		hNonTTY := humanFor(&nonTTYOut, false, func(string) string { return "" })
+		hNonTTY.progress("Flashing", 0, 80)
+		hNonTTY.progress("Flashing", 32, 80)
+		hNonTTY.progress("Flashing", 64, 80)
+		hNonTTY.progress("Flashing", 80, 80)
+		wantNonTTY := "  Flashing   [####################] 100% (80/80 B)\n"
+		if nonTTYOut.String() != wantNonTTY {
+			t.Fatalf("non-tty progress = %q, want %q", nonTTYOut.String(), wantNonTTY)
+		}
+
+		var ttyOut bytes.Buffer
+		hTTY := humanFor(&ttyOut, true, func(string) string { return "" })
+		hTTY.progress("Flashing", 0, 80)
+		hTTY.progress("Flashing", 40, 80)
+		hTTY.progress("Flashing", 80, 80)
+		hTTY.progress("Writing", 64, 64)
+		wantTTY := "\r  Flashing   [--------------------]   0% (0/80 B)" +
+			"\r  Flashing   [##########----------]  50% (40/80 B)" +
+			"\r  Flashing   [####################] 100% (80/80 B)\n" +
+			"\r  Writing    [####################] 100% (64/64 B)\n"
+		if ttyOut.String() != wantTTY {
+			t.Fatalf("tty progress = %q, want %q", ttyOut.String(), wantTTY)
 		}
 	})
 }
