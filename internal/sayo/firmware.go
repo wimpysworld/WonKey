@@ -109,6 +109,9 @@ func defaultHTTPGet(url string, maxBytes int) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "curl", "-fsSL", "--proto", "=https", "--proto-redir", "=https", "--max-time", "15", "--max-filesize", strconv.Itoa(maxBytes), "--", url)
 	data, err := cmd.Output()
 	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return nil, fmt.Errorf("curl is required for wonkey firmware; install curl and retry: %w", err)
+		}
 		return nil, fmt.Errorf("download %s: %w", url, err)
 	}
 	if len(data) > maxBytes {
