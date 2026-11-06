@@ -466,7 +466,8 @@ func (ops probeOps) readV1InfoOrBootloader(fd int, pid uint16) (uint16, uint16, 
 		if ManifestPID(pid) == 2 {
 			errForSize = 1
 		}
-		chkReq := BootCheckFWPacket(true)
+		useChecksum := ManifestPID(pid) != 2
+		chkReq := BootCheckFWPacket(useChecksum)
 		if n, err := ops.writeHidraw(fd, chkReq[:]); err != nil || n != 64 {
 			if err != nil {
 				return 0, 0, true, rx, fmt.Errorf("write bootloader CHECK_FW query: %w", err)
