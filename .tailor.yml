@@ -5,8 +5,9 @@ languages:
   go: true
 
 repository:
-  description: Configure your XFKEY One Key Max on Linux. One key, to rule them all 1️⃣
-  homepage: https://wimpysworld.github.io/WonKey/
+  description: >-
+    Macropad configuration tool for Linux. One key, to rule them all 1️⃣
+  homepage: https://wonkey.wimpys.world/
   has_wiki: true
   has_discussions: false
   has_projects: false
@@ -136,6 +137,7 @@ pages:
   enabled: true
   generator: static
   path: pages
+  cname: wonkey.wimpys.world
   links:
     website: https://wimpys.world/
     forum: ""
