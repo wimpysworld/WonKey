@@ -1494,10 +1494,17 @@ func (c publicCommand) runSayoFirmwareUpdate(sysRoot, devRoot string, selected s
 	if flashFn == nil {
 		flashFn = sayo.FlashFirmware
 	}
+	progressOpen := false
 	applied, err := flashFn(sysRoot, devRoot, selected, layout.Protocol, layout.Bootloader, manifest, entry, fwBytes, func(written, total int) {
 		h.progress("Flashing", written, total)
+		if h.tty {
+			progressOpen = written < total
+		}
 	})
 	if err != nil {
+		if progressOpen {
+			_, _ = io.WriteString(h.out, "\n")
+		}
 		if applied.WriteAttempted {
 			h.line("31", "Device state uncertain. Run \"wonkey firmware update\" to recover if in bootloader mode.")
 		} else {
