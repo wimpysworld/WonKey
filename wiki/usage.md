@@ -33,10 +33,14 @@ It shows the raw type at byte 0 and configuration bytes 0 to 15 as hexadecimal.
 It does not decode key, trigger, lighting, mouse, media, or macro fields from an unknown layout.
 This read-only display does not enable changes. Live writes remain blocked for unsupported configurations.
 
-On each CH57x Macropad (`1189:8890`) device, the section heading is `[N] CH57x Macropad (1189:8890)` and bare `wonkey` shows the USB path, `Supports` (`key, mouse, media, macro, led`), and `Settings   Write-only (not readable over USB)` (plus `Input hex` when a 65-byte report ID 3 reply is returned).
+On each CH57x Macropad (Gen 1, `1189:8890` and `514c:8890`) device, the section heading is `[N] CH57x Macropad (1189:8890)` (or `514c:8890`) and bare `wonkey` shows the USB path, `Supports` (`key, mouse, media, macro, led`), and `Settings   Write-only (not readable over USB)` (plus `Input hex` when a 65-byte report ID 3 reply is returned).
 The USB check requests Input report ID 3.
 Stock `1189:8890` write-only firmware returns a 1-byte `0xaa` status response to `GET_REPORT`. WonKey accepts that 1-byte `0xaa` status (exit 0) alongside 65-byte report ID 3 replies.
-When a CH57x Macropad (`1189:8890`) is selected for a write command, WonKey checks per-device capabilities first (accepting optional `[CONTROL]` in `key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right` defaulting to `key1` and `--layer <1..15>` defaulting to `1` on `key`, `macro`, `mouse`, and `media`, and rejecting `trigger`, keys outside `0x04..0x73`, `macro` options `--interval` or `--repeat`, sequences over 5 strokes, `rgb` with a hint to use `wonkey led`, and unsupported media usages), shows the proposed change, revalidates the USB and HID report descriptors, and writes the 64-byte report sequence to endpoint `0x02`.
+
+On each CH57x Macropad (Gen 2, `1189` / `514c` : `8830`, `8831`, `8832`, `8833`, `8840`, `8842`, `8850`, `8851`, such as `514c:8851` and `514c:8850`), bare `wonkey` queries `0xFB` on interface 0 `hidraw` for the layout (`keys`, `knobs`, and firmware `kind`) and `0xFA` for Layer 1 key and knob bindings (or falls back to `Settings   Write-only (not readable over USB)` when `0xFA` times out on write-only `kind >= 10` units).
+When a CH57x Macropad (Gen 1 or Gen 2) is selected for a write command, WonKey checks per-device capabilities first (accepting optional `[CONTROL]` in `key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob4-right` validated against the device layout and defaulting to `key1`, and `--layer <1..15>` defaulting to `1` on `key`, `macro`, `mouse`, and `media`, and rejecting `trigger`, keys outside `0x04..0x73`, `macro` options `--interval` or `--repeat`, sequences over 5 strokes, `rgb` with a hint to use `wonkey led`, and unsupported media usages), shows the proposed change, revalidates the descriptors, and writes the report sequence (`0x02` interrupt OUT on Gen 1, or `0xFE` / `0xFD` report ID 3 over `hidraw` on Gen 2).
+
+On each SayoDevice Macropad (`8089:0002..0005`, `0009..000c`, `000e`, such as `8089:000c`), bare `wonkey` queries `Info` (`0x00`) for the model code and firmware version, reads key and rotary knob bindings across layers `1..5` (`0x10` on HID v2, `0x16` on HID v1), and reads RGB lighting (`0x11` on HID v2, `0x10` on HID v1). On SayoDevice Bootloader units (`8089:0006..0008`), bare `wonkey` queries the model and firmware version via `CHECK_FW` (`0x01`) and reports `Supports   firmware`.
 
 `wonkey --help` and help for each command show help without device access. Running `key`, `trigger`, `macro`, `mouse`, `media`, `rgb`, or `led` without arguments returns usage guidance without device access. Running `wonkey firmware` or `wonkey firmware check` checks for official SayoDevice vendor firmware updates without modifying the device, and `wonkey firmware update` installs the latest official vendor firmware or recovers a SayoDevice in bootloader mode. `wonkey firmware` requires `curl` in `PATH` to download vendor firmware manifests and binaries over HTTPS.
 
@@ -60,8 +64,8 @@ These commands change stored key and trigger settings:
 A key expression is the complete combination. `key f13` means **<kbd>F13</kbd> without modifiers**, not <kbd>F13</kbd> with the previous modifiers.
 
 Use `wonkey key [CONTROL] <COMBINATION> [--layer N] [--device N]` with one base key from the [supported key names](#supported-key-names).
-On CH57x Macropad (`1189:8890`), `[CONTROL]` accepts `key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, or `knob1-left`..`knob3-right` (defaulting to `key1`), and `--layer` accepts `1..15` (defaulting to `1`). On single-key XFKEY One Key Max (`0112`), `[CONTROL]` and `--layer` are rejected (`XFKEY One Key Max (0112) has a single key and does not support ...` / `XFKEY One Key Max (0112) does not support --layer`).
-Names cover letters, digits, function keys, punctuation keys, navigation, keypad keys, and defined keyboard usages through `0x91` on `0112` (or `0x04..0x73` on `1189:8890`).
+On multi-control CH57x (`1189` / `514c`) and SayoDevice (`8089`) macropads, `[CONTROL]` accepts `key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, or `knob1-left`..`knob4-right` (validated per device and defaulting to `key1`), and `--layer` accepts `1..15` on CH57x devices or `1..5` on SayoDevice devices (defaulting to `1`). On single-key XFKEY One Key Max (`0112`), `[CONTROL]` and `--layer` are rejected (`XFKEY One Key Max (0112) has a single key and does not support ...` / `XFKEY One Key Max (0112) does not support --layer`).
+Names cover letters, digits, function keys, punctuation keys, navigation, keypad keys, and defined keyboard usages through `0x91` on `0112` (or `0x04..0x73` on CH57x and SayoDevice).
 Use names such as `semicolon` and `keypadplus`, not punctuation symbols or raw usage numbers.
 The `key` command does not accept mouse or consumer media names, or a `--on` flag. Multi-stroke sequences use `macro`, and right-hand modifiers remain unsupported.
 Prefix modifiers with `+`: `ctrl`, `shift`, `alt`, and `super`, each at most once.
@@ -73,25 +77,25 @@ Names select USB Human Interface Device (HID) keyboard usages, not guaranteed te
 `power` selects the keyboard Power usage. The host determines its effect.
 
 `key <COMBINATION>` preserves an existing keyboard trigger on `0112`, or defaults to `press` when replacing another action.
-Use `wonkey trigger <press|release|both> [--device N]` on `0112` to change when the configured keyboard key fires; `trigger` requires a keyboard key to be configured on `0112` and is rejected on `1189:8890`.
+Use `wonkey trigger <press|release|both> [--device N]` on `0112` to change when the configured keyboard key fires; `trigger` requires a keyboard key to be configured on `0112` and is rejected on CH57x and SayoDevice pads.
 Repeated modifiers, unsupported keys, and extra arguments are rejected before device access.
 Key and trigger changes preserve lighting and unrelated bytes. Conversion to or from a keyboard action with `both` is rejected because separate release fields remain uncertain.
 
-Hardware tests confirmed <kbd>F13</kbd> events and persistence on XFKEY One Key Max (`0112`) and `key1`..`key3` key bindings on a 3-key, 1-knob CH57x Macropad (`1189:8890`), as recorded in [hardware verification](protocol#hardware-verification).
+Hardware tests confirmed <kbd>F13</kbd> events and persistence on XFKEY One Key Max (`0112`), key bindings on CH57x Macropads (`1189:8890`, `514c:8851`, and `514c:8850`), and key bindings on SayoDevice 2x3P (`8089:000c`), as recorded in [hardware verification](protocol#hardware-verification).
 All other selectable keys remain hardware-unverified. The captured descriptor confirms that the added usages fit, not that firmware executes them.
 Desktop keymaps can show different symbols for function keys. Check the key name in your target shortcut editor.
 
 ## Mouse, media, and macro actions
 
-Each command changes the complete action on a supported device (`0112` or `1189:8890`). Run `./wonkey` without arguments to read the current action and lighting.
+Each command changes the complete action on a supported device (`0112`, CH57x `1189` / `514c`, or SayoDevice `8089`). Run `./wonkey` without arguments to read the current action and lighting.
 
 | Command | Example | Input and limits |
 |---|---|---|
 | `mouse` | `./wonkey mouse left+right --x=-20 --y 10 --wheel -1` | Syntax: `wonkey mouse [CONTROL] <BUTTONS> [--x N] [--y N] [--wheel N] [--layer N] [--device N]`. Use `left`, `right`, `middle`, or a `+` combination without repeats. Use `none` alone for no button, or `wheelup` or `wheeldown` alone for one tick. `--x`, `--y`, and `--wheel` take integers from `-127` to `127`; omitted values are zero. Do not combine a wheel name with `--wheel`. |
-| `media` | `./wonkey media playpause`, `./wonkey media knob-right volumeup` | Syntax: `wonkey media [CONTROL] <ACTION\|0xHHHH> [--layer N] [--device N]`. Use a name below or `0xHHHH` with exactly four hexadecimal digits. The usage must be `0x0001` to `0x023c` on `0112` (or one of the CH57x-supported media usages on `1189:8890`). |
-| `macro` | `./wonkey macro a,f13,enter --interval 50 --repeat 2`, `./wonkey macro key3 ctrl+c,ctrl+v --layer 2` | Syntax: `wonkey macro [CONTROL] <STROKE[,STROKE...]> [--interval MS] [--repeat COUNT] [--layer N] [--device N]`. Replaces `multi`. On `0112`, use 1 to 115 comma-separated base key names from [supported key names](#supported-key-names) without modifiers or raw usage numbers; `--interval` takes 1 to 65535 milliseconds (default 50) and `--repeat` takes 1 to 255 (default 1). On `1189:8890`, use 1 to 5 comma-separated strokes (`0x04..0x73`) including optional per-stroke modifiers such as `ctrl+c,ctrl+v`, without `--interval` or `--repeat`. |
+| `media` | `./wonkey media playpause`, `./wonkey media knob-right volumeup` | Syntax: `wonkey media [CONTROL] <ACTION\|0xHHHH> [--layer N] [--device N]`. Use a name below or `0xHHHH` with exactly four hexadecimal digits. The usage must be `0x0001` to `0x023c` on `0112` (or one of the device-supported media usages on CH57x and SayoDevice). |
+| `macro` | `./wonkey macro a,f13,enter --interval 50 --repeat 2`, `./wonkey macro key3 ctrl+c,ctrl+v --layer 2` | Syntax: `wonkey macro [CONTROL] <STROKE[,STROKE...]> [--interval MS] [--repeat COUNT] [--layer N] [--device N]`. Replaces `multi`. On `0112`, use 1 to 115 comma-separated base key names from [supported key names](#supported-key-names) without modifiers or raw usage numbers; `--interval` takes 1 to 65535 milliseconds (default 50) and `--repeat` takes 1 to 255 (default 1). On CH57x (`1189` / `514c`), use 1 to 5 comma-separated strokes (`0x04..0x73`) including optional per-stroke modifiers such as `ctrl+c,ctrl+v`, without `--interval` or `--repeat`. On SayoDevice (`8089`), use 1 to 3 comma-separated strokes (`0x04..0x73`, with optional modifiers on 1-stroke or 2-stroke sequences, or on stroke 1 of a 3-stroke sequence), without `--interval` or `--repeat`. |
 
-On `1189:8890`, `mouse`, `media`, and `macro` accept an optional `[CONTROL]` (`key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob3-right`, defaulting to `key1`) before the action argument and `--layer <1..15>` (defaulting to `1`). On single-key `0112` devices, `[CONTROL]` and `--layer` are rejected (`XFKEY One Key Max (0112) has a single key and does not support ...` / `XFKEY One Key Max (0112) does not support --layer`).
+On multi-control CH57x (`1189` / `514c`) and SayoDevice (`8089`) devices, `mouse`, `media`, and `macro` accept an optional `[CONTROL]` (`key1`..`key12`, `knob-left`, `knob-press`, `knob-right`, `knob1-left`..`knob4-right`, validated per device and defaulting to `key1`) before the action argument and `--layer <1..15>` on CH57x or `--layer <1..5>` on SayoDevice (defaulting to `1`). On single-key `0112` devices, `[CONTROL]` and `--layer` are rejected (`XFKEY One Key Max (0112) has a single key and does not support ...` / `XFKEY One Key Max (0112) does not support --layer`).
 
 Media names ignore case: `play`, `pause`, `record`, `fastforward`, `rewind`, `next`, `prev`, `previous`, `stop`, `eject`, `playpause`, `mute`, `volumeup`, `volumedown`, `calculator`, `mycomputer`, `browser`, `email`, `search`, `home`, `back`, `forward`, `refresh`, and `bookmarks`.
 `prev` and `previous` select the same usage. A raw usage within the bound does not prove that the device or host supports its effect.
@@ -101,7 +105,7 @@ The `media` command uses HID consumer page `0x0c`. In contrast, `key mute` uses 
 Mouse values are signed relative movement, not pointer positions. `wheelup` means `+1` and `wheeldown` means `-1`.
 On `0112`, the `macro` key limit stops at configuration byte 119, so bytes 120 to 123 remain unchanged.
 The options accept `--name VALUE` or `--name=VALUE` and each option can appear once. Repeated names, invalid values, and extra actions fail before device access.
-See [wire layouts and evidence](protocol#action-layouts) for the stored fields. Hardware checks confirmed `knob-left`, `knob-right`, and `knob-press` media volume controls on a 3-key, 1-knob CH57x Macropad (`1189:8890`); other mouse, media, and macro actions remain hardware-unverified.
+See [wire layouts and evidence](protocol#action-layouts) for the stored fields and [hardware verification](protocol#hardware-verification) for tested actions on CH57x and SayoDevice hardware.
 
 ## Lighting
 
@@ -116,13 +120,13 @@ These commands change or validate lighting settings:
 ./wonkey led off
 ```
 
-`wonkey rgb <MODE> [RGB] [--device N]` configures RGB lighting on XFKEY One Key Max (`0112`) and is rejected on `1189:8890` with a hint to use `wonkey led`.
-`static`, `breathe`, `flash`, `held`, and `toggle` accept an optional colour: exactly six hexadecimal digits without `#`.
+`wonkey rgb <MODE> [RGB] [--device N]` configures RGB lighting on XFKEY One Key Max (`0112`) and supported SayoDevice Macropads (`8089:0002..0005`, `0009..000c`, `000e`), and is rejected on CH57x devices with a hint to use `wonkey led`.
+`static`, `breathe`, `flash`, `held`, and `toggle` (on `0112`) accept an optional colour: exactly six hexadecimal digits without `#`.
 `0000ff` is blue. Omit the colour to preserve all three RGB bytes.
 `cycle-slow`, `cycle-fast`, and `off` do not use a colour. They reject supplied colours before device access and preserve the stored colour.
 RGB commands preserve the current typed action and unrelated bytes.
 
-`wonkey led <MODE> [--device N]` configures LED backlight mode (`off`, `reactive`, or `cycle`, encoded as mode indices `0`, `1`, and `2`) on CH57x Macropad (`1189:8890`) and is rejected on `0112` with a hint to use `wonkey rgb`. Hardware checks on a 3-key, 1-knob CH57x Macropad (`1189:8890`) confirmed `off`, `reactive`, and `cycle` backlight modes.
+`wonkey led <MODE> [--device N]` configures LED backlight mode (`off`, `reactive`, or `cycle`, encoded as mode indices `0`, `1`, and `2`) on CH57x Macropads (`1189` / `514c` : `8830..8833`, `8840`, `8842`, `8850`, `8851`, `8890`) and is rejected on `0112` and SayoDevice pads with a hint to use `wonkey rgb`. Hardware checks confirmed `off`, `reactive`, and `cycle` backlight modes on a 3-key, 1-knob CH57x Macropad (`1189:8890`), and live LED programming on `514c:8851` and `514c:8850`.
 
 | Mode | Description | Stored byte |
 |---|---|---|
