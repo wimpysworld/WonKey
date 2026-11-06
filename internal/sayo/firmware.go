@@ -166,7 +166,8 @@ func ValidateFirmwareBinary(fwBytes []byte, entry FirmwareManifestEntry, manifes
 			(m.Cmd.CheckFW != 0 && m.Cmd.CheckFW != 1) ||
 			(m.Cmd.WriteData != 0 && m.Cmd.WriteData != 2) ||
 			(m.Cmd.ExecuteApp != 0 && m.Cmd.ExecuteApp != 3) ||
-			(m.Cmd.EraseFlash != 0 && m.Cmd.EraseFlash != 4) {
+			(m.Cmd.EraseFlash != 0 && m.Cmd.EraseFlash != 4) ||
+			(m.Cmd.Verify != 0 && m.Cmd.Verify != 5 && m.Cmd.Verify != 6) {
 			return fmt.Errorf("unsupported bootloader command opcodes in manifest: %+v", m.Cmd)
 		}
 		if m.AddrLen == 2 && len(fwBytes) > 0xFFFF {
