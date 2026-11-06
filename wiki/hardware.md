@@ -2,7 +2,7 @@
 
 [Wiki home](Home) · [Usage and configuration](usage)
 
-WonKey configures supported USB macropads on Linux (`XFKEY One Key Max (0112)`, `CH57x Macropads (1189 / 514c : 8830..8833, 8840, 8842, 8850, 8851, 8890)`, and `SayoDevice Macropads (8089:0002..0005, 0009..000c, 000e)`).
+WonKey configures supported USB macropads on Linux (`XFKEY One Key Max (0112)`, `CH57x Macropads (1189 / 514c : 8830..8833, 8840, 8842, 8850, 8851, 8890)`, and `SayoDevice Macropads (8089:0002..0005, 0009..000c, 000e, plus bootloader 0006..0008)`).
 `key [CONTROL] <COMBINATION>`, `trigger <press|release|both>`, `macro [CONTROL] <STROKE[,STROKE...]>`, `mouse [CONTROL] <BUTTONS>`, `media [CONTROL] <ACTION|0xHHHH>`, `rgb <MODE> [RGB]`, and `led <MODE>` change settings on supported devices (`[CONTROL]` and `--layer` apply to multi-control devices; `led <MODE>` applies to CH57x devices; `rgb` applies to `0112` and all supported SayoDevice macropads; `trigger` applies to `0112`).
 Bare `wonkey` reads all compatible macropads without modifying them.
 
@@ -10,7 +10,7 @@ Bare `wonkey` reads all compatible macropads without modifying them.
 
 ## Device selection and access
 
-Your user needs access to the selected macropad's vendor `hidraw` node (`XFKEY One Key Max (0112)`, CH57x Gen 2 `1189` / `514c` : `8830..8833`, `8840`, `8842`, `8850`, `8851`, and SayoDevice `8089:0002..0005`, `0009..000c`, `000e`) or USB device node under `/dev/bus/usb` (CH57x Gen 1 `1189:8890` and `514c:8890`).
+Your user needs access to the selected macropad's vendor `hidraw` node (`XFKEY One Key Max (0112)`, CH57x Gen 2 `1189` / `514c` : `8830..8833`, `8840`, `8842`, `8850`, `8851`, and SayoDevice `8089:0002..0005`, `0009..000c`, `000e`, plus bootloader `0006..0008`) or USB device node under `/dev/bus/usb` (CH57x Gen 1 `1189:8890` and `514c:8890`).
 WonKey does not grant permissions or install permission rules.
 Ask an administrator to configure access for the verified device.
 Do not guess a device from its hidraw or USB bus number.
