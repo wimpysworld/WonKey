@@ -126,7 +126,7 @@ These commands change or validate lighting settings:
 `cycle-slow`, `cycle-fast`, and `off` do not use a colour. They reject supplied colours before device access and preserve the stored colour.
 RGB commands preserve the current typed action and unrelated bytes.
 
-`wonkey led <MODE> [--device N]` configures LED backlight mode (`off`, `reactive`, or `cycle`, encoded as mode indices `0`, `1`, and `2`) on CH57x Macropads (`1189` / `514c` : `8830..8833`, `8840`, `8842`, `8850`, `8851`, `8890`) and is rejected on `0112` and SayoDevice pads with a hint to use `wonkey rgb`. Hardware checks on CH57x Macropads (`1189:8890`, `514c:8851`, and `514c:8850`) confirmed `off`, `reactive`, and `cycle` backlight modes.
+`wonkey led <MODE> [--device N]` configures LED backlight mode (`off`, `reactive`, or `cycle`, encoded as mode indices `0`, `1`, and `2`) on CH57x Macropads (`1189` / `514c` : `8830..8833`, `8840`, `8842`, `8850`, `8851`, `8890`) and is rejected on `0112` and SayoDevice pads with a hint to use `wonkey rgb`. Hardware checks confirmed `off`, `reactive`, and `cycle` backlight modes on a 3-key, 1-knob CH57x Macropad (`1189:8890`), and live LED programming on `514c:8851` and `514c:8850`.
 
 | Mode | Description | Stored byte |
 |---|---|---|
