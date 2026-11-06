@@ -548,13 +548,9 @@ func (ops probeOps) exchangeV2LayoutAndSettings(fd int, result ProbeResult) (Pro
 		return result, fmt.Errorf("invalid 0x11 light reply")
 	}
 	mode, colour := DecodeLightV2(lightRx[24:32])
-	result.Status = ProbeTransferFailed
-	modelCode, fwVer, err := ops.readV2Info(fd)
-	if err != nil {
-		if strings.HasPrefix(err.Error(), "invalid ") {
-			result.Status = ProbeInvalidReport
-		}
-		return result, err
+	modelCode, fwVer, infoErr := ops.readV2Info(fd)
+	if infoErr != nil {
+		modelCode, fwVer = 0, 0
 	}
 	layout, err := BuildDeviceLayout(ProtocolV2, records, mode, colour)
 	if err != nil {
