@@ -1465,6 +1465,11 @@ func (c publicCommand) renderSayoFirmwareHeader(selected sayo.DiscoveredCandidat
 }
 
 func (c publicCommand) runSayoFirmwareUpdate(sysRoot, devRoot string, selected sayo.DiscoveredCandidate, deviceID int, pid uint16, layout *sayo.DeviceLayout, manifest sayo.FirmwareManifest, entry sayo.FirmwareManifestEntry, h human, access publicAccess) error {
+	if !layout.Bootloader && layout.FirmwareVersion >= entry.Version {
+		c.renderSayoFirmwareHeader(selected, deviceID, layout, entry, h)
+		h.line("", "Firmware is already up to date. No firmware write sent.")
+		return h.out.err
+	}
 	fetchBin := access.fetchSayoBinary
 	if fetchBin == nil {
 		fetchBin = sayo.FetchFirmwareBinary
@@ -1477,10 +1482,6 @@ func (c publicCommand) runSayoFirmwareUpdate(sysRoot, devRoot string, selected s
 		return err
 	}
 	c.renderSayoFirmwareHeader(selected, deviceID, layout, entry, h)
-	if !layout.Bootloader && layout.FirmwareVersion >= entry.Version {
-		h.line("", "Firmware is already up to date. No firmware write sent.")
-		return h.out.err
-	}
 	before := fmt.Sprintf("%d (0x%04x)", layout.FirmwareVersion, layout.FirmwareVersion)
 	if layout.Bootloader {
 		before = fmt.Sprintf("bootloader (%d / 0x%04x)", layout.FirmwareVersion, layout.FirmwareVersion)

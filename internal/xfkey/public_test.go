@@ -1968,7 +1968,12 @@ func TestPublicFirmwareCheckAndUpdate(t *testing.T) {
 					}, nil
 				}
 				access.fetchSayoManifest = func(uint16) (sayo.FirmwareManifest, error) { return manifest, nil }
-				access.fetchSayoBinary = func(uint16, string) ([]byte, error) { return make([]byte, 80), nil }
+				access.fetchSayoBinary = func(uint16, string) ([]byte, error) {
+					if !tc.wantFlash {
+						t.Fatal("already up to date should not fetch firmware binary")
+					}
+					return make([]byte, 80), nil
+				}
 				flashed := false
 				access.flashSayoFirmware = func(_ string, _ string, _ sayo.DiscoveredCandidate, _ sayo.ProtocolVersion, inBoot bool, _ sayo.FirmwareManifest, _ sayo.FirmwareManifestEntry, fw []byte, onProgress sayo.FirmwareProgressFunc) (sayo.ApplyResult, error) {
 					flashed = true
