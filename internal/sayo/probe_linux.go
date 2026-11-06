@@ -421,7 +421,7 @@ func (ops probeOps) probe(sysRoot, devRoot string, candidate DiscoveredCandidate
 		return result, err
 	}
 	if proto == ProtocolV1 || IsBootloaderPID(candidate.VID, candidate.PID) {
-		return ops.exchangeV1LayoutAndSettings(fd, result)
+		return ops.exchangeV1LayoutAndSettings(fd, candidate.PID, result)
 	}
 	return ops.exchangeV2LayoutAndSettings(fd, result)
 }
@@ -445,7 +445,7 @@ func (ops probeOps) readV2Info(fd int) (uint16, uint16, error) {
 	return binary.LittleEndian.Uint16(rx[8:10]), binary.LittleEndian.Uint16(rx[10:12]), nil
 }
 
-func (ops probeOps) readV1InfoOrBootloader(fd int) (uint16, uint16, bool, Packet, error) {
+func (ops probeOps) readV1InfoOrBootloader(fd int, pid uint16) (uint16, uint16, bool, Packet, error) {
 	req := QueryInfoPacketV1()
 	if n, err := ops.writeHidraw(fd, req[:]); err != nil || n != 64 {
 		if err != nil {
@@ -462,6 +462,10 @@ func (ops probeOps) readV1InfoOrBootloader(fd int) (uint16, uint16, bool, Packet
 		return 0, 0, false, rx, fmt.Errorf("invalid 0x00 info reply")
 	}
 	if rx[1] == 0x02 {
+		errForSize := 0
+		if ManifestPID(pid) == 2 {
+			errForSize = 1
+		}
 		chkReq := BootCheckFWPacket(true)
 		if n, err := ops.writeHidraw(fd, chkReq[:]); err != nil || n != 64 {
 			if err != nil {
@@ -474,7 +478,7 @@ func (ops probeOps) readV1InfoOrBootloader(fd int) (uint16, uint16, bool, Packet
 		if err != nil {
 			return 0, 0, true, fwRx, fmt.Errorf("read bootloader CHECK_FW reply: %w", err)
 		}
-		if n != 64 || fwRx[0] != 0x02 {
+		if n != 64 || fwRx[0] != 0x02 || (!bootStatusOK(fwRx, errForSize, true) && !(fwRx[1] == 0x00 && fwRx[2] == 0x04)) {
 			return 0, 0, true, fwRx, fmt.Errorf("invalid bootloader CHECK_FW reply")
 		}
 		fwVer := binary.BigEndian.Uint16(fwRx[3:5])
@@ -564,9 +568,9 @@ func (ops probeOps) exchangeV2LayoutAndSettings(fd int, result ProbeResult) (Pro
 	return result, nil
 }
 
-func (ops probeOps) exchangeV1LayoutAndSettings(fd int, result ProbeResult) (ProbeResult, error) {
+func (ops probeOps) exchangeV1LayoutAndSettings(fd int, pid uint16, result ProbeResult) (ProbeResult, error) {
 	result.Status = ProbeTransferFailed
-	modelCode, fwVer, isBoot, bootRx, err := ops.readV1InfoOrBootloader(fd)
+	modelCode, fwVer, isBoot, bootRx, err := ops.readV1InfoOrBootloader(fd, pid)
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "invalid ") || strings.HasPrefix(err.Error(), "unexpected ") {
 			result.Status = ProbeInvalidReport
