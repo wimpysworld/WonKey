@@ -309,7 +309,7 @@ func TestProbeAndApplyV1Hidraw(t *testing.T) {
 	readCalls := 0
 	ops.readHidraw = func(_ int, data []byte, _ int) (int, error) {
 		readCalls++
-		if readCalls == 2 {
+		if readCalls == 3 {
 			return 0, unix.ETIMEDOUT
 		}
 		reply := pendingReplies[0]
