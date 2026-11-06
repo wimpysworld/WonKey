@@ -104,6 +104,10 @@ func TestProbeAndApplyV2WithKnobAndKeys(t *testing.T) {
 		}
 		cmdID, index := pkt[6], pkt[7]
 		switch {
+		case cmdID == 0x00 && pkt[4] == 0x04:
+			infoReply := Packet{0x21, 0x12, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x3c, 0x23, 0x9a, 0x08}
+			SignPacketV2(&infoReply)
+			pendingReplies = append(pendingReplies, infoReply)
 		case cmdID == 0x10 && pkt[4] == 0x04:
 			if index < 6 {
 				pendingReplies = append(pendingReplies, keyRecords[index])
@@ -139,7 +143,8 @@ func TestProbeAndApplyV2WithKnobAndKeys(t *testing.T) {
 	if err != nil || probed.Status != ProbeRawReport || probed.Layout == nil {
 		t.Fatalf("probe v2: %+v, %v", probed, err)
 	}
-	if probed.Layout.Keys != 3 || probed.Layout.Knobs != 1 || probed.Layout.RGBMode != "held" || probed.Layout.RGBColour != "#404040" {
+	if probed.Layout.Keys != 3 || probed.Layout.Knobs != 1 || probed.Layout.RGBMode != "held" || probed.Layout.RGBColour != "#404040" ||
+		probed.Layout.ModelCode != 0x233c || probed.Layout.FirmwareVersion != 0x089a || probed.Layout.Bootloader {
 		t.Fatalf("wrong O3C layout: %+v", probed.Layout)
 	}
 	if b, ok := probed.Layout.Binding(Knob1Left, 1); !ok || b.MediaUsage != 0x00ea {
@@ -230,6 +235,10 @@ func TestProbeAndApplyV1Hidraw(t *testing.T) {
 		}
 		cmd, pattern, index := pkt[1], pkt[3], pkt[4]
 		switch {
+		case cmd == 0x00:
+			infoReply := Packet{0x02, 0x00, 0x04, 0x01, 0x02, 0x19, 0x64}
+			SignPacketV1(&infoReply)
+			pendingReplies = append(pendingReplies, infoReply)
 		case cmd == 0x16 && pattern == 0x00:
 			if index < 4 {
 				pendingReplies = append(pendingReplies, keyRecords[index])
@@ -267,7 +276,8 @@ func TestProbeAndApplyV1Hidraw(t *testing.T) {
 	if err != nil || probed.Status != ProbeRawReport || probed.Layout == nil {
 		t.Fatalf("probe v1: %+v, %v", probed, err)
 	}
-	if probed.Layout.Protocol != ProtocolV1 || probed.Layout.Keys != 4 || probed.Layout.Knobs != 0 || probed.Layout.RGBMode != "static" || probed.Layout.RGBColour != "#112233" {
+	if probed.Layout.Protocol != ProtocolV1 || probed.Layout.Keys != 4 || probed.Layout.Knobs != 0 || probed.Layout.RGBMode != "static" || probed.Layout.RGBColour != "#112233" ||
+		probed.Layout.ModelCode != 0x1964 || probed.Layout.FirmwareVersion != 0x0102 || probed.Layout.Bootloader {
 		t.Fatalf("wrong v1 layout: %+v", probed.Layout)
 	}
 	reqKey, err := PrepareKeyboardWrite(Key2, 1, 1, true, []Stroke{{Modifiers: 0x02, Usage: 0x68}})

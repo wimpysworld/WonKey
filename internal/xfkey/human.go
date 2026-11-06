@@ -12,9 +12,10 @@ import (
 )
 
 type human struct {
-	out                *humanWriter
-	colour, trueColour bool
-	width              int
+	out         *humanWriter
+	tty, colour bool
+	trueColour  bool
+	width       int
 }
 
 type humanWriter struct {
@@ -49,7 +50,7 @@ func newHuman(out io.Writer) human {
 func humanFor(out io.Writer, tty bool, getenv func(string) string) human {
 	colour := tty && getenv("NO_COLOR") == "" && getenv("TERM") != "dumb" && getenv("TERM") != ""
 	capability := strings.ToLower(getenv("COLORTERM"))
-	return human{&humanWriter{writer: out}, colour, colour && (capability == "truecolor" || capability == "24bit"), 80}
+	return human{&humanWriter{writer: out}, tty, colour, colour && (capability == "truecolor" || capability == "24bit"), 80}
 }
 
 func escapeHuman(value string) string {
@@ -130,5 +131,27 @@ func (h human) changes(views []changeView) {
 			before, after = h.rgb(view.Before), h.rgb(view.After)
 		}
 		fmt.Fprintf(h.out, "  %s: %s -> %s\n", escapeHuman(view.Setting), before, after)
+	}
+}
+
+func (h human) progress(label string, current, total int) {
+	if total <= 0 {
+		return
+	}
+	clamped := min(max(current, 0), total)
+	pct := min(max((clamped*100)/total, 0), 100)
+	filled := min(max((clamped*20)/total, 0), 20)
+	bar := strings.Repeat("#", filled) + strings.Repeat("-", 20-filled)
+	lineText := fmt.Sprintf("  %-10s [%s] %3d%% (%d/%d B)", escapeHuman(label), bar, pct, clamped, total)
+	if h.tty {
+		if clamped < total {
+			_, _ = io.WriteString(h.out, "\r"+lineText)
+		} else {
+			_, _ = io.WriteString(h.out, "\r"+lineText+"\n")
+		}
+		return
+	}
+	if clamped == total {
+		_, _ = io.WriteString(h.out, lineText+"\n")
 	}
 }

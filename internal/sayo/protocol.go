@@ -238,15 +238,18 @@ type SlotBinding struct {
 
 // DeviceLayout stores the probed key/knob counts, control-to-slot-index mapping, and per-layer bindings.
 type DeviceLayout struct {
-	Protocol       ProtocolVersion
-	Keys           int
-	Knobs          int
-	SlotCount      int
-	ControlIndices map[Control]byte
-	Bindings       map[Control]SlotBinding
-	LayerBindings  [5]map[Control]SlotBinding
-	RGBMode        string
-	RGBColour      string
+	Protocol        ProtocolVersion
+	ModelCode       uint16
+	FirmwareVersion uint16
+	Bootloader      bool
+	Keys            int
+	Knobs           int
+	SlotCount       int
+	ControlIndices  map[Control]byte
+	Bindings        map[Control]SlotBinding
+	LayerBindings   [5]map[Control]SlotBinding
+	RGBMode         string
+	RGBColour       string
 }
 
 // SlotIndex returns the 0-based hardware slot index for a control.
