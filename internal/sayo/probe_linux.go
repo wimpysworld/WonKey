@@ -70,6 +70,7 @@ type probeOps struct {
 	lstat        func(string, *unix.Stat_t) error
 	open         func(string, int, uint32) (int, error)
 	fstat        func(int, *unix.Stat_t) error
+	flock        func(int, int) error
 	close        func(int) error
 	writeHidraw  func(int, []byte) (int, error)
 	readHidraw   func(int, []byte, int) (int, error)
@@ -81,8 +82,8 @@ func systemProbeOps() probeOps {
 	return probeOps{
 		readDir: os.ReadDir, readFile: readProbeFile, evalSymlinks: filepath.EvalSymlinks,
 		stat: os.Stat, lstat: unix.Lstat, open: unix.Open, fstat: unix.Fstat,
-		close: unix.Close, writeHidraw: writeHidrawReport, readHidraw: readHidrawReport,
-		sleep: time.Sleep, bootAttempts: 50,
+		flock: unix.Flock, close: unix.Close, writeHidraw: writeHidrawReport,
+		readHidraw: readHidrawReport, sleep: time.Sleep, bootAttempts: 50,
 	}
 }
 
@@ -375,6 +376,11 @@ func (ops probeOps) validateHidrawOpen(sysRoot, node string, fd int, candidate D
 	if named.Mode&unix.S_IFMT != unix.S_IFCHR || opened.Dev != before.Dev || opened.Ino != before.Ino ||
 		opened.Rdev != before.Rdev || opened.Dev != named.Dev || opened.Ino != named.Ino || opened.Rdev != named.Rdev {
 		return fmt.Errorf("opened hidraw node identity changed")
+	}
+	if ops.flock != nil {
+		if err := ops.flock(fd, unix.LOCK_EX|unix.LOCK_NB); err != nil && !errors.Is(err, unix.EBADF) {
+			return fmt.Errorf("lock hidraw node: %w", err)
+		}
 	}
 	return nil
 }
