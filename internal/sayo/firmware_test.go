@@ -3,9 +3,11 @@ package sayo
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,6 +97,9 @@ func TestManifestPIDAndManifestHelpers(t *testing.T) {
 	if err := ValidateFirmwareBinary(make([]byte, 80), entry, manifest); err != nil {
 		t.Fatalf("ValidateFirmwareBinary(80): %v", err)
 	}
+	if err := ValidateFirmwareBinary(make([]byte, 49152), entry, manifest); err != nil {
+		t.Fatalf("ValidateFirmwareBinary(49152): %v", err)
+	}
 	for _, badLen := range []int{0, 16, 48, 63, 65, 95, 61280 + 48} {
 		if err := ValidateFirmwareBinary(make([]byte, badLen), entry, manifest); err == nil {
 			t.Fatalf("accepted invalid firmware binary length %d", badLen)
@@ -117,6 +122,10 @@ func TestManifestPIDAndManifestHelpers(t *testing.T) {
 		if err := ValidateFirmwareBinary(make([]byte, 80), entry, FirmwareManifest{Cmd: badCmd}); err == nil {
 			t.Fatalf("accepted non-standard Cmd opcodes %+v", badCmd)
 		}
+	}
+	badURLBytes, err := defaultHTTPGet("http://a.sayobot.cn/firmware/update/12/config.json", 1024)
+	if err == nil || badURLBytes != nil {
+		t.Fatal("accepted non-HTTPS URL in defaultHTTPGet")
 	}
 }
 
@@ -502,5 +511,645 @@ func TestWaitForBootloaderHidrawRetriesAndMatchesPhysicalPath(t *testing.T) {
 	ops.sleep = func(_ time.Duration) { pollAttempt++ }
 	if _, err := ops.waitForBootloaderHidraw(root, "/dev/bus/usb", target, FirmwareManifest{PID2: 0x000c}, &result); err == nil {
 		t.Fatal("expected timeout when target physical path stays in ProtocolV2 app mode")
+	}
+}
+
+func TestFlashFirmwareHandlesUSBRebootWriteErrorsAndCheckFWStatus0004(t *testing.T) {
+	root := makeSayoSysfs(t, 0x000c, "hidraw9", []byte(candidateSayoReportDescriptor))
+	reportDescPath := filepath.Join(root, "7-1.4.3.4", "7-1.4.3.4:1.1", "0003:8089:000C.0002", "report_descriptor")
+	candidates, err := DiscoverCandidates(root)
+	if err != nil || len(candidates) != 1 {
+		t.Fatalf("discover: %+v, %v", candidates, err)
+	}
+	candidate := candidates[0]
+	ops := systemProbeOps()
+	ops.sleep = func(_ time.Duration) {}
+	ops.bootAttempts = 2
+	node := unix.Stat_t{Mode: unix.S_IFCHR | 0o600, Dev: 4, Ino: 310, Rdev: unix.Mkdev(241, 9)}
+	ops.lstat = func(_ string, st *unix.Stat_t) error { *st = node; return nil }
+	nextFD := 70
+	ops.open = func(string, int, uint32) (int, error) {
+		nextFD++
+		return nextFD, nil
+	}
+	ops.fstat = func(_ int, st *unix.Stat_t) error { *st = node; return nil }
+	ops.close = func(fd int) error {
+		if fd == 71 || fd == 72 {
+			return unix.ENODEV
+		}
+		return nil
+	}
+
+	fwBytes := make([]byte, 64)
+	for i := range fwBytes {
+		fwBytes[i] = byte(i + 1)
+	}
+	chk := 1
+	manifest := FirmwareManifest{
+		VID:           0x8089,
+		PID:           12,
+		PID2:          12,
+		AddrLen:       4,
+		EncryptFlag:   1,
+		EraseFlash:    1,
+		HIDChecksum:   &chk,
+		HIDErrForSize: 1,
+	}
+	entry := FirmwareManifestEntry{
+		Model:     "SayoDevice 2x3P",
+		ModelCode: 0x233c,
+		ROMSize:   61280,
+		Version:   2205,
+		FilePath:  "2x3P.bin",
+	}
+
+	var bootEntrySeen, execSeen bool
+	var pendingReplies []Packet
+
+	ops.writeHidraw = func(_ int, data []byte) (int, error) {
+		var pkt Packet
+		copy(pkt[:], data)
+		if pkt[0] == 0x21 {
+			if pkt != BootloaderEntryPacketV2() {
+				t.Fatalf("unexpected v2 packet during flash: %x", pkt[:16])
+			}
+			if err := os.WriteFile(reportDescPath, []byte(candidateSayoV1OnlyReportDescriptor), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			bootEntrySeen = true
+			return 0, unix.EPROTO
+		}
+		switch pkt[1] {
+		case 0x00:
+			pendingReplies = append(pendingReplies, Packet{0x02, 0x02, 0x02, 0x01, 0x00})
+		case 0x01:
+			var r Packet
+			r[0] = 0x02
+			r[1] = 0x00
+			r[2] = 0x04
+			binary.BigEndian.PutUint16(r[5:7], entry.ModelCode)
+			pendingReplies = append(pendingReplies, r)
+		case 0x04, 0x02:
+			pendingReplies = append(pendingReplies, Packet{0x02, 0x00, 0x00})
+		case 0x05:
+			pendingReplies = append(pendingReplies, Packet{0x02, 0x00, 0x01})
+		case 0x03:
+			execSeen = true
+			return 0, unix.EPROTO
+		default:
+			return 0, fmt.Errorf("unexpected bootloader cmd %#02x", pkt[1])
+		}
+		return 64, nil
+	}
+	ops.readHidraw = func(_ int, data []byte, _ int) (int, error) {
+		reply := pendingReplies[0]
+		pendingReplies = pendingReplies[1:]
+		copy(data, reply[:])
+		return 64, nil
+	}
+
+	res, err := ops.flashFirmware(root, "/dev/bus/usb", candidate, ProtocolV2, false, manifest, entry, fwBytes, nil)
+	if err != nil {
+		t.Fatalf("flashFirmware error on EPROTO reboot writes: %v", err)
+	}
+	if !res.WriteAttempted || !bootEntrySeen || !execSeen {
+		t.Fatalf("unexpected result=%+v bootEntrySeen=%v execSeen=%v", res, bootEntrySeen, execSeen)
+	}
+}
+
+func TestEnterBootloaderV1RebootAndNonUSBErrors(t *testing.T) {
+	root := makeSayoSysfs(t, 0x000c, "hidraw9", []byte(candidateSayoV1OnlyReportDescriptor))
+	candidates, err := DiscoverCandidates(root)
+	if err != nil || len(candidates) != 1 {
+		t.Fatalf("discover: %+v, %v", candidates, err)
+	}
+	candidate := candidates[0]
+	node := unix.Stat_t{Mode: unix.S_IFCHR | 0o600, Dev: 4, Ino: 310, Rdev: unix.Mkdev(241, 9)}
+
+	for _, tc := range []struct {
+		name       string
+		errs       []error
+		closeErr   error
+		wantWrites int
+		wantReport int
+		wantErr    bool
+	}{
+		{
+			name:       "packet1-enodev-stops-and-succeeds",
+			errs:       []error{unix.ENODEV, nil},
+			closeErr:   unix.ENODEV,
+			wantWrites: 1,
+			wantReport: 0,
+			wantErr:    false,
+		},
+		{
+			name:       "packet2-eproto-stops-and-succeeds",
+			errs:       []error{nil, unix.EPROTO},
+			closeErr:   unix.EPROTO,
+			wantWrites: 2,
+			wantReport: 1,
+			wantErr:    false,
+		},
+		{
+			name:       "non-usb-eacces-fails",
+			errs:       []error{unix.EACCES},
+			wantWrites: 1,
+			wantReport: 0,
+			wantErr:    true,
+		},
+		{
+			name:       "non-usb-einval-on-packet2-fails",
+			errs:       []error{nil, unix.EINVAL},
+			wantWrites: 2,
+			wantReport: 1,
+			wantErr:    true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ops := systemProbeOps()
+			ops.lstat = func(_ string, st *unix.Stat_t) error { *st = node; return nil }
+			ops.open = func(string, int, uint32) (int, error) { return 88, nil }
+			ops.fstat = func(_ int, st *unix.Stat_t) error { *st = node; return nil }
+			ops.close = func(int) error { return tc.closeErr }
+
+			var writes int
+			ops.writeHidraw = func(_ int, data []byte) (int, error) {
+				var pkt Packet
+				copy(pkt[:], data)
+				if pkt != BootloaderEntryPacketV1() {
+					t.Fatalf("unexpected v1 bootloader entry packet: %x", pkt[:8])
+				}
+				wErr := tc.errs[writes]
+				writes++
+				if wErr != nil {
+					return 0, wErr
+				}
+				return 64, nil
+			}
+
+			var res ApplyResult
+			err := ops.enterBootloader(root, "/dev/bus/usb", candidate, ProtocolV1, &res)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("enterBootloader err = %v, wantErr = %v", err, tc.wantErr)
+			}
+			if writes != tc.wantWrites || res.ReportsWritten != tc.wantReport {
+				t.Fatalf("writes=%d reportsWritten=%d, want writes=%d reportsWritten=%d", writes, res.ReportsWritten, tc.wantWrites, tc.wantReport)
+			}
+		})
+	}
+}
+
+func TestFlashFirmwareFullReenumerationAfterEPROTO(t *testing.T) {
+	root := t.TempDir()
+	devDir := filepath.Join(root, "7-1.4.3.4")
+	appHidrawDir := filepath.Join(devDir, "7-1.4.3.4:1.1", "0003:8089:000C.0002", "hidraw", "hidraw17")
+	if err := os.MkdirAll(appHidrawDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	appUSBDesc := []byte(candidateSayo000CUSBDescriptor)
+	for name, data := range map[string][]byte{
+		"descriptors": appUSBDesc,
+		"busnum":      []byte("7\n"),
+		"devnum":      []byte("27\n"),
+		"dev":         []byte("189:794\n"),
+	} {
+		if err := os.WriteFile(filepath.Join(devDir, name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appHidDir := filepath.Dir(filepath.Dir(appHidrawDir))
+	if err := os.WriteFile(filepath.Join(appHidDir, "report_descriptor"), []byte(candidateSayoReportDescriptor), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appHidrawDir, "dev"), []byte("241:17\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	candidates, err := DiscoverCandidates(root)
+	if err != nil || len(candidates) != 1 {
+		t.Fatalf("discover app candidate: %+v, %v", candidates, err)
+	}
+	candidate := candidates[0]
+	if candidate.VendorInterface != 1 || candidate.DeviceNumber != 27 {
+		t.Fatalf("initial candidate = %+v, want VendorInterface=1 DeviceNumber=27", candidate)
+	}
+
+	appNode := unix.Stat_t{Mode: unix.S_IFCHR | 0o600, Dev: 4, Ino: 417, Rdev: unix.Mkdev(241, 17)}
+	bootNode := unix.Stat_t{Mode: unix.S_IFCHR | 0o600, Dev: 4, Ino: 405, Rdev: unix.Mkdev(241, 5)}
+
+	ops := systemProbeOps()
+	ops.sleep = func(_ time.Duration) {}
+	ops.bootAttempts = 2
+	ops.flock = func(_ int, how int) error {
+		if how != unix.LOCK_EX|unix.LOCK_NB {
+			t.Fatalf("unexpected flock flags: %#x", how)
+		}
+		return nil
+	}
+	var openedPaths []string
+	ops.lstat = func(path string, st *unix.Stat_t) error {
+		switch path {
+		case "/dev/hidraw17":
+			*st = appNode
+		case "/dev/hidraw5":
+			*st = bootNode
+		default:
+			t.Fatalf("unexpected lstat path %q", path)
+		}
+		return nil
+	}
+	ops.open = func(path string, _ int, _ uint32) (int, error) {
+		openedPaths = append(openedPaths, path)
+		switch path {
+		case "/dev/hidraw17":
+			return 117, nil
+		case "/dev/hidraw5":
+			return 105, nil
+		default:
+			return -1, fmt.Errorf("unexpected open path %q", path)
+		}
+	}
+	ops.fstat = func(fd int, st *unix.Stat_t) error {
+		switch fd {
+		case 117:
+			*st = appNode
+		case 105:
+			*st = bootNode
+		default:
+			t.Fatalf("unexpected fstat fd %d", fd)
+		}
+		return nil
+	}
+	ops.close = func(int) error { return nil }
+
+	fwBytes := make([]byte, 64)
+	for i := range fwBytes {
+		fwBytes[i] = byte(0x80 + i)
+	}
+	manifest := FirmwareManifest{
+		VID:         0x8089,
+		PID:         12,
+		PID2:        12,
+		AddrLen:     4,
+		EncryptFlag: 1,
+		EraseFlash:  1,
+	}
+	entry := FirmwareManifestEntry{
+		Model:     "O3C_V2",
+		ModelCode: 6,
+		Version:   214,
+		FilePath:  "O3C_V2.bin",
+	}
+
+	var writtenChunks []byte
+	var bootEntryEPROTO, execAppEPROTO bool
+	var pendingReplies []Packet
+
+	ops.writeHidraw = func(fd int, data []byte) (int, error) {
+		var pkt Packet
+		copy(pkt[:], data)
+		if pkt[0] == 0x21 {
+			if fd != 117 || pkt != BootloaderEntryPacketV2() {
+				t.Fatalf("unexpected v2 packet on fd %d: %x", fd, pkt[:16])
+			}
+			// Transition 7-1.4.3.4 from 2-interface composite (IF1, devnum 27, hidraw17)
+			// to 1-interface bootloader (IF0, devnum 32, hidraw5).
+			if err := os.RemoveAll(filepath.Join(devDir, "7-1.4.3.4:1.1")); err != nil {
+				t.Fatal(err)
+			}
+			bootUSBDesc := []byte(candidateSayoSingleInterfaceBootloaderUSBDescriptor)
+			binary.LittleEndian.PutUint16(bootUSBDesc[10:12], 0x000c)
+			for name, raw := range map[string][]byte{
+				"descriptors": bootUSBDesc,
+				"devnum":      []byte("32\n"),
+				"dev":         []byte("189:799\n"),
+			} {
+				if err := os.WriteFile(filepath.Join(devDir, name), raw, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			bootHidrawDir := filepath.Join(devDir, "7-1.4.3.4:1.0", "0003:8089:000C.0005", "hidraw", "hidraw5")
+			if err := os.MkdirAll(bootHidrawDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			bootHidDir := filepath.Dir(filepath.Dir(bootHidrawDir))
+			if err := os.WriteFile(filepath.Join(bootHidDir, "report_descriptor"), []byte(candidateSayoV1OnlyReportDescriptor), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(bootHidrawDir, "dev"), []byte("241:5\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			bootEntryEPROTO = true
+			return 0, unix.EPROTO
+		}
+		if fd != 105 {
+			t.Fatalf("expected bootloader writes on fd 105 (/dev/hidraw5), got fd %d", fd)
+		}
+		switch pkt[1] {
+		case 0x00:
+			pendingReplies = append(pendingReplies, Packet{0x02, 0x02, 0x02, 0x01, 0x00})
+		case 0x01:
+			var r Packet
+			r[0], r[1] = 0x02, 0x01
+			binary.BigEndian.PutUint16(r[5:7], entry.ModelCode)
+			pendingReplies = append(pendingReplies, r)
+		case 0x04:
+			pendingReplies = append(pendingReplies, Packet{0x02, 0x00})
+		case 0x02:
+			chunkLen := int(pkt[2]) - 5
+			writtenChunks = append(writtenChunks, pkt[8:8+chunkLen]...)
+			pendingReplies = append(pendingReplies, Packet{0x02, 0x00})
+		case 0x05:
+			pendingReplies = append(pendingReplies, Packet{0x02, 0x01})
+		case 0x03:
+			execAppEPROTO = true
+			return 0, unix.EPROTO
+		default:
+			t.Fatalf("unexpected bootloader cmd %#02x", pkt[1])
+		}
+		return 64, nil
+	}
+	ops.readHidraw = func(_ int, data []byte, _ int) (int, error) {
+		reply := pendingReplies[0]
+		pendingReplies = pendingReplies[1:]
+		copy(data, reply[:])
+		return 64, nil
+	}
+
+	res, err := ops.flashFirmware(root, "/dev/bus/usb", candidate, ProtocolV2, false, manifest, entry, fwBytes, nil)
+	if err != nil {
+		t.Fatalf("flashFirmware error across full re-enumeration: %v", err)
+	}
+	if !res.WriteAttempted || !bootEntryEPROTO || !execAppEPROTO || !bytes.Equal(writtenChunks, fwBytes) {
+		t.Fatalf("result=%+v bootEntryEPROTO=%v execAppEPROTO=%v written=%d", res, bootEntryEPROTO, execAppEPROTO, len(writtenChunks))
+	}
+	if len(openedPaths) != 2 || openedPaths[0] != "/dev/hidraw17" || openedPaths[1] != "/dev/hidraw5" {
+		t.Fatalf("openedPaths = %v, want [/dev/hidraw17 /dev/hidraw5]", openedPaths)
+	}
+}
+
+func TestFlashFirmwareMidStepFailures(t *testing.T) {
+	fwBytes := make([]byte, 64)
+	for i := range fwBytes {
+		fwBytes[i] = byte(i + 1)
+	}
+	manifest := FirmwareManifest{
+		VID:         0x8089,
+		PID:         12,
+		PID2:        12,
+		AddrLen:     4,
+		EncryptFlag: 1,
+		EraseFlash:  1,
+	}
+	entry := FirmwareManifestEntry{
+		Model:     "O3C_V2",
+		ModelCode: 6,
+		Version:   214,
+		FilePath:  "O3C_V2.bin",
+	}
+
+	t.Run("wait-for-bootloader-timeout-after-eproto", func(t *testing.T) {
+		root := makeSayoSysfs(t, 0x000c, "hidraw9", []byte(candidateSayoReportDescriptor))
+		candidates, err := DiscoverCandidates(root)
+		if err != nil || len(candidates) != 1 {
+			t.Fatalf("discover: %+v, %v", candidates, err)
+		}
+		ops := systemProbeOps()
+		ops.sleep = func(_ time.Duration) {}
+		ops.bootAttempts = 2
+		ops.flock = func(int, int) error { return nil }
+		node := unix.Stat_t{Mode: unix.S_IFCHR | 0o600, Dev: 4, Ino: 310, Rdev: unix.Mkdev(241, 9)}
+		ops.lstat = func(_ string, st *unix.Stat_t) error { *st = node; return nil }
+		ops.open = func(string, int, uint32) (int, error) { return 77, nil }
+		ops.fstat = func(_ int, st *unix.Stat_t) error { *st = node; return nil }
+		ops.close = func(int) error { return nil }
+		ops.writeHidraw = func(_ int, data []byte) (int, error) {
+			if data[0] == 0x21 {
+				return 0, unix.EPROTO
+			}
+			t.Fatalf("unexpected bootloader write before re-enumeration: %x", data[:8])
+			return 0, nil
+		}
+
+		res, err := ops.flashFirmware(root, "/dev/bus/usb", candidates[0], ProtocolV2, false, manifest, entry, fwBytes, nil)
+		if err == nil || !strings.Contains(err.Error(), "timed out waiting for SayoDevice bootloader") {
+			t.Fatalf("err = %v, want bootloader timeout", err)
+		}
+		if !res.WriteAttempted {
+			t.Fatalf("expected WriteAttempted=true after 0x0E EPROTO, got %+v", res)
+		}
+	})
+
+	for _, tc := range []struct {
+		name          string
+		failStep      string
+		wantSubstring string
+		forbidCmd     byte
+	}{
+		{
+			name:          "check-fw-model-code-mismatch",
+			failStep:      "check-fw-model",
+			wantSubstring: "bootloader model_code 0x0099 does not match expected 0x0006",
+			forbidCmd:     0x04,
+		},
+		{
+			name:          "check-fw-error-status",
+			failStep:      "check-fw-status",
+			wantSubstring: "invalid bootloader CHECK_FW reply",
+			forbidCmd:     0x04,
+		},
+		{
+			name:          "erase-flash-error-status",
+			failStep:      "erase-flash",
+			wantSubstring: "bootloader ERASE_FLASH failed",
+			forbidCmd:     0x02,
+		},
+		{
+			name:          "write-data-chunk2-error-status",
+			failStep:      "write-data-chunk2",
+			wantSubstring: "bootloader WRITE_DATA failed at offset 0x20",
+			forbidCmd:     0x05,
+		},
+		{
+			name:          "verify-error-status",
+			failStep:      "verify",
+			wantSubstring: "bootloader VERIFY failed",
+			forbidCmd:     0x03,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := makeSayoSysfs(t, 0x000c, "hidraw9", []byte(candidateSayoV1OnlyReportDescriptor))
+			candidates, err := DiscoverCandidates(root)
+			if err != nil || len(candidates) != 1 {
+				t.Fatalf("discover: %+v, %v", candidates, err)
+			}
+			ops := systemProbeOps()
+			ops.flock = func(int, int) error { return nil }
+			node := unix.Stat_t{Mode: unix.S_IFCHR | 0o600, Dev: 4, Ino: 310, Rdev: unix.Mkdev(241, 9)}
+			ops.lstat = func(_ string, st *unix.Stat_t) error { *st = node; return nil }
+			ops.open = func(string, int, uint32) (int, error) { return 78, nil }
+			ops.fstat = func(_ int, st *unix.Stat_t) error { *st = node; return nil }
+			ops.close = func(int) error { return nil }
+
+			var writeChunks int
+			var pendingReplies []Packet
+
+			ops.writeHidraw = func(_ int, data []byte) (int, error) {
+				cmd := data[1]
+				if cmd == tc.forbidCmd {
+					t.Fatalf("command %#02x should not be sent after %s failure", cmd, tc.failStep)
+				}
+				switch cmd {
+				case 0x00:
+					pendingReplies = append(pendingReplies, Packet{0x02, 0x02, 0x02, 0x01, 0x00})
+				case 0x01:
+					var r Packet
+					r[0] = 0x02
+					switch tc.failStep {
+					case "check-fw-model":
+						r[1] = 0x01
+						binary.BigEndian.PutUint16(r[5:7], 0x0099)
+					case "check-fw-status":
+						r[1] = 0x02
+						binary.BigEndian.PutUint16(r[5:7], entry.ModelCode)
+					default:
+						r[1] = 0x01
+						binary.BigEndian.PutUint16(r[5:7], entry.ModelCode)
+					}
+					pendingReplies = append(pendingReplies, r)
+				case 0x04:
+					status := byte(0x00)
+					if tc.failStep == "erase-flash" {
+						status = 0x02
+					}
+					pendingReplies = append(pendingReplies, Packet{0x02, status})
+				case 0x02:
+					writeChunks++
+					status := byte(0x00)
+					if tc.failStep == "write-data-chunk2" && writeChunks == 2 {
+						status = 0x02
+					}
+					pendingReplies = append(pendingReplies, Packet{0x02, status})
+				case 0x05:
+					status := byte(0x01)
+					if tc.failStep == "verify" {
+						status = 0x02
+					}
+					pendingReplies = append(pendingReplies, Packet{0x02, status})
+				default:
+					t.Fatalf("unexpected bootloader cmd %#02x", cmd)
+				}
+				return 64, nil
+			}
+			ops.readHidraw = func(_ int, data []byte, _ int) (int, error) {
+				reply := pendingReplies[0]
+				pendingReplies = pendingReplies[1:]
+				copy(data, reply[:])
+				return 64, nil
+			}
+
+			res, err := ops.flashFirmware(root, "/dev/bus/usb", candidates[0], ProtocolV1, true, manifest, entry, fwBytes, nil)
+			if err == nil || !strings.Contains(err.Error(), tc.wantSubstring) {
+				t.Fatalf("err = %v, want substring %q", err, tc.wantSubstring)
+			}
+			if !res.WriteAttempted {
+				t.Fatalf("expected WriteAttempted=true, got %+v", res)
+			}
+		})
+	}
+}
+
+func TestDecodePID12ManifestWithoutROMSize(t *testing.T) {
+	rawPID12Config := `{
+		"vid": 32905,
+		"pid": 12,
+		"pid2": 12,
+		"addr_len": 4,
+		"boot_info_addr": 61280,
+		"addr_byte_order_be": 0,
+		"encrypt_flag": 1,
+		"erase_flash": 1,
+		"hid_err_for_size": 0,
+		"cmd": {
+			"GET_BOOT_VERSION": 0,
+			"CHECK_FW": 1,
+			"WRITE_DATA": 2,
+			"EXECUTE_APP": 3,
+			"ERASE_FLASH": 4,
+			"VERIFY": 5
+		},
+		"data": [
+			{
+				"model": "O3C_V2",
+				"model_code": 6,
+				"version": 214,
+				"file_path": "O3C_V2.bin"
+			}
+		]
+	}`
+	manifest, err := FetchFirmwareManifestFrom(FirmwareCDNBaseURL, 0x000c, func(_ string, _ int) ([]byte, error) {
+		return []byte(rawPID12Config), nil
+	})
+	if err != nil {
+		t.Fatalf("FetchFirmwareManifestFrom(12): %v", err)
+	}
+	entry, ok := manifest.FindEntry(6)
+	if !ok || entry.Model != "O3C_V2" || entry.ROMSize != 0 || entry.Version != 214 || entry.FilePath != "O3C_V2.bin" {
+		t.Fatalf("FindEntry(6) = (%+v, %v)", entry, ok)
+	}
+	if manifest.VerifyCmd() != 0x05 {
+		t.Fatalf("VerifyCmd() = %#02x, want 0x05", manifest.VerifyCmd())
+	}
+	if err := ValidateFirmwareBinary(make([]byte, 49152), entry, manifest); err != nil {
+		t.Fatalf("ValidateFirmwareBinary(49152) failed: %v", err)
+	}
+}
+
+func TestSayoHidrawFlockRefusesConcurrentAccess(t *testing.T) {
+	root := makeSayoSysfs(t, 0x000c, "hidraw9", []byte(candidateSayoReportDescriptor))
+	candidates, err := DiscoverCandidates(root)
+	if err != nil || len(candidates) != 1 {
+		t.Fatalf("discover: %+v, %v", candidates, err)
+	}
+	candidate := candidates[0]
+	node := unix.Stat_t{Mode: unix.S_IFCHR | 0o600, Dev: 4, Ino: 310, Rdev: unix.Mkdev(241, 9)}
+
+	var writes, closes int
+	ops := systemProbeOps()
+	ops.lstat = func(_ string, st *unix.Stat_t) error { *st = node; return nil }
+	ops.open = func(string, int, uint32) (int, error) { return 91, nil }
+	ops.fstat = func(_ int, st *unix.Stat_t) error { *st = node; return nil }
+	ops.flock = func(fd int, how int) error {
+		if fd != 91 || how != unix.LOCK_EX|unix.LOCK_NB {
+			t.Fatalf("unexpected flock(%d, %#x)", fd, how)
+		}
+		return unix.EWOULDBLOCK
+	}
+	ops.close = func(fd int) error {
+		if fd != 91 {
+			t.Fatalf("unexpected close(%d)", fd)
+		}
+		closes++
+		return nil
+	}
+	ops.writeHidraw = func(_ int, _ []byte) (int, error) {
+		writes++
+		return 64, nil
+	}
+
+	probed, err := ops.probe(root, "/dev/bus/usb", candidate)
+	if !errors.Is(err, unix.EWOULDBLOCK) || probed.Status != ProbeRefused {
+		t.Fatalf("probe under flock contention = (%+v, %v), want ProbeRefused + EWOULDBLOCK", probed, err)
+	}
+
+	fwBytes := make([]byte, 64)
+	manifest := FirmwareManifest{VID: 0x8089, PID: 12, PID2: 12, AddrLen: 4, EncryptFlag: 1, EraseFlash: 1}
+	entry := FirmwareManifestEntry{Model: "O3C_V2", ModelCode: 6, Version: 214, FilePath: "O3C_V2.bin"}
+	res, err := ops.flashFirmware(root, "/dev/bus/usb", candidate, ProtocolV2, false, manifest, entry, fwBytes, nil)
+	if !errors.Is(err, unix.EWOULDBLOCK) || res.WriteAttempted {
+		t.Fatalf("flashFirmware under flock contention = (%+v, %v), want WriteAttempted=false + EWOULDBLOCK", res, err)
+	}
+	if writes != 0 || closes != 2 {
+		t.Fatalf("writes=%d closes=%d, want writes=0 closes=2", writes, closes)
 	}
 }
