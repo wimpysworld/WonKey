@@ -326,6 +326,19 @@ func FlashFirmware(sysRoot, devRoot string, candidate DiscoveredCandidate, proto
 	return systemProbeOps().flashFirmware(sysRoot, devRoot, candidate, proto, inBootloader, manifest, entry, fwBytes, onProgress)
 }
 
+func isUSBRebootWriteErr(err error) bool {
+	for _, target := range []error{
+		unix.EPROTO, unix.EIO, unix.ENODEV, unix.ESHUTDOWN,
+		unix.EPIPE, unix.ETIMEDOUT, unix.ECONNRESET, unix.ENOENT,
+		unix.EILSEQ, unix.ECOMM, unix.EREMOTEIO,
+	} {
+		if errors.Is(err, target) {
+			return true
+		}
+	}
+	return false
+}
+
 func (ops probeOps) flashFirmware(sysRoot, devRoot string, candidate DiscoveredCandidate, proto ProtocolVersion, inBootloader bool, manifest FirmwareManifest, entry FirmwareManifestEntry, fwBytes []byte, onProgress FirmwareProgressFunc) (result ApplyResult, err error) {
 	if !filepath.IsAbs(devRoot) {
 		return result, fmt.Errorf("USB device root must be absolute")
@@ -352,8 +365,9 @@ func (ops probeOps) flashFirmware(sysRoot, devRoot string, candidate DiscoveredC
 			return result, err
 		}
 	}
+	rebootIssued := false
 	defer func() {
-		if closeErr := ops.close(bootFD); closeErr != nil {
+		if closeErr := ops.close(bootFD); closeErr != nil && (!rebootIssued || !isUSBRebootWriteErr(closeErr)) {
 			err = errors.Join(err, closeErr)
 		}
 	}()
@@ -363,7 +377,7 @@ func (ops probeOps) flashFirmware(sysRoot, devRoot string, candidate DiscoveredC
 			return result, err
 		}
 	}
-	return ops.flashBootloader(bootFD, manifest, entry, fwBytes, result, onProgress)
+	return ops.flashBootloader(bootFD, manifest, entry, fwBytes, result, &rebootIssued, onProgress)
 }
 
 func (ops probeOps) openValidatedHidraw(sysRoot, devRoot string, candidate DiscoveredCandidate) (int, ProtocolVersion, error) {
@@ -408,15 +422,18 @@ func (ops probeOps) enterBootloader(sysRoot, devRoot string, candidate Discovere
 		return err
 	}
 	defer func() {
-		if closeErr := ops.close(fd); closeErr != nil {
+		if closeErr := ops.close(fd); closeErr != nil && !isUSBRebootWriteErr(closeErr) {
 			err = errors.Join(err, closeErr)
 		}
 	}()
 	result.WriteAttempted = true
 	if proto == ProtocolV2 {
-		pkt := BootloaderEntryPacketV2()
-		if n, wErr := ops.writeHidraw(fd, pkt[:]); wErr != nil || n != 64 {
+		req := BootloaderEntryPacketV2()
+		if n, wErr := ops.writeHidraw(fd, req[:]); wErr != nil || n != 64 {
 			if wErr != nil {
+				if isUSBRebootWriteErr(wErr) {
+					return nil
+				}
 				return fmt.Errorf("write v2 bootloader entry packet: %w", wErr)
 			}
 			return fmt.Errorf("write v2 bootloader entry packet wrote %d bytes, want 64", n)
@@ -424,10 +441,13 @@ func (ops probeOps) enterBootloader(sysRoot, devRoot string, candidate Discovere
 		result.ReportsWritten++
 		return nil
 	}
-	pkt := BootloaderEntryPacketV1()
+	req := BootloaderEntryPacketV1()
 	for i := range 2 {
-		if n, wErr := ops.writeHidraw(fd, pkt[:]); wErr != nil || n != 64 {
+		if n, wErr := ops.writeHidraw(fd, req[:]); wErr != nil || n != 64 {
 			if wErr != nil {
+				if isUSBRebootWriteErr(wErr) {
+					return nil
+				}
 				return fmt.Errorf("write v1 bootloader entry packet %d: %w", i+1, wErr)
 			}
 			return fmt.Errorf("write v1 bootloader entry packet %d wrote %d bytes, want 64", i+1, n)
@@ -474,26 +494,32 @@ func (ops probeOps) waitForBootloaderHidraw(sysRoot, devRoot string, prev Discov
 	return -1, fmt.Errorf("timed out waiting for SayoDevice bootloader USB re-enumeration")
 }
 
-func (ops probeOps) flashBootloader(fd int, m FirmwareManifest, entry FirmwareManifestEntry, fwBytes []byte, result ApplyResult, onProgress FirmwareProgressFunc) (ApplyResult, error) {
+func (ops probeOps) flashBootloader(bootFD int, m FirmwareManifest, entry FirmwareManifestEntry, fwBytes []byte, result ApplyResult, rebootIssued *bool, onProgress FirmwareProgressFunc) (ApplyResult, error) {
 	useChecksum := m.UseChecksum()
 	be := m.AddrByteOrderBE != 0
-	if err := ops.bootStepCheckFW(fd, m.HIDErrForSize, entry.ModelCode, useChecksum, &result); err != nil {
+	if err := ops.bootStepCheckFW(bootFD, m.HIDErrForSize, entry.ModelCode, useChecksum, &result); err != nil {
 		return result, err
 	}
 	if m.EraseFlash != 0 {
-		if err := ops.bootStepEraseFlash(fd, uint32(len(fwBytes)), be, m.HIDErrForSize, useChecksum, &result); err != nil { // #nosec G115 -- validated <= 4 MiB
+		if err := ops.bootStepEraseFlash(bootFD, uint32(len(fwBytes)), be, m.HIDErrForSize, useChecksum, &result); err != nil { // #nosec G115 -- validated <= 4 MiB
 			return result, err
 		}
 	}
-	if err := ops.bootStepWriteData(fd, m, fwBytes, useChecksum, &result, onProgress); err != nil {
+	if err := ops.bootStepWriteData(bootFD, m, fwBytes, useChecksum, &result, onProgress); err != nil {
 		return result, err
 	}
-	if err := ops.bootStepVerify(fd, m, uint32(len(fwBytes)-16), be, useChecksum, &result); err != nil { // #nosec G115 -- validated >= 64 and <= 4 MiB
+	if err := ops.bootStepVerify(bootFD, m, uint32(len(fwBytes)-16), be, useChecksum, &result); err != nil { // #nosec G115 -- validated >= 64 and <= 4 MiB
 		return result, err
 	}
-	execPkt := BootExecuteAppPacket(useChecksum)
-	if n, err := ops.writeHidraw(fd, execPkt[:]); err != nil || n != 64 {
+	execReq := BootExecuteAppPacket(useChecksum)
+	if rebootIssued != nil {
+		*rebootIssued = true
+	}
+	if n, err := ops.writeHidraw(bootFD, execReq[:]); err != nil || n != 64 {
 		if err != nil {
+			if isUSBRebootWriteErr(err) {
+				return result, nil
+			}
 			return result, fmt.Errorf("write EXECUTE_APP: %w", err)
 		}
 		return result, fmt.Errorf("write EXECUTE_APP wrote %d bytes, want 64", n)
@@ -520,8 +546,9 @@ func (ops probeOps) bootStepCheckFW(fd, errForSize int, wantModelCode uint16, us
 	if err != nil {
 		return err
 	}
-	if !bootStatusOK(rx, errForSize, true) {
-		return fmt.Errorf("bootloader CHECK_FW reported error status")
+	validStatus := bootStatusOK(rx, errForSize, true) || (rx[1] == 0x00 && rx[2] == 0x04)
+	if !validStatus {
+		return fmt.Errorf("invalid bootloader CHECK_FW reply")
 	}
 	gotModel := binary.BigEndian.Uint16(rx[5:7])
 	if gotModel != wantModelCode {

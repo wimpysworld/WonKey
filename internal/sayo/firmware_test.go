@@ -511,3 +511,188 @@ func TestWaitForBootloaderHidrawRetriesAndMatchesPhysicalPath(t *testing.T) {
 		t.Fatal("expected timeout when target physical path stays in ProtocolV2 app mode")
 	}
 }
+
+func TestFlashFirmwareHandlesUSBRebootWriteErrorsAndCheckFWStatus0004(t *testing.T) {
+	root := makeSayoSysfs(t, 0x000c, "hidraw9", []byte(candidateSayoReportDescriptor))
+	reportDescPath := filepath.Join(root, "7-1.4.3.4", "7-1.4.3.4:1.1", "0003:8089:000C.0002", "report_descriptor")
+	candidates, err := DiscoverCandidates(root)
+	if err != nil || len(candidates) != 1 {
+		t.Fatalf("discover: %+v, %v", candidates, err)
+	}
+	candidate := candidates[0]
+	ops := systemProbeOps()
+	ops.sleep = func(_ time.Duration) {}
+	ops.bootAttempts = 2
+	node := unix.Stat_t{Mode: unix.S_IFCHR | 0o600, Dev: 4, Ino: 310, Rdev: unix.Mkdev(241, 9)}
+	ops.lstat = func(_ string, st *unix.Stat_t) error { *st = node; return nil }
+	nextFD := 70
+	ops.open = func(string, int, uint32) (int, error) {
+		nextFD++
+		return nextFD, nil
+	}
+	ops.fstat = func(_ int, st *unix.Stat_t) error { *st = node; return nil }
+	ops.close = func(fd int) error {
+		if fd == 71 || fd == 72 {
+			return unix.ENODEV
+		}
+		return nil
+	}
+
+	fwBytes := make([]byte, 64)
+	for i := range fwBytes {
+		fwBytes[i] = byte(i + 1)
+	}
+	chk := 1
+	manifest := FirmwareManifest{
+		VID:           0x8089,
+		PID:           12,
+		PID2:          12,
+		AddrLen:       4,
+		EncryptFlag:   1,
+		EraseFlash:    1,
+		HIDChecksum:   &chk,
+		HIDErrForSize: 1,
+	}
+	entry := FirmwareManifestEntry{
+		Model:     "SayoDevice 2x3P",
+		ModelCode: 0x233c,
+		ROMSize:   61280,
+		Version:   2205,
+		FilePath:  "2x3P.bin",
+	}
+
+	var bootEntrySeen, execSeen bool
+	var pendingReplies []Packet
+
+	ops.writeHidraw = func(_ int, data []byte) (int, error) {
+		var pkt Packet
+		copy(pkt[:], data)
+		if pkt[0] == 0x21 {
+			if pkt != BootloaderEntryPacketV2() {
+				t.Fatalf("unexpected v2 packet during flash: %x", pkt[:16])
+			}
+			if err := os.WriteFile(reportDescPath, []byte(candidateSayoV1OnlyReportDescriptor), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			bootEntrySeen = true
+			return 0, unix.EPROTO
+		}
+		switch pkt[1] {
+		case 0x00:
+			pendingReplies = append(pendingReplies, Packet{0x02, 0x02, 0x02, 0x01, 0x00})
+		case 0x01:
+			var r Packet
+			r[0] = 0x02
+			r[1] = 0x00
+			r[2] = 0x04
+			binary.BigEndian.PutUint16(r[5:7], entry.ModelCode)
+			pendingReplies = append(pendingReplies, r)
+		case 0x04, 0x02:
+			pendingReplies = append(pendingReplies, Packet{0x02, 0x00, 0x00})
+		case 0x05:
+			pendingReplies = append(pendingReplies, Packet{0x02, 0x00, 0x01})
+		case 0x03:
+			execSeen = true
+			return 0, unix.EPROTO
+		default:
+			return 0, fmt.Errorf("unexpected bootloader cmd %#02x", pkt[1])
+		}
+		return 64, nil
+	}
+	ops.readHidraw = func(_ int, data []byte, _ int) (int, error) {
+		reply := pendingReplies[0]
+		pendingReplies = pendingReplies[1:]
+		copy(data, reply[:])
+		return 64, nil
+	}
+
+	res, err := ops.flashFirmware(root, "/dev/bus/usb", candidate, ProtocolV2, false, manifest, entry, fwBytes, nil)
+	if err != nil {
+		t.Fatalf("flashFirmware error on EPROTO reboot writes: %v", err)
+	}
+	if !res.WriteAttempted || !bootEntrySeen || !execSeen {
+		t.Fatalf("unexpected result=%+v bootEntrySeen=%v execSeen=%v", res, bootEntrySeen, execSeen)
+	}
+}
+
+func TestEnterBootloaderV1RebootAndNonUSBErrors(t *testing.T) {
+	root := makeSayoSysfs(t, 0x000c, "hidraw9", []byte(candidateSayoV1OnlyReportDescriptor))
+	candidates, err := DiscoverCandidates(root)
+	if err != nil || len(candidates) != 1 {
+		t.Fatalf("discover: %+v, %v", candidates, err)
+	}
+	candidate := candidates[0]
+	node := unix.Stat_t{Mode: unix.S_IFCHR | 0o600, Dev: 4, Ino: 310, Rdev: unix.Mkdev(241, 9)}
+
+	for _, tc := range []struct {
+		name       string
+		errs       []error
+		closeErr   error
+		wantWrites int
+		wantReport int
+		wantErr    bool
+	}{
+		{
+			name:       "packet1-enodev-stops-and-succeeds",
+			errs:       []error{unix.ENODEV, nil},
+			closeErr:   unix.ENODEV,
+			wantWrites: 1,
+			wantReport: 0,
+			wantErr:    false,
+		},
+		{
+			name:       "packet2-eproto-stops-and-succeeds",
+			errs:       []error{nil, unix.EPROTO},
+			closeErr:   unix.EPROTO,
+			wantWrites: 2,
+			wantReport: 1,
+			wantErr:    false,
+		},
+		{
+			name:       "non-usb-eacces-fails",
+			errs:       []error{unix.EACCES},
+			wantWrites: 1,
+			wantReport: 0,
+			wantErr:    true,
+		},
+		{
+			name:       "non-usb-einval-on-packet2-fails",
+			errs:       []error{nil, unix.EINVAL},
+			wantWrites: 2,
+			wantReport: 1,
+			wantErr:    true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ops := systemProbeOps()
+			ops.lstat = func(_ string, st *unix.Stat_t) error { *st = node; return nil }
+			ops.open = func(string, int, uint32) (int, error) { return 88, nil }
+			ops.fstat = func(_ int, st *unix.Stat_t) error { *st = node; return nil }
+			ops.close = func(int) error { return tc.closeErr }
+
+			var writes int
+			ops.writeHidraw = func(_ int, data []byte) (int, error) {
+				var pkt Packet
+				copy(pkt[:], data)
+				if pkt != BootloaderEntryPacketV1() {
+					t.Fatalf("unexpected v1 bootloader entry packet: %x", pkt[:8])
+				}
+				wErr := tc.errs[writes]
+				writes++
+				if wErr != nil {
+					return 0, wErr
+				}
+				return 64, nil
+			}
+
+			var res ApplyResult
+			err := ops.enterBootloader(root, "/dev/bus/usb", candidate, ProtocolV1, &res)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("enterBootloader err = %v, wantErr = %v", err, tc.wantErr)
+			}
+			if writes != tc.wantWrites || res.ReportsWritten != tc.wantReport {
+				t.Fatalf("writes=%d reportsWritten=%d, want writes=%d reportsWritten=%d", writes, res.ReportsWritten, tc.wantWrites, tc.wantReport)
+			}
+		})
+	}
+}
