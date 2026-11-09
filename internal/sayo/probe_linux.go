@@ -706,7 +706,7 @@ func (ops probeOps) apply(sysRoot, devRoot string, candidate DiscoveredCandidate
 	if err != nil {
 		return result, err
 	}
-	if IsBootloaderReportDescriptor(descriptor) {
+	if candidate.Bootloader || IsBootloaderReportDescriptor(descriptor) {
 		return result, fmt.Errorf("device is in bootloader mode, settings writes are refused")
 	}
 	node := filepath.Join(hidrawRoot(devRoot), hidrawName)

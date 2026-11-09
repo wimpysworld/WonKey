@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/unix"
@@ -319,5 +320,39 @@ func TestProbeAndApplyV1Hidraw(t *testing.T) {
 	}
 	if timedOut, err := ops.probe(root, "/dev/bus/usb", candidate); err == nil || timedOut.Status != ProbeTransferFailed {
 		t.Fatalf("probe v1 timeout on slot 1 = (%+v, %v), want ProbeTransferFailed error", timedOut, err)
+	}
+}
+
+func TestApplyRefusesSysfsBootloaderWithApplicationDescriptor(t *testing.T) {
+	for name, tc := range map[string]struct {
+		pid     uint16
+		product string
+	}{
+		"bootloader-pid":     {0x0006, "SayoDevice 2x3P"},
+		"bootloader-product": {0x0009, "Bootloader"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := makeSayoSysfs(t, tc.pid, "hidraw9", []byte(candidateSayoReportDescriptor))
+			if err := os.WriteFile(filepath.Join(root, "7-1.4.3.4", "product"), []byte(tc.product+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			candidates, err := DiscoverCandidates(root)
+			if err != nil || len(candidates) != 1 || !candidates[0].Bootloader {
+				t.Fatalf("discover: %+v, %v", candidates, err)
+			}
+			ops := systemProbeOps()
+			ops.open = func(string, int, uint32) (int, error) {
+				t.Fatal("apply opened a bootloader hidraw node")
+				return -1, nil
+			}
+			req, err := PrepareRGBWrite(6, "static", 1, 2, 3, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := ops.apply(root, "/dev/bus/usb", candidates[0], req)
+			if err == nil || !strings.Contains(err.Error(), "bootloader mode") || res.WriteAttempted {
+				t.Fatalf("apply = (%+v, %v)", res, err)
+			}
+		})
 	}
 }
