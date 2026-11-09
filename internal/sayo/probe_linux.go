@@ -30,7 +30,10 @@ type DiscoveredCandidate struct {
 	SysfsPath    string
 	BusNumber    int
 	DeviceNumber int
-	identity     [2]uint64
+	// Bootloader records bootloader mode known from sysfs: a dedicated bootloader PID or the
+	// product string "Bootloader". A bootloader without either is recognised by its report descriptor.
+	Bootloader bool
+	identity   [2]uint64
 }
 
 // ProbeStatus distinguishes a successful probe from a refusal or failed transfer.
@@ -68,6 +71,7 @@ type probeOps struct {
 	evalSymlinks func(string) (string, error)
 	stat         func(string) (os.FileInfo, error)
 	lstat        func(string, *unix.Stat_t) error
+	access       func(string, uint32) error
 	open         func(string, int, uint32) (int, error)
 	fstat        func(int, *unix.Stat_t) error
 	flock        func(int, int) error
@@ -75,15 +79,16 @@ type probeOps struct {
 	writeHidraw  func(int, []byte) (int, error)
 	readHidraw   func(int, []byte, int) (int, error)
 	sleep        func(time.Duration)
-	bootAttempts int
+	now          func() time.Time
+	bootWait     time.Duration
 }
 
 func systemProbeOps() probeOps {
 	return probeOps{
 		readDir: os.ReadDir, readFile: readProbeFile, evalSymlinks: filepath.EvalSymlinks,
-		stat: os.Stat, lstat: unix.Lstat, open: unix.Open, fstat: unix.Fstat,
+		stat: os.Stat, lstat: unix.Lstat, access: unix.Access, open: unix.Open, fstat: unix.Fstat,
 		flock: unix.Flock, close: unix.Close, writeHidraw: writeHidrawReport,
-		readHidraw: readHidrawReport, sleep: time.Sleep, bootAttempts: 50,
+		readHidraw: readHidrawReport, sleep: time.Sleep, now: time.Now, bootWait: bootloaderWait,
 	}
 }
 
@@ -179,7 +184,8 @@ func (ops probeOps) inspect(sysRoot, physicalPath string) (DiscoveredCandidate, 
 	}
 	return DiscoveredCandidate{
 		Candidate: candidate, ProductName: productName, SysfsPath: path, BusNumber: bus, DeviceNumber: device,
-		identity: [2]uint64{st.Dev, st.Ino},
+		Bootloader: IsBootloaderPID(candidate.VID, candidate.PID) || strings.EqualFold(productName, "Bootloader"),
+		identity:   [2]uint64{st.Dev, st.Ino},
 	}, nil
 }
 
@@ -427,9 +433,20 @@ func (ops probeOps) probe(sysRoot, devRoot string, candidate DiscoveredCandidate
 		return result, err
 	}
 	if proto == ProtocolV1 || IsBootloaderPID(candidate.VID, candidate.PID) {
-		return ops.exchangeV1LayoutAndSettings(fd, candidate.PID, result)
+		return ops.exchangeV1LayoutAndSettings(fd, candidate.PID, IsBootloaderReportDescriptor(descriptor), result)
 	}
 	return ops.exchangeV2LayoutAndSettings(fd, result)
+}
+
+// probeBootloaderFraming returns the bootloader checksum and status-byte rules used by bare probing,
+// which has no manifest. The live manifests set hid_checksum 0 and hid_err_for_size 1 only in
+// directory 2 (application PID 0x0002, bootloader PID 0x0006). Directory 12 and the other
+// directories set hid_checksum 1 and hid_err_for_size 0. Firmware updates use the manifest values.
+func probeBootloaderFraming(pid uint16) (useChecksum bool, errForSize int) {
+	if ManifestPID(pid) == 2 {
+		return false, 1
+	}
+	return true, 0
 }
 
 func (ops probeOps) readV2Info(fd int) (uint16, uint16, error) {
@@ -451,28 +468,33 @@ func (ops probeOps) readV2Info(fd int) (uint16, uint16, error) {
 	return binary.LittleEndian.Uint16(rx[8:10]), binary.LittleEndian.Uint16(rx[10:12]), nil
 }
 
-func (ops probeOps) readV1InfoOrBootloader(fd int, pid uint16) (uint16, uint16, bool, Packet, error) {
+// readV1Info sends the HID v1 Info (0x00) query, which a bootloader answers as GET_BOOT_VERSION.
+func (ops probeOps) readV1Info(fd int) (Packet, error) {
 	req := QueryInfoPacketV1()
 	if n, err := ops.writeHidraw(fd, req[:]); err != nil || n != 64 {
 		if err != nil {
-			return 0, 0, false, Packet{}, fmt.Errorf("write 0x00 info query: %w", err)
+			return Packet{}, fmt.Errorf("write 0x00 info query: %w", err)
 		}
-		return 0, 0, false, Packet{}, fmt.Errorf("write 0x00 info query wrote %d bytes, want 64", n)
+		return Packet{}, fmt.Errorf("write 0x00 info query wrote %d bytes, want 64", n)
 	}
 	var rx Packet
 	n, err := ops.readHidraw(fd, rx[:], 1000)
 	if err != nil {
-		return 0, 0, false, rx, fmt.Errorf("read 0x00 info reply: %w", err)
+		return rx, fmt.Errorf("read 0x00 info reply: %w", err)
 	}
 	if n != 64 || rx[0] != 0x02 {
-		return 0, 0, false, rx, fmt.Errorf("invalid 0x00 info reply")
+		return rx, fmt.Errorf("invalid 0x00 info reply")
+	}
+	return rx, nil
+}
+
+func (ops probeOps) readV1InfoOrBootloader(fd int, pid uint16) (uint16, uint16, bool, Packet, error) {
+	rx, err := ops.readV1Info(fd)
+	if err != nil {
+		return 0, 0, false, rx, err
 	}
 	if rx[1] == 0x02 {
-		errForSize := 0
-		if ManifestPID(pid) == 2 {
-			errForSize = 1
-		}
-		useChecksum := ManifestPID(pid) != 2
+		useChecksum, errForSize := probeBootloaderFraming(pid)
 		chkReq := BootCheckFWPacket(useChecksum)
 		if n, err := ops.writeHidraw(fd, chkReq[:]); err != nil || n != 64 {
 			if err != nil {
@@ -481,13 +503,13 @@ func (ops probeOps) readV1InfoOrBootloader(fd int, pid uint16) (uint16, uint16, 
 			return 0, 0, true, rx, fmt.Errorf("write bootloader CHECK_FW query wrote %d bytes, want 64", n)
 		}
 		var fwRx Packet
-		n, err := ops.readHidraw(fd, fwRx[:], 1000)
+		n, err := ops.readHidraw(fd, fwRx[:], bootCheckFWTimeoutMs)
 		if err != nil {
 			return 0, 0, true, fwRx, fmt.Errorf("read bootloader CHECK_FW reply: %w", err)
 		}
 		validBootStatus := bootStatusOK(fwRx, errForSize, true) || (fwRx[1] == 0x00 && fwRx[2] == 0x04)
 		if n != 64 || fwRx[0] != 0x02 || !validBootStatus {
-			return 0, 0, true, fwRx, fmt.Errorf("invalid bootloader CHECK_FW reply")
+			return 0, 0, true, fwRx, fmt.Errorf("invalid bootloader CHECK_FW reply (reply %s)", ReplyPrefixHex(fwRx[:]))
 		}
 		fwVer := binary.BigEndian.Uint16(fwRx[3:5])
 		modelCode := binary.BigEndian.Uint16(fwRx[5:7])
@@ -576,7 +598,7 @@ func (ops probeOps) exchangeV2LayoutAndSettings(fd int, result ProbeResult) (Pro
 	return result, nil
 }
 
-func (ops probeOps) exchangeV1LayoutAndSettings(fd int, pid uint16, result ProbeResult) (ProbeResult, error) {
+func (ops probeOps) exchangeV1LayoutAndSettings(fd int, pid uint16, bootloaderDescriptor bool, result ProbeResult) (ProbeResult, error) {
 	result.Status = ProbeTransferFailed
 	modelCode, fwVer, isBoot, bootRx, err := ops.readV1InfoOrBootloader(fd, pid)
 	if err != nil {
@@ -585,17 +607,8 @@ func (ops probeOps) exchangeV1LayoutAndSettings(fd int, pid uint16, result Probe
 		}
 		return result, err
 	}
-	if isBoot {
-		result.Count = 64
-		result.Raw = append([]byte(nil), bootRx[:]...)
-		result.Status = ProbeRawReport
-		result.Layout = &DeviceLayout{
-			Protocol:        ProtocolV1,
-			ModelCode:       modelCode,
-			FirmwareVersion: fwVer,
-			Bootloader:      true,
-		}
-		return result, nil
+	if isBoot || bootloaderDescriptor {
+		return bootloaderProbeResult(result, modelCode, fwVer, isBoot, bootRx)
 	}
 	var records []RawSlotRecord
 	for index := range 24 {
@@ -663,6 +676,25 @@ func (ops probeOps) exchangeV1LayoutAndSettings(fd int, pid uint16, result Probe
 	return result, nil
 }
 
+// bootloaderProbeResult records a bootloader reply. A bootloader report descriptor without a
+// bootloader reply is refused, so no settings query reaches a bootloader.
+func bootloaderProbeResult(result ProbeResult, modelCode, fwVer uint16, isBoot bool, rx Packet) (ProbeResult, error) {
+	result.Count = 64
+	result.Raw = append([]byte(nil), rx[:]...)
+	if !isBoot {
+		result.Status = ProbeInvalidReport
+		return result, fmt.Errorf("bootloader report descriptor, but the 0x00 reply is not a bootloader reply")
+	}
+	result.Status = ProbeRawReport
+	result.Layout = &DeviceLayout{
+		Protocol:        ProtocolV1,
+		ModelCode:       modelCode,
+		FirmwareVersion: fwVer,
+		Bootloader:      true,
+	}
+	return result, nil
+}
+
 func (ops probeOps) apply(sysRoot, devRoot string, candidate DiscoveredCandidate, req WriteRequest) (result ApplyResult, err error) {
 	if !filepath.IsAbs(devRoot) {
 		return result, fmt.Errorf("USB device root must be absolute")
@@ -670,9 +702,12 @@ func (ops probeOps) apply(sysRoot, devRoot string, candidate DiscoveredCandidate
 	if err := ops.revalidate(sysRoot, candidate); err != nil {
 		return result, err
 	}
-	hidrawName, _, proto, wantMajor, wantMinor, err := ops.locateSayoHidraw(candidate)
+	hidrawName, descriptor, proto, wantMajor, wantMinor, err := ops.locateSayoHidraw(candidate)
 	if err != nil {
 		return result, err
+	}
+	if IsBootloaderReportDescriptor(descriptor) {
+		return result, fmt.Errorf("device is in bootloader mode, settings writes are refused")
 	}
 	node := filepath.Join(hidrawRoot(devRoot), hidrawName)
 	var named unix.Stat_t

@@ -19,17 +19,26 @@ const (
 const (
 	v2ReportSignature = "\x06\x11\xff\x09\x02\xa1\x01\x85\x21"
 	v1ReportSignature = "\x06\x00\xff\x09\x01\xa1\x01\x85\x02"
+	// bootloaderReportSignature is the vendor usage page 0xFFA0 collection with report ID 0x02,
+	// captured from the 2x3P (manifest directory 12) bootloader in testdata/bootloader-2x3p-20261109.
+	bootloaderReportSignature = "\x06\xa0\xff\x09\x01\xa1\x01\x85\x02"
 )
 
 // DetectProtocolVersion inspects a vendor HID report descriptor for the HID v2 (`0x21`) or HID v1 (`0x02`) signature.
+// The SayoDevice bootloader descriptor uses HID v1 framing and reports ProtocolV1.
 func DetectProtocolVersion(descriptor []byte) (ProtocolVersion, bool) {
 	if bytes.Contains(descriptor, []byte(v2ReportSignature)) {
 		return ProtocolV2, true
 	}
-	if bytes.Contains(descriptor, []byte(v1ReportSignature)) {
+	if bytes.Contains(descriptor, []byte(v1ReportSignature)) || IsBootloaderReportDescriptor(descriptor) {
 		return ProtocolV1, true
 	}
 	return 0, false
+}
+
+// IsBootloaderReportDescriptor reports whether descriptor has the SayoDevice bootloader signature and no HID v2 signature.
+func IsBootloaderReportDescriptor(descriptor []byte) bool {
+	return bytes.Contains(descriptor, []byte(bootloaderReportSignature)) && !bytes.Contains(descriptor, []byte(v2ReportSignature))
 }
 
 // Control names a configurable SayoDevice key or rotary knob direction.

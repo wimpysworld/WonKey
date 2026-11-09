@@ -18,7 +18,7 @@ Configure USB macropads and mini-keyboards from one Linux CLI. Inspect connected
 | CH57x Macropad (Gen 1) | `1189:8890`, `514c:8890` | Up to 12 keys, 3 knobs, 15 layers | `key`, `macro`, `mouse`, `media`, `led` | Write-only firmware |
 | CH57x Macropad (Gen 2) | `1189` / `514c` : `8830`, `8831`, `8832`, `8833`, `8840`, `8842`, `8850`, `8851` | Up to 12 keys, 4 knobs, 15 layers | `key`, `macro`, `mouse`, `media`, `led` | Layout and Layer 1 bindings |
 | SayoDevice Macropad | `8089:0002`, `0003`, `0004`, `0005`, `0009`, `000a`, `000b`, `000c`, `000e` | Up to 12 keys, 4 knobs, 5 layers | `key`, `macro`, `mouse`, `media`, `rgb`, `firmware` | Key bindings, lighting, and firmware version |
-| SayoDevice Bootloader (Recovery) | `8089:0006`, `0007`, `0008` | Bootloader mode only | `firmware` | Model and firmware version |
+| SayoDevice Bootloader (Recovery) | Application PID with product `Bootloader` (`8089:000c` for the 2x3P, confirmed by capture), or manifest `pid2` `8089:0006`, `0007`, `0008`, `0009` for HID v1 directories 2 to 5 (unconfirmed) | Bootloader mode only | `firmware` | Model, firmware version, and `CHECK_FW` reply bytes |
 
 ## Get started
 
@@ -118,7 +118,7 @@ wonkey firmware check
 wonkey firmware update
 ```
 
-`wonkey firmware` checks the device's firmware version against the official SayoDevice vendor manifest without modifying the pad. `wonkey firmware update` downloads and installs the latest official vendor firmware or recovers a device in bootloader mode.
+`wonkey firmware` checks the device's firmware version against the official SayoDevice vendor manifest without modifying the pad. `wonkey firmware update` downloads and installs the latest official vendor firmware or recovers a device in bootloader mode. After the flash, it waits up to 60 seconds for the device to restart, then confirms the model and firmware version with one `Info` query. When the restart or the version is not confirmed, the command prints the next step and exits with status 1.
 
 ## Documentation
 

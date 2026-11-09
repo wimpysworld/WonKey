@@ -52,6 +52,14 @@ Hardware checks on a 6-key SayoDevice 2x3P (`8089:000c`, `bcdDevice = 0x089a`) u
 
 SayoDevice HID v1 (`Report ID 0x02` on `0xFF00` with 8-bit sum checksum, firmware version and model code query via `cmd = 0x00` (`Info`), slot readback and programming via `cmd = 0x16`, RGB readback and programming via `cmd = 0x10`, and Save via `cmd = 0x04` for `8089:0002..0005`), bootloader mode (`CHECK_FW` (`0x01`) version query and flashing via `GET_BOOT_VERSION` (`0x00`), `CHECK_FW` (`0x01`), `ERASE_FLASH` (`0x04`), `WRITE_DATA` (`0x02`), `VERIFY` (`0x05` / `0x06`), and `EXECUTE_APP` (`0x03`)), and the other untested PIDs (`8089:0009..000b`, `000e`) are host-derived from protocol documentation and remain hardware-unverified.
 
+A read-only sysfs capture of the 2x3P in bootloader mode (`internal/sayo/testdata/bootloader-2x3p-20261109`) confirmed the enumeration only:
+
+- The bootloader keeps `8089:000c`, as the manifest `pid2` value 12 states, and reports the product `Bootloader`.
+- It has one HID interface (interface 0, HID 1.10, interrupt endpoints `0x82` IN and `0x03` OUT, 64 bytes each) with one `hidraw` node.
+- Its 54-byte report descriptor starts `06 a0 ff 09 01 a1 01 85 02` (usage page `0xFFA0`, report ID `0x02`, HID v1 framing).
+
+The bootloader handshake replies and the flash sequence remain hardware-unverified. HID v1 directories 2 to 5 give manifest `pid2` values `8089:0006..0009` for bootloader mode, which are unconfirmed on hardware. The 2x3P bootloader (directory 12) keeps `8089:000c`, confirmed by capture.
+
 ## Reply layout
 
 Each reply contains exactly 64 vendor bytes, without a Linux report-ID placeholder.

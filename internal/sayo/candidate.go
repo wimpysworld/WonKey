@@ -92,7 +92,11 @@ func IsV2Family(pid uint16) bool {
 	}
 }
 
-// IsBootloaderPID reports whether vid:pid is a SayoDevice bootloader USB ID.
+// IsBootloaderPID reports whether vid:pid is a dedicated SayoDevice bootloader USB ID.
+// The HID v1 directories 2 to 5 give manifest pid2 values 0x0006..0x0009, unconfirmed on hardware.
+// This function covers 0x0006..0x0008. 0x0009 is also a HID v2 application PID, so a directory 5
+// bootloader is recognised by its report descriptor. The directory 12 (2x3P) bootloader keeps PID
+// 0x000c (confirmed by capture) and is also recognised by its report descriptor, not by this function.
 func IsBootloaderPID(vid, pid uint16) bool {
 	if vid != 0x8089 {
 		return false
