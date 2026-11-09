@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"wonkey/internal/ch57"
 	"wonkey/internal/sayo"
 )
@@ -690,6 +691,8 @@ type publicAccess struct {
 	fetchSayoManifest func(uint16) (sayo.FirmwareManifest, error)
 	fetchSayoBinary   func(uint16, string) ([]byte, error)
 	flashSayoFirmware func(string, string, sayo.DiscoveredCandidate, sayo.ProtocolVersion, bool, sayo.FirmwareManifest, sayo.FirmwareManifestEntry, []byte, sayo.FirmwareProgressFunc) (sayo.ApplyResult, error)
+	waitSayoRestart   func(string, string, sayo.DiscoveredCandidate) sayo.RestartResult
+	querySayoVersion  func(string, string, sayo.DiscoveredCandidate) (sayo.FirmwareInfo, error)
 	discover          func() ([]Candidate, error)
 	query             func(Candidate) (CaptureResult, error)
 	apply             func(Candidate, ApplyTarget, configurationChanges, func(configuration, configuration) (bool, error)) (ApplyResult, error)
@@ -716,6 +719,8 @@ func publicDeviceAccess() publicAccess {
 		fetchSayoManifest: sayo.FetchFirmwareManifest,
 		fetchSayoBinary:   sayo.FetchFirmwareBinary,
 		flashSayoFirmware: sayo.FlashFirmware,
+		waitSayoRestart:   sayo.WaitForApplication,
+		querySayoVersion:  sayo.QueryFirmwareVersion,
 		discover:          func() ([]Candidate, error) { return liveDiscover("/sys/bus/usb/devices", "/dev") },
 		query:             func(selected Candidate) (CaptureResult, error) { return querySelected(selected, true) },
 		apply: func(selected Candidate, target ApplyTarget, changes configurationChanges, guard func(configuration, configuration) (bool, error)) (ApplyResult, error) {
@@ -1423,7 +1428,7 @@ func (c publicCommand) runSayoFirmware(selected sayo.DiscoveredCandidate, device
 	probed, probeErr := access.probeSayo(sysRoot, devRoot, selected)
 	if probeErr != nil {
 		c.renderSayoCardHeading(selected, deviceID, h)
-		renderSayoProbeOutcome(probed, h)
+		renderSayoProbeOutcome(probed, deviceID, h)
 		return errors.Join(probeErr, h.out.err)
 	}
 	if probed.Layout == nil {
@@ -1444,9 +1449,9 @@ func (c publicCommand) runSayoFirmware(selected sayo.DiscoveredCandidate, device
 	}
 	if c.firmwareAction == "check" {
 		c.renderSayoFirmwareHeader(selected, deviceID, probed.Layout, entry, h)
-		status := `Update available - run "wonkey firmware update" to install`
+		status := fmt.Sprintf(`Update available - run "wonkey firmware update --device %d" to install`, deviceID)
 		if probed.Layout.Bootloader {
-			status = `Bootloader mode - run "wonkey firmware update" to recover`
+			status = fmt.Sprintf(`Bootloader mode - run "wonkey firmware update --device %d" to recover`, deviceID)
 		} else if probed.Layout.FirmwareVersion >= entry.Version {
 			status = "Up to date"
 		}
@@ -1507,15 +1512,69 @@ func (c publicCommand) runSayoFirmwareUpdate(sysRoot, devRoot string, selected s
 			_, _ = io.WriteString(h.out, "\n")
 		}
 		if applied.WriteAttempted {
-			h.line("31", "Device state uncertain. Run \"wonkey firmware update\" to recover if in bootloader mode.")
+			h.line("31", fmt.Sprintf("Device state uncertain. Run \"wonkey\" to check USB path %s.", selected.PhysicalPath))
+			h.line("31", fmt.Sprintf("In bootloader mode, run \"wonkey firmware update --device %d\" to recover.", deviceID))
 		} else {
 			h.line("", "Stopped before firmware update.")
 		}
 		h.line("33", "Stop. No automatic retry or rollback.")
 		return err
 	}
-	h.line("32", "Firmware updated.")
+	return c.confirmSayoFirmware(sysRoot, devRoot, selected, deviceID, before, entry, h, access)
+}
+
+// confirmSayoFirmware waits for the application after EXECUTE_APP and confirms the model and version
+// with one Info (0x00) query. It sends no other packet.
+func (c publicCommand) confirmSayoFirmware(sysRoot, devRoot string, selected sayo.DiscoveredCandidate, deviceID int, before string, entry sayo.FirmwareManifestEntry, h human, access publicAccess) error {
+	h.line("", "Waiting for the device to restart...")
+	waitFn := access.waitSayoRestart
+	if waitFn == nil {
+		waitFn = sayo.WaitForApplication
+	}
+	check := fmt.Sprintf(`"wonkey firmware check --device %d"`, deviceID)
+	restart := waitFn(sysRoot, devRoot, selected)
+	if !restart.Restarted {
+		h.line("33", fmt.Sprintf("Firmware written and verified. The device did not restart within %s.", formatSeconds(restart.Elapsed)))
+		h.field("Last seen", restart.LastSeen)
+		h.line("33", "Unplug and replug the device to start the new firmware.")
+		h.line("33", "Then run "+check+".")
+		return errors.Join(fmt.Errorf("firmware restart not confirmed within %s", formatSeconds(restart.Elapsed)), h.out.err)
+	}
+	if access.querySayoVersion == nil {
+		return fmt.Errorf("firmware version query is unavailable")
+	}
+	info, err := access.querySayoVersion(sysRoot, devRoot, restart.Candidate)
+	if err == nil && !info.Bootloader && info.FirmwareVersion == 0 {
+		err = fmt.Errorf("the 0x00 info reply reports firmware version 0")
+	}
+	if err != nil {
+		h.line("31", "Firmware written and verified. The version query after restart failed.")
+		h.line("31", "Run "+check+".")
+		return errors.Join(fmt.Errorf("query firmware version after restart: %w", err), h.out.err)
+	}
+	if info.Bootloader {
+		h.line("33", "Firmware written and verified. The device is still in bootloader mode.")
+		h.line("33", "Unplug and replug the device to start the new firmware.")
+		h.line("33", "Then run "+check+".")
+		return errors.Join(fmt.Errorf("device is still in bootloader mode after restart"), h.out.err)
+	}
+	want := fmt.Sprintf("model 0x%04x, version %d (0x%04x)", entry.ModelCode, entry.Version, entry.Version)
+	got := fmt.Sprintf("model 0x%04x, version %d (0x%04x)", info.ModelCode, info.FirmwareVersion, info.FirmwareVersion)
+	if info.ModelCode != entry.ModelCode || info.FirmwareVersion != entry.Version {
+		h.line("31", "Firmware written and verified. The model or version differs.")
+		h.field("Expected", want)
+		h.field("Reported", got)
+		h.line("33", "Stop. No automatic retry or rollback.")
+		h.line("33", "Run "+check+" to check the device.")
+		return errors.Join(fmt.Errorf("restarted device reports %s, expected %s", got, want), h.out.err)
+	}
+	h.line("32", fmt.Sprintf("Firmware updated: %s -> %d (0x%04x), confirmed.", before, entry.Version, entry.Version))
+	h.field("Restart", formatSeconds(restart.Elapsed))
 	return h.out.err
+}
+
+func formatSeconds(d time.Duration) string {
+	return fmt.Sprintf("%.1fs", d.Seconds())
 }
 
 func (c publicCommand) prepareSayoWrite(sysRoot, devRoot string, selected sayo.DiscoveredCandidate, deviceID int, h human, access publicAccess) (sayo.WriteRequest, []changeView, error) {
@@ -1523,11 +1582,11 @@ func (c publicCommand) prepareSayoWrite(sysRoot, devRoot string, selected sayo.D
 	probed, probeErr := access.probeSayo(sysRoot, devRoot, selected)
 	if probeErr != nil {
 		c.renderSayoCardHeading(selected, deviceID, h)
-		renderSayoProbeOutcome(probed, h)
+		renderSayoProbeOutcome(probed, deviceID, h)
 		return sayo.WriteRequest{}, nil, errors.Join(probeErr, h.out.err)
 	}
 	if probed.Layout != nil && probed.Layout.Bootloader {
-		return sayo.WriteRequest{}, nil, fmt.Errorf("%s is in bootloader mode, run \"wonkey firmware update\" to recover", product)
+		return sayo.WriteRequest{}, nil, fmt.Errorf("%s is in bootloader mode, run \"wonkey firmware update --device %d\" to recover", product, deviceID)
 	}
 	keys, knobs, slotCount := 6, 0, 6
 	if probed.Layout != nil {
@@ -1563,7 +1622,7 @@ func (c publicCommand) prepareSayoWrite(sysRoot, devRoot string, selected sayo.D
 		}
 	}
 	c.renderSayoCardHeading(selected, deviceID, h)
-	renderSayoProbeOutcome(probed, h)
+	renderSayoProbeOutcome(probed, deviceID, h)
 	return req, views, h.out.err
 }
 
@@ -1765,12 +1824,14 @@ func renderCH57ProbeOutcome(selected ch57.DiscoveredCandidate, probed ch57.Probe
 	}
 }
 
-func renderSayoProbeOutcome(probed sayo.ProbeResult, h human) {
+func renderSayoProbeOutcome(probed sayo.ProbeResult, deviceID int, h human) {
 	if probed.Layout != nil {
 		if probed.Layout.Bootloader {
 			h.field("Layout", "Bootloader recovery mode")
+			l := probed.Layout
+			h.field("Model", fmt.Sprintf("0x%04x, version %d (0x%04x), CHECK_FW reply %s", l.ModelCode, l.FirmwareVersion, l.FirmwareVersion, sayo.ReplyPrefixHex(probed.Raw)))
 			h.field("Supports", "firmware")
-			h.field("Settings", `Bootloader mode - run "wonkey firmware update" to recover`)
+			h.field("Settings", fmt.Sprintf(`Bootloader mode - run "wonkey firmware update --device %d" to recover`, deviceID))
 			return
 		}
 		h.field("Layout", formatLayoutSummary(probed.Layout.Keys, probed.Layout.Knobs))
@@ -1885,11 +1946,26 @@ func (c publicCommand) runSayoSelected(selected sayo.DiscoveredCandidate, device
 		return h.out.err
 	}
 	probed, err := access.probeSayo(sysRoot, devRoot, selected)
-	if err != nil {
-		h.field("Supports", sayoSupportsSummary())
+	if err == nil {
+		renderSayoProbeOutcome(probed, deviceID, h)
+		return h.out.err
 	}
-	renderSayoProbeOutcome(probed, h)
-	return errors.Join(err, h.out.err)
+	vid, pid := sayoVIDPID(selected)
+	bootloader := selected.Bootloader || sayo.IsBootloaderPID(vid, pid) || sayo.IsBootloaderReportDescriptor(probed.ReportDescriptor)
+	if !bootloader {
+		h.field("Supports", sayoSupportsSummary())
+		renderSayoProbeOutcome(probed, deviceID, h)
+		return errors.Join(err, h.out.err)
+	}
+	h.field("Supports", "firmware")
+	renderSayoProbeOutcome(probed, deviceID, h)
+	if !sayo.IsDeviceRestartErr(err) {
+		return errors.Join(err, h.out.err)
+	}
+	h.field("Detail", err.Error())
+	h.line("33", "Device is restarting. Wait a few seconds and run wonkey again.")
+	h.line("33", fmt.Sprintf("If it stays in bootloader mode, run wonkey firmware update --device %d to recover.", deviceID))
+	return errors.Join(fmt.Errorf("SayoDevice at USB path %s did not answer in bootloader mode", selected.PhysicalPath), h.out.err)
 }
 
 func (c publicCommand) showCurrentSettings(current configuration, selected Candidate, deviceID int, h human) {

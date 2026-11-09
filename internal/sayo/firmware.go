@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -53,7 +54,8 @@ type FirmwareManifestEntry struct {
 	FilePath  string `json:"file_path"`
 }
 
-// UseChecksum reports whether bootloader HID packets use the 8-bit V1 sum checksum.
+// UseChecksum reports whether bootloader WRITE_DATA packets use the 8-bit V1 sum checksum.
+// Every other bootloader packet is always signed.
 // When hid_checksum is omitted in config.json (such as PID 10), it defaults to 1 (true).
 func (m FirmwareManifest) UseChecksum() bool {
 	if m.HIDChecksum == nil {
@@ -62,15 +64,13 @@ func (m FirmwareManifest) UseChecksum() bool {
 	return *m.HIDChecksum != 0
 }
 
-// VerifyCmd returns the bootloader VERIFY command opcode (0x05 when checksums are enabled, else 0x06).
+// VerifyCmd returns the manifest VERIFY command opcode, or 0x05 when the manifest omits it.
+// The official tool uses `VERIFY ?? 5` whatever the hid_checksum value.
 func (m FirmwareManifest) VerifyCmd() byte {
 	if m.Cmd.Verify != 0 {
 		return m.Cmd.Verify
 	}
-	if m.UseChecksum() {
-		return 0x05
-	}
-	return 0x06
+	return 0x05
 }
 
 // FindEntry locates the manifest entry matching a device's 16-bit model_code.
@@ -230,10 +230,18 @@ func BootloaderEntryPacketV1() Packet {
 	return pkt
 }
 
-func signBootPacket(pkt *Packet, useChecksum bool) {
-	if useChecksum {
-		SignPacketV1(pkt)
-	}
+// Bootloader reply timeouts per step, in milliseconds. They match or exceed the official tool's waits.
+const (
+	bootGetVersionTimeoutMs = 2000
+	bootCheckFWTimeoutMs    = 2000
+	bootEraseFlashTimeoutMs = 5000
+	bootWriteDataTimeoutMs  = 2000
+	bootVerifyTimeoutMs     = 2000
+)
+
+// ReplyPrefixHex formats up to the first 8 bytes of a reply in hexadecimal, as evidence of the reply layout.
+func ReplyPrefixHex(raw []byte) string {
+	return fmt.Sprintf("% x", raw[:min(len(raw), 8)])
 }
 
 func bootStatusOK(rx Packet, errForSize int, allowOne bool) bool {
@@ -252,29 +260,33 @@ func putBootUint32(dst []byte, v uint32, be bool) {
 	}
 }
 
-// BootGetVersionPacket returns the 64-byte bootloader GET_BOOT_VERSION (0x00) packet.
-func BootGetVersionPacket(useChecksum bool) Packet {
+// The official tool signs every bootloader packet except WRITE_DATA regardless of hid_checksum.
+// Only WRITE_DATA omits the checksum when hid_checksum is 0.
+
+// BootGetVersionPacket returns the signed 64-byte bootloader GET_BOOT_VERSION (0x00) packet.
+func BootGetVersionPacket() Packet {
 	pkt := Packet{0x02, 0x00, 0x00}
-	signBootPacket(&pkt, useChecksum)
+	SignPacketV1(&pkt)
 	return pkt
 }
 
-// BootCheckFWPacket returns the 64-byte bootloader CHECK_FW (0x01) packet.
-func BootCheckFWPacket(useChecksum bool) Packet {
+// BootCheckFWPacket returns the signed 64-byte bootloader CHECK_FW (0x01) packet.
+func BootCheckFWPacket() Packet {
 	pkt := Packet{0x02, 0x01, 0x00}
-	signBootPacket(&pkt, useChecksum)
+	SignPacketV1(&pkt)
 	return pkt
 }
 
-// BootEraseFlashPacket returns the 64-byte bootloader ERASE_FLASH (0x04) packet.
-func BootEraseFlashPacket(totalBytes uint32, be, useChecksum bool) Packet {
+// BootEraseFlashPacket returns the signed 64-byte bootloader ERASE_FLASH (0x04) packet.
+func BootEraseFlashPacket(totalBytes uint32, be bool) Packet {
 	pkt := Packet{0x02, 0x04, 0x04}
 	putBootUint32(pkt[3:7], totalBytes, be)
-	signBootPacket(&pkt, useChecksum)
+	SignPacketV1(&pkt)
 	return pkt
 }
 
-// BootWriteDataPacket returns a 64-byte bootloader WRITE_DATA (0x02) packet for one <=32-byte chunk.
+// BootWriteDataPacket returns a 64-byte bootloader WRITE_DATA (0x02) packet for one <=32-byte chunk,
+// signed only when useChecksum is true.
 func BootWriteDataPacket(addr uint32, addrLen int, be bool, encryptFlag int, chunk []byte, useChecksum bool) Packet {
 	var pkt Packet
 	pos := 3
@@ -298,22 +310,24 @@ func BootWriteDataPacket(addr uint32, addrLen int, be bool, encryptFlag int, chu
 	pkt[0] = 0x02
 	pkt[1] = 0x02
 	pkt[2] = byte((pos - 3) & 255)
-	signBootPacket(&pkt, useChecksum)
+	if useChecksum {
+		SignPacketV1(&pkt)
+	}
 	return pkt
 }
 
-// BootVerifyPacket returns the 64-byte bootloader VERIFY (0x05 or 0x06) packet.
-func BootVerifyPacket(verifyCmd byte, verifyBytes uint32, be, useChecksum bool) Packet {
+// BootVerifyPacket returns the signed 64-byte bootloader VERIFY (0x05 or 0x06) packet.
+func BootVerifyPacket(verifyCmd byte, verifyBytes uint32, be bool) Packet {
 	pkt := Packet{0x02, verifyCmd, 0x04}
 	putBootUint32(pkt[3:7], verifyBytes, be)
-	signBootPacket(&pkt, useChecksum)
+	SignPacketV1(&pkt)
 	return pkt
 }
 
-// BootExecuteAppPacket returns the 64-byte bootloader EXECUTE_APP (0x03) packet.
-func BootExecuteAppPacket(useChecksum bool) Packet {
+// BootExecuteAppPacket returns the signed 64-byte bootloader EXECUTE_APP (0x03) packet.
+func BootExecuteAppPacket() Packet {
 	pkt := Packet{0x02, 0x03, 0x00}
-	signBootPacket(&pkt, useChecksum)
+	SignPacketV1(&pkt)
 	return pkt
 }
 
@@ -339,6 +353,16 @@ func isUSBRebootWriteErr(err error) bool {
 	return false
 }
 
+// IsDeviceRestartErr reports whether err is a USB error that a restarting or disconnecting device returns.
+func IsDeviceRestartErr(err error) bool {
+	for _, target := range []error{unix.EPROTO, unix.ENODEV, unix.EIO, unix.ESHUTDOWN, unix.ENOENT} {
+		if errors.Is(err, target) {
+			return true
+		}
+	}
+	return false
+}
+
 func (ops probeOps) flashFirmware(sysRoot, devRoot string, candidate DiscoveredCandidate, proto ProtocolVersion, inBootloader bool, manifest FirmwareManifest, entry FirmwareManifestEntry, fwBytes []byte, onProgress FirmwareProgressFunc) (result ApplyResult, err error) {
 	if !filepath.IsAbs(devRoot) {
 		return result, fmt.Errorf("USB device root must be absolute")
@@ -349,7 +373,6 @@ func (ops probeOps) flashFirmware(sysRoot, devRoot string, candidate DiscoveredC
 	if err := ops.revalidate(sysRoot, candidate); err != nil {
 		return result, err
 	}
-	useChecksum := manifest.UseChecksum()
 	var bootFD int
 	if !inBootloader {
 		if err := ops.enterBootloader(sysRoot, devRoot, candidate, proto, &result); err != nil {
@@ -373,7 +396,7 @@ func (ops probeOps) flashFirmware(sysRoot, devRoot string, candidate DiscoveredC
 	}()
 	result.WriteAttempted = true
 	if inBootloader {
-		if err := ops.bootStepGetVersion(bootFD, useChecksum, &result); err != nil {
+		if err := ops.bootStepGetVersion(bootFD, &result); err != nil {
 			return result, err
 		}
 	}
@@ -385,35 +408,42 @@ func (ops probeOps) openValidatedHidraw(sysRoot, devRoot string, candidate Disco
 	if err != nil {
 		return -1, 0, err
 	}
+	fd, err := ops.openLocatedHidraw(sysRoot, devRoot, candidate, hidrawName, wantMajor, wantMinor)
+	return fd, proto, err
+}
+
+func (ops probeOps) openLocatedHidraw(sysRoot, devRoot string, candidate DiscoveredCandidate, hidrawName string, wantMajor, wantMinor uint32) (int, error) {
 	node := filepath.Join(hidrawRoot(devRoot), hidrawName)
 	var named unix.Stat_t
 	if err := ops.lstat(node, &named); err != nil {
-		return -1, 0, err
+		return -1, err
 	}
 	if err := checkHidrawNode(named, wantMajor, wantMinor); err != nil {
-		return -1, 0, err
+		return -1, err
 	}
 	fd, err := ops.open(node, unix.O_RDWR|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
-		return -1, 0, err
+		return -1, fmt.Errorf("open %s: %w", node, err)
 	}
 	if err := ops.validateHidrawOpen(sysRoot, node, fd, candidate, named, wantMajor, wantMinor); err != nil {
 		_ = ops.close(fd)
-		return -1, 0, err
+		return -1, err
 	}
-	return fd, proto, nil
+	return fd, nil
 }
 
+// errApplicationDescriptor marks a vendor interface that still has the HID v2 application report descriptor.
+var errApplicationDescriptor = errors.New("vendor interface has the HID v2 application report descriptor")
+
 func (ops probeOps) openBootloaderHidraw(sysRoot, devRoot string, candidate DiscoveredCandidate) (int, error) {
-	fd, proto, err := ops.openValidatedHidraw(sysRoot, devRoot, candidate)
+	hidrawName, _, proto, wantMajor, wantMinor, err := ops.locateSayoHidraw(candidate)
 	if err != nil {
 		return -1, err
 	}
 	if proto != ProtocolV1 {
-		_ = ops.close(fd)
-		return -1, fmt.Errorf("interface %d is still using HID v2 application report descriptor", candidate.VendorInterface)
+		return -1, fmt.Errorf("interface %d: %w", candidate.VendorInterface, errApplicationDescriptor)
 	}
-	return fd, nil
+	return ops.openLocatedHidraw(sysRoot, devRoot, candidate, hidrawName, wantMajor, wantMinor)
 }
 
 func (ops probeOps) enterBootloader(sysRoot, devRoot string, candidate DiscoveredCandidate, proto ProtocolVersion, result *ApplyResult) (err error) {
@@ -457,61 +487,244 @@ func (ops probeOps) enterBootloader(sysRoot, devRoot string, candidate Discovere
 	return nil
 }
 
+const (
+	// bootloaderWait bounds the wait for the bootloader after the entry packet.
+	bootloaderWait = 30 * time.Second
+	bootloaderPoll = 100 * time.Millisecond
+)
+
+// errReturnedToApplication marks a device that re-enumerated with its application descriptor.
+var errReturnedToApplication = errors.New("returned to application mode")
+
+func (ops probeOps) clock() (func() time.Time, func(time.Duration)) {
+	now, sleep := ops.now, ops.sleep
+	if now == nil {
+		now = time.Now
+	}
+	if sleep == nil {
+		sleep = time.Sleep
+	}
+	return now, sleep
+}
+
 func (ops probeOps) waitForBootloaderHidraw(sysRoot, devRoot string, prev DiscoveredCandidate, m FirmwareManifest, result *ApplyResult) (int, error) {
-	useChecksum := m.UseChecksum()
-	attempts := ops.bootAttempts
-	if attempts <= 0 {
-		attempts = 50
+	now, sleep := ops.clock()
+	wait := ops.bootWait
+	if wait <= 0 {
+		wait = bootloaderWait
 	}
-	sleepFn := ops.sleep
-	if sleepFn == nil {
-		sleepFn = time.Sleep
-	}
-	for range attempts {
-		sleepFn(100 * time.Millisecond)
-		candidates, err := ops.discover(sysRoot)
-		if err != nil {
-			continue
-		}
-		for _, c := range candidates {
-			if c.PhysicalPath != prev.PhysicalPath {
-				continue
-			}
-			if m.PID2 > 0 && int(c.PID) != m.PID2 {
-				continue
-			}
-			fd, err := ops.openBootloaderHidraw(sysRoot, devRoot, c)
-			if err != nil {
-				continue
-			}
-			if err := ops.bootStepGetVersion(fd, useChecksum, result); err != nil {
-				_ = ops.close(fd)
-				continue
-			}
+	deadline := now().Add(wait)
+	for {
+		sleep(bootloaderPoll)
+		fd, stage, observed, err := ops.tryBootloaderHidraw(sysRoot, devRoot, prev, m, result)
+		if err == nil {
 			return fd, nil
 		}
+		if errors.Is(err, errReturnedToApplication) {
+			return -1, fmt.Errorf("SayoDevice at USB path %s (%s) %w instead of staying in the bootloader", prev.PhysicalPath, observed, err)
+		}
+		if stage == "GET_BOOT_VERSION" && !errors.Is(err, unix.ETIMEDOUT) {
+			return -1, fmt.Errorf("SayoDevice at USB path %s (%s) failed the bootloader handshake: %w", prev.PhysicalPath, observed, err)
+		}
+		if now().Before(deadline) {
+			continue
+		}
+		hint := ""
+		if errors.Is(err, unix.EACCES) || errors.Is(err, unix.EPERM) {
+			hint = ". Check that a udev rule gives your user read and write access to the bootloader hidraw node"
+		}
+		if observed == "" {
+			observed = "no compatible device"
+		}
+		return -1, fmt.Errorf("timed out waiting for SayoDevice bootloader at USB path %s after %s (last seen: %s, rejected at %s: %w)%s",
+			prev.PhysicalPath, wait, observed, stage, err, hint)
 	}
-	return -1, fmt.Errorf("timed out waiting for SayoDevice bootloader USB re-enumeration")
+}
+
+// tryBootloaderHidraw inspects only prev.PhysicalPath, so an unrelated device cannot abort the wait.
+// On failure it returns the rejecting stage and a description of the device seen at that path.
+func (ops probeOps) tryBootloaderHidraw(sysRoot, devRoot string, prev DiscoveredCandidate, m FirmwareManifest, result *ApplyResult) (int, string, string, error) {
+	c, err := ops.inspect(sysRoot, prev.PhysicalPath)
+	observed := describeObservedCandidate(c)
+	if err != nil {
+		return -1, "inspect", observed, err
+	}
+	if m.PID2 > 0 && int(c.PID) != m.PID2 {
+		return -1, "PID check", observed, fmt.Errorf("PID 0x%04x differs from manifest pid2 0x%04x", c.PID, m.PID2)
+	}
+	fd, err := ops.openBootloaderHidraw(sysRoot, devRoot, c)
+	if errors.Is(err, errApplicationDescriptor) {
+		if c.DeviceNumber != prev.DeviceNumber || c.identity != prev.identity {
+			return -1, "report descriptor", observed, errReturnedToApplication
+		}
+		return -1, "report descriptor", observed, fmt.Errorf("device has not left application mode: %w", err)
+	}
+	if err != nil {
+		return -1, "hidraw", observed, err
+	}
+	if err := ops.bootStepGetVersion(fd, result); err != nil {
+		_ = ops.close(fd)
+		return -1, "GET_BOOT_VERSION", observed, err
+	}
+	return fd, "", observed, nil
+}
+
+func describeObservedCandidate(c DiscoveredCandidate) string {
+	if c.VID == 0 && c.PID == 0 {
+		return ""
+	}
+	observed := fmt.Sprintf("%04x:%04x %q", c.VID, c.PID, c.ProductName)
+	if c.DeviceNumber > 0 {
+		observed += fmt.Sprintf(" devnum %d", c.DeviceNumber)
+	}
+	return observed
+}
+
+const (
+	// applicationWait bounds the wait for the application after EXECUTE_APP. The official tool waits a fixed 5 s.
+	applicationWait = 60 * time.Second
+	// applicationSettle gives udev time to finish the new hidraw node before the version query.
+	applicationSettle = time.Second
+)
+
+// RestartResult describes what WaitForApplication saw at the selected USB path after EXECUTE_APP.
+type RestartResult struct {
+	Restarted bool
+	Candidate DiscoveredCandidate
+	Elapsed   time.Duration
+	LastSeen  string
+}
+
+// WaitForApplication polls only prev.PhysicalPath, without opening a device node, until a SayoDevice
+// application descriptor appears with a sysfs identity that differs from prev, or the deadline passes.
+func WaitForApplication(sysRoot, devRoot string, prev DiscoveredCandidate) RestartResult {
+	return systemProbeOps().waitForApplication(sysRoot, devRoot, prev)
+}
+
+func (ops probeOps) waitForApplication(sysRoot, devRoot string, prev DiscoveredCandidate) RestartResult {
+	now, sleep := ops.clock()
+	start := now()
+	deadline := start.Add(applicationWait)
+	for {
+		sleep(bootloaderPoll)
+		c, seen, ok := ops.tryApplication(sysRoot, devRoot, prev)
+		elapsed := now().Sub(start)
+		if ok {
+			sleep(applicationSettle)
+			return RestartResult{Restarted: true, Candidate: c, Elapsed: elapsed, LastSeen: seen}
+		}
+		if !now().Before(deadline) {
+			return RestartResult{Elapsed: elapsed, LastSeen: seen}
+		}
+	}
+}
+
+// tryApplication reads sysfs and stats the hidraw node only. It returns the device seen at the path
+// and whether that device is a new application instance.
+func (ops probeOps) tryApplication(sysRoot, devRoot string, prev DiscoveredCandidate) (DiscoveredCandidate, string, bool) {
+	c, err := ops.inspect(sysRoot, prev.PhysicalPath)
+	observed := describeObservedCandidate(c)
+	if err != nil {
+		if observed != "" {
+			return c, fmt.Sprintf("%s, not ready (%v)", observed, err), false
+		}
+		if errors.Is(err, fs.ErrNotExist) {
+			return c, "no device", false
+		}
+		return c, fmt.Sprintf("no compatible device (%v)", err), false
+	}
+	hidrawName, descriptor, _, wantMajor, wantMinor, err := ops.locateSayoHidraw(c)
+	if c.Bootloader || IsBootloaderReportDescriptor(descriptor) {
+		return c, fmt.Sprintf("bootloader mode (%s)", observed), false
+	}
+	if err != nil {
+		return c, fmt.Sprintf("%s, not ready (%v)", observed, err), false
+	}
+	if c.DeviceNumber == prev.DeviceNumber && c.identity == prev.identity {
+		return c, fmt.Sprintf("unchanged device (%s)", observed), false
+	}
+	node := filepath.Join(hidrawRoot(devRoot), hidrawName)
+	var named unix.Stat_t
+	if err := ops.lstat(node, &named); err != nil {
+		return c, fmt.Sprintf("%s, not ready (%v)", observed, err), false
+	}
+	if err := checkHidrawNode(named, wantMajor, wantMinor); err != nil {
+		return c, fmt.Sprintf("%s, not ready (%v)", observed, err), false
+	}
+	// devtmpfs creates the node root-only. Wait for udev to grant read-write access, without opening it.
+	if err := ops.access(node, unix.R_OK|unix.W_OK); err != nil {
+		return c, fmt.Sprintf("%s, not ready (access %s: %v)", observed, node, err), false
+	}
+	return c, fmt.Sprintf("application (%s)", observed), true
+}
+
+// FirmwareInfo is the model code and firmware version from one Info (0x00) query.
+// Bootloader is true when the device answers as a bootloader, and then no version is read.
+type FirmwareInfo struct {
+	ModelCode       uint16
+	FirmwareVersion uint16
+	Bootloader      bool
+}
+
+// QueryFirmwareVersion opens the revalidated vendor hidraw node and sends only the Info (0x00) query.
+func QueryFirmwareVersion(sysRoot, devRoot string, candidate DiscoveredCandidate) (FirmwareInfo, error) {
+	return systemProbeOps().queryFirmwareVersion(sysRoot, devRoot, candidate)
+}
+
+func (ops probeOps) queryFirmwareVersion(sysRoot, devRoot string, candidate DiscoveredCandidate) (info FirmwareInfo, err error) {
+	if !filepath.IsAbs(devRoot) {
+		return info, fmt.Errorf("USB device root must be absolute")
+	}
+	hidrawName, descriptor, proto, wantMajor, wantMinor, err := ops.locateSayoHidraw(candidate)
+	if err != nil {
+		return info, err
+	}
+	if candidate.Bootloader || IsBootloaderReportDescriptor(descriptor) {
+		return FirmwareInfo{Bootloader: true}, nil
+	}
+	fd, err := ops.openLocatedHidraw(sysRoot, devRoot, candidate, hidrawName, wantMajor, wantMinor)
+	if err != nil {
+		return info, err
+	}
+	defer func() {
+		if closeErr := ops.close(fd); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+	}()
+	if proto == ProtocolV2 {
+		info.ModelCode, info.FirmwareVersion, err = ops.readV2Info(fd)
+		return info, err
+	}
+	rx, err := ops.readV1Info(fd)
+	if err != nil {
+		return info, err
+	}
+	switch rx[1] {
+	case 0x02:
+		return FirmwareInfo{Bootloader: true}, nil
+	case 0x00:
+		return FirmwareInfo{ModelCode: binary.BigEndian.Uint16(rx[5:7]), FirmwareVersion: binary.BigEndian.Uint16(rx[3:5])}, nil
+	}
+	return info, fmt.Errorf("unexpected 0x00 info status %#02x", rx[1])
 }
 
 func (ops probeOps) flashBootloader(bootFD int, m FirmwareManifest, entry FirmwareManifestEntry, fwBytes []byte, result ApplyResult, rebootIssued *bool, onProgress FirmwareProgressFunc) (ApplyResult, error) {
-	useChecksum := m.UseChecksum()
 	be := m.AddrByteOrderBE != 0
-	if err := ops.bootStepCheckFW(bootFD, m.HIDErrForSize, entry.ModelCode, useChecksum, &result); err != nil {
+	if err := ops.bootStepCheckFW(bootFD, m.HIDErrForSize, entry.ModelCode, &result); err != nil {
 		return result, err
 	}
 	if m.EraseFlash != 0 {
-		if err := ops.bootStepEraseFlash(bootFD, uint32(len(fwBytes)), be, m.HIDErrForSize, useChecksum, &result); err != nil { // #nosec G115 -- validated <= 4 MiB
+		if err := ops.bootStepEraseFlash(bootFD, uint32(len(fwBytes)), be, m.HIDErrForSize, &result); err != nil { // #nosec G115 -- validated <= 4 MiB
 			return result, err
 		}
 	}
-	if err := ops.bootStepWriteData(bootFD, m, fwBytes, useChecksum, &result, onProgress); err != nil {
+	if err := ops.bootStepWriteData(bootFD, m, fwBytes, &result, onProgress); err != nil {
 		return result, err
 	}
-	if err := ops.bootStepVerify(bootFD, m, uint32(len(fwBytes)-16), be, useChecksum, &result); err != nil { // #nosec G115 -- validated >= 64 and <= 4 MiB
+	if err := ops.bootStepVerify(bootFD, m, uint32(len(fwBytes)-16), be, &result); err != nil { // #nosec G115 -- validated >= 64 and <= 4 MiB
 		return result, err
 	}
-	execReq := BootExecuteAppPacket(useChecksum)
+	execReq := BootExecuteAppPacket()
 	if rebootIssued != nil {
 		*rebootIssued = true
 	}
@@ -528,61 +741,62 @@ func (ops probeOps) flashBootloader(bootFD int, m FirmwareManifest, entry Firmwa
 	return result, nil
 }
 
-func (ops probeOps) bootStepGetVersion(fd int, useChecksum bool, result *ApplyResult) error {
-	pkt := BootGetVersionPacket(useChecksum)
-	rx, err := ops.exchangeBootPacket(fd, pkt, 1000, "GET_BOOT_VERSION", result)
+func (ops probeOps) bootStepGetVersion(fd int, result *ApplyResult) error {
+	pkt := BootGetVersionPacket()
+	rx, err := ops.exchangeBootPacket(fd, pkt, bootGetVersionTimeoutMs, "GET_BOOT_VERSION", result)
 	if err != nil {
 		return err
 	}
 	if rx[0] != 0x02 || rx[1] != 0x02 {
-		return fmt.Errorf("device is not in bootloader mode (GET_BOOT_VERSION reply %02x %02x)", rx[0], rx[1])
+		return fmt.Errorf("device is not in bootloader mode (GET_BOOT_VERSION reply %s)", ReplyPrefixHex(rx[:]))
 	}
 	return nil
 }
 
-func (ops probeOps) bootStepCheckFW(fd, errForSize int, wantModelCode uint16, useChecksum bool, result *ApplyResult) error {
-	pkt := BootCheckFWPacket(useChecksum)
-	rx, err := ops.exchangeBootPacket(fd, pkt, 1000, "CHECK_FW", result)
+func (ops probeOps) bootStepCheckFW(fd, errForSize int, wantModelCode uint16, result *ApplyResult) error {
+	pkt := BootCheckFWPacket()
+	rx, err := ops.exchangeBootPacket(fd, pkt, bootCheckFWTimeoutMs, "CHECK_FW", result)
 	if err != nil {
 		return err
 	}
 	validStatus := bootStatusOK(rx, errForSize, true) || (rx[1] == 0x00 && rx[2] == 0x04)
 	if !validStatus {
-		return fmt.Errorf("invalid bootloader CHECK_FW reply")
+		return fmt.Errorf("invalid bootloader CHECK_FW reply (reply %s)", ReplyPrefixHex(rx[:]))
 	}
 	gotModel := binary.BigEndian.Uint16(rx[5:7])
 	if gotModel != wantModelCode {
-		return fmt.Errorf("bootloader model_code 0x%04x does not match expected 0x%04x", gotModel, wantModelCode)
+		return fmt.Errorf("bootloader model_code 0x%04x does not match expected 0x%04x (reply %s)", gotModel, wantModelCode, ReplyPrefixHex(rx[:]))
 	}
 	return nil
 }
 
-func (ops probeOps) bootStepEraseFlash(fd int, totalBytes uint32, be bool, errForSize int, useChecksum bool, result *ApplyResult) error {
-	pkt := BootEraseFlashPacket(totalBytes, be, useChecksum)
-	rx, err := ops.exchangeBootPacket(fd, pkt, 5000, "ERASE_FLASH", result)
+func (ops probeOps) bootStepEraseFlash(fd int, totalBytes uint32, be bool, errForSize int, result *ApplyResult) error {
+	pkt := BootEraseFlashPacket(totalBytes, be)
+	rx, err := ops.exchangeBootPacket(fd, pkt, bootEraseFlashTimeoutMs, "ERASE_FLASH", result)
 	if err != nil {
 		return err
 	}
 	if !bootStatusOK(rx, errForSize, false) {
-		return fmt.Errorf("bootloader ERASE_FLASH failed")
+		return fmt.Errorf("bootloader ERASE_FLASH failed (reply %s)", ReplyPrefixHex(rx[:]))
 	}
 	return nil
 }
 
-func (ops probeOps) bootStepWriteData(fd int, m FirmwareManifest, fwBytes []byte, useChecksum bool, result *ApplyResult, onProgress FirmwareProgressFunc) error {
+func (ops probeOps) bootStepWriteData(fd int, m FirmwareManifest, fwBytes []byte, result *ApplyResult, onProgress FirmwareProgressFunc) error {
 	be := m.AddrByteOrderBE != 0
+	useChecksum := m.UseChecksum()
 	if onProgress != nil {
 		onProgress(0, len(fwBytes))
 	}
 	for offset := 0; offset < len(fwBytes); {
 		chunk := fwBytes[offset:min(offset+32, len(fwBytes))]
 		pkt := BootWriteDataPacket(uint32(offset), m.AddrLen, be, m.EncryptFlag, chunk, useChecksum) // #nosec G115 -- validated <= 4 MiB
-		rx, err := ops.exchangeBootPacket(fd, pkt, 1000, fmt.Sprintf("WRITE_DATA at 0x%x", offset), result)
+		rx, err := ops.exchangeBootPacket(fd, pkt, bootWriteDataTimeoutMs, fmt.Sprintf("WRITE_DATA at 0x%x", offset), result)
 		if err != nil {
 			return err
 		}
 		if !bootStatusOK(rx, m.HIDErrForSize, false) {
-			return fmt.Errorf("bootloader WRITE_DATA failed at offset 0x%x", offset)
+			return fmt.Errorf("bootloader WRITE_DATA failed at offset 0x%x (reply %s)", offset, ReplyPrefixHex(rx[:]))
 		}
 		offset += len(chunk)
 		if onProgress != nil {
@@ -592,14 +806,14 @@ func (ops probeOps) bootStepWriteData(fd int, m FirmwareManifest, fwBytes []byte
 	return nil
 }
 
-func (ops probeOps) bootStepVerify(fd int, m FirmwareManifest, verifyBytes uint32, be, useChecksum bool, result *ApplyResult) error {
-	pkt := BootVerifyPacket(m.VerifyCmd(), verifyBytes, be, useChecksum)
-	rx, err := ops.exchangeBootPacket(fd, pkt, 2000, "VERIFY", result)
+func (ops probeOps) bootStepVerify(fd int, m FirmwareManifest, verifyBytes uint32, be bool, result *ApplyResult) error {
+	pkt := BootVerifyPacket(m.VerifyCmd(), verifyBytes, be)
+	rx, err := ops.exchangeBootPacket(fd, pkt, bootVerifyTimeoutMs, "VERIFY", result)
 	if err != nil {
 		return err
 	}
 	if !bootStatusOK(rx, m.HIDErrForSize, true) {
-		return fmt.Errorf("bootloader VERIFY failed")
+		return fmt.Errorf("bootloader VERIFY failed (reply %s)", ReplyPrefixHex(rx[:]))
 	}
 	return nil
 }
@@ -618,7 +832,7 @@ func (ops probeOps) exchangeBootPacket(fd int, pkt Packet, timeoutMs int, stepNa
 		return Packet{}, fmt.Errorf("read %s reply: %w", stepName, err)
 	}
 	if n != 64 || rx[0] != 0x02 {
-		return Packet{}, fmt.Errorf("invalid %s reply", stepName)
+		return Packet{}, fmt.Errorf("invalid %s reply (%d bytes, reply %s)", stepName, n, ReplyPrefixHex(rx[:min(max(n, 0), len(rx))]))
 	}
 	return rx, nil
 }
