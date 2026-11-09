@@ -52,8 +52,11 @@ func TestManifestPIDAndManifestHelpers(t *testing.T) {
 		t.Fatal("omitted hid_checksum should default to checksum=true and verify=0x05")
 	}
 	zero, one := 0, 1
-	if m := (FirmwareManifest{HIDChecksum: &zero}); m.UseChecksum() || m.VerifyCmd() != 0x06 {
-		t.Fatalf("hid_checksum=0 should give checksum=false and verify=0x06")
+	if m := (FirmwareManifest{HIDChecksum: &zero}); m.UseChecksum() || m.VerifyCmd() != 0x05 {
+		t.Fatalf("hid_checksum=0 should give checksum=false and verify=0x05 (official VERIFY ?? 5)")
+	}
+	if m := (FirmwareManifest{HIDChecksum: &zero, Cmd: FirmwareManifestCmds{Verify: 0x06}}); m.VerifyCmd() != 0x06 {
+		t.Fatalf("an explicit manifest VERIFY opcode should be used")
 	}
 	if m := (FirmwareManifest{HIDChecksum: &one}); !m.UseChecksum() || m.VerifyCmd() != 0x05 {
 		t.Fatalf("hid_checksum=1 should give checksum=true and verify=0x05")
@@ -272,13 +275,15 @@ func TestFlashFirmwareV2AndBootloaderRecovery(t *testing.T) {
 					bootEntryCount++
 					return 64, nil
 				}
-				if tc.useChecksum != 0 {
-					want := pkt
+				// Only WRITE_DATA follows hid_checksum. Every other bootloader packet is always signed.
+				want := pkt
+				if pkt[1] != 0x02 || tc.useChecksum != 0 {
 					SignPacketV1(&want)
-					chkPos := int(pkt[2]) + 3
-					if pkt[chkPos] != want[chkPos] {
-						t.Fatalf("invalid bootloader checksum at %d: got %02x, want %02x", chkPos, pkt[chkPos], want[chkPos])
-					}
+				} else {
+					want[int(pkt[2])+3] = 0
+				}
+				if chkPos := int(pkt[2]) + 3; pkt[chkPos] != want[chkPos] {
+					t.Fatalf("bootloader cmd %#02x checksum byte at %d: got %02x, want %02x", pkt[1], chkPos, pkt[chkPos], want[chkPos])
 				}
 				switch pkt[1] {
 				case 0x00:
@@ -326,10 +331,7 @@ func TestFlashFirmwareV2AndBootloaderRecovery(t *testing.T) {
 					pendingReplies = append(pendingReplies, okReply(0x00))
 				case 0x05, 0x06:
 					verifySeen = true
-					wantVerifyCmd := byte(0x05)
-					if tc.useChecksum == 0 {
-						wantVerifyCmd = 0x06
-					}
+					const wantVerifyCmd = byte(0x05) // the manifest omits VERIFY, so the official fallback applies
 					if pkt[1] != wantVerifyCmd {
 						t.Fatalf("VERIFY cmd = %#02x, want %#02x", pkt[1], wantVerifyCmd)
 					}

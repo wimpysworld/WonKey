@@ -379,23 +379,177 @@ func TestProbeAuthenticBootloaderIsQueryOnly(t *testing.T) {
 	})
 }
 
-func TestProbeBootloaderFramingMatchesLiveManifests(t *testing.T) {
+func TestProbeBootloaderErrForSizeMatchesLiveManifests(t *testing.T) {
 	// Directory values from the live manifests fetched 2026-11-09: only directory 2 (and its copy 6)
-	// sets hid_checksum 0 and hid_err_for_size 1.
-	for pid, wantChecksum := range map[uint16]bool{
-		0x0002: false, 0x0006: false,
-		0x0003: true, 0x0004: true, 0x0005: true, 0x0007: true, 0x0008: true,
-		0x0009: true, 0x000b: true, 0x000c: true, 0x000e: true,
+	// sets hid_err_for_size 1. hid_checksum applies only to WRITE_DATA, which bare probing never sends.
+	for pid, want := range map[uint16]int{
+		0x0002: 1, 0x0006: 1,
+		0x0003: 0, 0x0004: 0, 0x0005: 0, 0x0007: 0, 0x0008: 0,
+		0x0009: 0, 0x000b: 0, 0x000c: 0, 0x000e: 0,
 	} {
-		useChecksum, errForSize := probeBootloaderFraming(pid)
-		if useChecksum != wantChecksum || (errForSize == 1) == wantChecksum {
-			t.Fatalf("probeBootloaderFraming(%#04x) = (%v, %d)", pid, useChecksum, errForSize)
+		if got := probeBootloaderErrForSize(pid); got != want {
+			t.Fatalf("probeBootloaderErrForSize(%#04x) = %d, want %d", pid, got, want)
 		}
 	}
 	manifest, _ := liveDir12Manifest(t)
-	useChecksum, errForSize := probeBootloaderFraming(0x000c)
-	if useChecksum != manifest.UseChecksum() || errForSize != manifest.HIDErrForSize {
-		t.Fatalf("probe framing (%v, %d) differs from live directory 12 manifest (%v, %d)", useChecksum, errForSize, manifest.UseChecksum(), manifest.HIDErrForSize)
+	if got := probeBootloaderErrForSize(0x000c); got != manifest.HIDErrForSize {
+		t.Fatalf("probe hid_err_for_size %d differs from live directory 12 manifest %d", got, manifest.HIDErrForSize)
+	}
+}
+
+// liveDir2ConfigJSON holds the framing fields of the live directory 2 manifest fetched 2026-11-09.
+// No directory 2 hardware exists for testing, so these tests prove packet bytes only.
+const liveDir2ConfigJSON = `{
+	"vid": 32905,
+	"pid": 2,
+	"pid2": 6,
+	"addr_len": 4,
+	"addr_byte_order_be": 1,
+	"encrypt_flag": 1,
+	"erase_flash": 1,
+	"hid_checksum": 0,
+	"hid_err_for_size": 1,
+	"cmd": {
+		"GET_BOOT_VERSION": 0,
+		"CHECK_FW": 1,
+		"WRITE_DATA": 2,
+		"EXECUTE_APP": 3,
+		"ERASE_FLASH": 4,
+		"VERIFY": 6
+	},
+	"data": [
+		{
+			"model": "O2",
+			"model_code": 1,
+			"version": 2192,
+			"file_path": "STM32_firmware/O2.bin"
+		}
+	]
+}`
+
+func bootPacket(prefix []byte, data ...byte) Packet {
+	var pkt Packet
+	copy(pkt[:], append(append([]byte{}, prefix...), data...))
+	return pkt
+}
+
+// TestFlashBootloaderPacketsByManifest pins every bootloader packet byte for byte. The expected
+// bytes follow the official builders: GET_BOOT_VERSION 02 00 00 02, CHECK_FW 02 01 00 03, and
+// ERASE_FLASH, VERIFY, and EXECUTE_APP with an appended 8-bit sum, whatever hid_checksum says.
+// Only WRITE_DATA follows hid_checksum.
+func TestFlashBootloaderPacketsByManifest(t *testing.T) {
+	fw := make([]byte, 80)
+	for i := range fw {
+		fw[i] = byte(0x40 + i)
+	}
+	for _, tc := range []struct {
+		name   string
+		config string
+		model  uint16
+		want   []Packet
+	}{
+		{"directory-12", liveDir12ConfigJSON, 6, []Packet{
+			bootPacket([]byte{0x02, 0x01, 0x00, 0x03}),
+			bootPacket([]byte{0x02, 0x04, 0x04, 0x50, 0x00, 0x00, 0x00, 0x5a}),
+			bootPacket([]byte{0x02, 0x02, 0x24, 0x00, 0x00, 0x00, 0x00}, append(append([]byte{}, fw[0:32]...), 0x18)...),
+			bootPacket([]byte{0x02, 0x02, 0x24, 0x20, 0x00, 0x00, 0x00}, append(append([]byte{}, fw[32:64]...), 0x38)...),
+			bootPacket([]byte{0x02, 0x02, 0x14, 0x40, 0x00, 0x00, 0x00}, append(append([]byte{}, fw[64:80]...), 0xd0)...),
+			bootPacket([]byte{0x02, 0x05, 0x04, 0x40, 0x00, 0x00, 0x00, 0x4b}),
+			bootPacket([]byte{0x02, 0x03, 0x00, 0x05}),
+		}},
+		{"directory-2", liveDir2ConfigJSON, 1, []Packet{
+			bootPacket([]byte{0x02, 0x01, 0x00, 0x03}),
+			bootPacket([]byte{0x02, 0x04, 0x04, 0x00, 0x00, 0x00, 0x50, 0x5a}),
+			bootPacket([]byte{0x02, 0x02, 0x25, 0x00, 0x00, 0x00, 0x00, 0x01}, fw[0:32]...),
+			bootPacket([]byte{0x02, 0x02, 0x25, 0x00, 0x00, 0x00, 0x20, 0x01}, fw[32:64]...),
+			bootPacket([]byte{0x02, 0x02, 0x15, 0x00, 0x00, 0x00, 0x40, 0x01}, fw[64:80]...),
+			bootPacket([]byte{0x02, 0x06, 0x04, 0x00, 0x00, 0x00, 0x40, 0x4c}),
+			bootPacket([]byte{0x02, 0x03, 0x00, 0x05}),
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manifest, err := FetchFirmwareManifestFrom(FirmwareCDNBaseURL, 0x000c, func(string, int) ([]byte, error) {
+				return []byte(tc.config), nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry, ok := manifest.FindEntry(tc.model)
+			if !ok {
+				t.Fatalf("manifest has no model_code %d entry", tc.model)
+			}
+			if got, want := BootGetVersionPacket(), bootPacket([]byte{0x02, 0x00, 0x00, 0x02}); got != want {
+				t.Fatalf("GET_BOOT_VERSION = %x, want %x", got[:8], want[:8])
+			}
+			ops := systemProbeOps()
+			var sent []Packet
+			var pending []Packet
+			status := func(s byte) Packet {
+				r := Packet{0x02}
+				r[1+manifest.HIDErrForSize] = s
+				return r
+			}
+			ops.writeHidraw = func(_ int, data []byte) (int, error) {
+				var pkt Packet
+				copy(pkt[:], data)
+				sent = append(sent, pkt)
+				switch pkt[1] {
+				case 0x01:
+					pending = append(pending, syntheticCheckFWReply(tc.model, 2214))
+				case 0x02, 0x04:
+					pending = append(pending, status(0x00))
+				case 0x05, 0x06:
+					pending = append(pending, status(0x01))
+				}
+				return 64, nil
+			}
+			ops.readHidraw = func(_ int, data []byte, _ int) (int, error) {
+				copy(data, pending[0][:])
+				pending = pending[1:]
+				return 64, nil
+			}
+			if _, err := ops.flashBootloader(7, manifest, entry, fw, ApplyResult{}, nil, nil); err != nil {
+				t.Fatalf("flashBootloader: %v", err)
+			}
+			if len(sent) != len(tc.want) {
+				t.Fatalf("sent %d packets, want %d", len(sent), len(tc.want))
+			}
+			for i := range tc.want {
+				if sent[i] != tc.want[i] {
+					t.Fatalf("packet %d = %x, want %x", i, sent[i][:48], tc.want[i][:48])
+				}
+			}
+		})
+	}
+}
+
+func TestBareProbeDirectory2BootloaderSendsSignedQueries(t *testing.T) {
+	ops := systemProbeOps()
+	var sent []Packet
+	var pending []Packet
+	ops.writeHidraw = func(_ int, data []byte) (int, error) {
+		var pkt Packet
+		copy(pkt[:], data)
+		sent = append(sent, pkt)
+		if pkt[1] == 0x00 {
+			pending = append(pending, syntheticBootVersionReply())
+		} else {
+			pending = append(pending, syntheticCheckFWReply(1, 2192))
+		}
+		return 64, nil
+	}
+	ops.readHidraw = func(_ int, data []byte, _ int) (int, error) {
+		copy(data, pending[0][:])
+		pending = pending[1:]
+		return 64, nil
+	}
+	model, version, boot, _, err := ops.readV1InfoOrBootloader(7, 0x0006)
+	if err != nil || !boot || model != 1 || version != 2192 {
+		t.Fatalf("readV1InfoOrBootloader = (%d, %d, %v, %v)", model, version, boot, err)
+	}
+	want := []Packet{bootPacket([]byte{0x02, 0x00, 0x00, 0x02}), bootPacket([]byte{0x02, 0x01, 0x00, 0x03})}
+	if len(sent) != len(want) || sent[0] != want[0] || sent[1] != want[1] {
+		t.Fatalf("sent %d packets, want GET_BOOT_VERSION 02 00 00 02 and CHECK_FW 02 01 00 03", len(sent))
 	}
 }
 

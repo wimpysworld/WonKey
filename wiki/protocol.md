@@ -60,6 +60,8 @@ A read-only sysfs capture of the 2x3P in bootloader mode (`internal/sayo/testdat
 
 The bootloader handshake replies and the flash sequence remain hardware-unverified. HID v1 directories 2 to 5 give manifest `pid2` values `8089:0006..0009` for bootloader mode, which are unconfirmed on hardware. The 2x3P bootloader (directory 12) keeps `8089:000c`, confirmed by capture.
 
+Bootloader checksums follow the official tool. The manifest `hid_checksum` value applies only to `WRITE_DATA`. WonKey always signs `GET_BOOT_VERSION` (`02 00 00 02`), `CHECK_FW` (`02 01 00 03`), `ERASE_FLASH`, `VERIFY`, and `EXECUTE_APP` with the 8-bit sum, which includes the report ID. This rule also applies to the `CHECK_FW` query from bare `wonkey`. The evidence is the [official Flutter app](https://app.sayodevice.com/) (fetched 2026-11-09). In `main.dart.js`, the bootloader check uses constant signed packets, and the upgrade routine appends a sum to `ERASE_FLASH`, `VERIFY`, and `EXECUTE_APP` without a check of `hid_checksum`. Only the `WRITE_DATA` loop in `sayo_lib_rs_bg.wasm` tests `hidCheckSum != 0`. The older official tool signs every packet. Only directory 2 sets `hid_checksum` 0. Its packets have tests, but they are unverified on directory 2 hardware.
+
 ## Reply layout
 
 Each reply contains exactly 64 vendor bytes, without a Linux report-ID placeholder.

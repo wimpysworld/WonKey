@@ -438,15 +438,15 @@ func (ops probeOps) probe(sysRoot, devRoot string, candidate DiscoveredCandidate
 	return ops.exchangeV2LayoutAndSettings(fd, result)
 }
 
-// probeBootloaderFraming returns the bootloader checksum and status-byte rules used by bare probing,
-// which has no manifest. The live manifests set hid_checksum 0 and hid_err_for_size 1 only in
-// directory 2 (application PID 0x0002, bootloader PID 0x0006). Directory 12 and the other
-// directories set hid_checksum 1 and hid_err_for_size 0. Firmware updates use the manifest values.
-func probeBootloaderFraming(pid uint16) (useChecksum bool, errForSize int) {
+// probeBootloaderErrForSize returns the bootloader status-byte rule used by bare probing, which has
+// no manifest. The live manifests set hid_err_for_size 1 only in directory 2 (application PID 0x0002,
+// bootloader PID 0x0006). The bare probe sends only signed packets, because hid_checksum applies
+// only to WRITE_DATA. Firmware updates use the manifest values.
+func probeBootloaderErrForSize(pid uint16) int {
 	if ManifestPID(pid) == 2 {
-		return false, 1
+		return 1
 	}
-	return true, 0
+	return 0
 }
 
 func (ops probeOps) readV2Info(fd int) (uint16, uint16, error) {
@@ -494,8 +494,8 @@ func (ops probeOps) readV1InfoOrBootloader(fd int, pid uint16) (uint16, uint16, 
 		return 0, 0, false, rx, err
 	}
 	if rx[1] == 0x02 {
-		useChecksum, errForSize := probeBootloaderFraming(pid)
-		chkReq := BootCheckFWPacket(useChecksum)
+		errForSize := probeBootloaderErrForSize(pid)
+		chkReq := BootCheckFWPacket()
 		if n, err := ops.writeHidraw(fd, chkReq[:]); err != nil || n != 64 {
 			if err != nil {
 				return 0, 0, true, rx, fmt.Errorf("write bootloader CHECK_FW query: %w", err)

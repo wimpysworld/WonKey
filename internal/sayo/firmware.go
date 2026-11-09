@@ -54,7 +54,8 @@ type FirmwareManifestEntry struct {
 	FilePath  string `json:"file_path"`
 }
 
-// UseChecksum reports whether bootloader HID packets use the 8-bit V1 sum checksum.
+// UseChecksum reports whether bootloader WRITE_DATA packets use the 8-bit V1 sum checksum.
+// Every other bootloader packet is always signed.
 // When hid_checksum is omitted in config.json (such as PID 10), it defaults to 1 (true).
 func (m FirmwareManifest) UseChecksum() bool {
 	if m.HIDChecksum == nil {
@@ -63,15 +64,13 @@ func (m FirmwareManifest) UseChecksum() bool {
 	return *m.HIDChecksum != 0
 }
 
-// VerifyCmd returns the bootloader VERIFY command opcode (0x05 when checksums are enabled, else 0x06).
+// VerifyCmd returns the manifest VERIFY command opcode, or 0x05 when the manifest omits it.
+// The official tool uses `VERIFY ?? 5` whatever the hid_checksum value.
 func (m FirmwareManifest) VerifyCmd() byte {
 	if m.Cmd.Verify != 0 {
 		return m.Cmd.Verify
 	}
-	if m.UseChecksum() {
-		return 0x05
-	}
-	return 0x06
+	return 0x05
 }
 
 // FindEntry locates the manifest entry matching a device's 16-bit model_code.
@@ -231,12 +230,6 @@ func BootloaderEntryPacketV1() Packet {
 	return pkt
 }
 
-func signBootPacket(pkt *Packet, useChecksum bool) {
-	if useChecksum {
-		SignPacketV1(pkt)
-	}
-}
-
 // Bootloader reply timeouts per step, in milliseconds. They match or exceed the official tool's waits.
 const (
 	bootGetVersionTimeoutMs = 2000
@@ -267,29 +260,33 @@ func putBootUint32(dst []byte, v uint32, be bool) {
 	}
 }
 
-// BootGetVersionPacket returns the 64-byte bootloader GET_BOOT_VERSION (0x00) packet.
-func BootGetVersionPacket(useChecksum bool) Packet {
+// The official tool signs every bootloader packet except WRITE_DATA regardless of hid_checksum.
+// Only WRITE_DATA omits the checksum when hid_checksum is 0.
+
+// BootGetVersionPacket returns the signed 64-byte bootloader GET_BOOT_VERSION (0x00) packet.
+func BootGetVersionPacket() Packet {
 	pkt := Packet{0x02, 0x00, 0x00}
-	signBootPacket(&pkt, useChecksum)
+	SignPacketV1(&pkt)
 	return pkt
 }
 
-// BootCheckFWPacket returns the 64-byte bootloader CHECK_FW (0x01) packet.
-func BootCheckFWPacket(useChecksum bool) Packet {
+// BootCheckFWPacket returns the signed 64-byte bootloader CHECK_FW (0x01) packet.
+func BootCheckFWPacket() Packet {
 	pkt := Packet{0x02, 0x01, 0x00}
-	signBootPacket(&pkt, useChecksum)
+	SignPacketV1(&pkt)
 	return pkt
 }
 
-// BootEraseFlashPacket returns the 64-byte bootloader ERASE_FLASH (0x04) packet.
-func BootEraseFlashPacket(totalBytes uint32, be, useChecksum bool) Packet {
+// BootEraseFlashPacket returns the signed 64-byte bootloader ERASE_FLASH (0x04) packet.
+func BootEraseFlashPacket(totalBytes uint32, be bool) Packet {
 	pkt := Packet{0x02, 0x04, 0x04}
 	putBootUint32(pkt[3:7], totalBytes, be)
-	signBootPacket(&pkt, useChecksum)
+	SignPacketV1(&pkt)
 	return pkt
 }
 
-// BootWriteDataPacket returns a 64-byte bootloader WRITE_DATA (0x02) packet for one <=32-byte chunk.
+// BootWriteDataPacket returns a 64-byte bootloader WRITE_DATA (0x02) packet for one <=32-byte chunk,
+// signed only when useChecksum is true.
 func BootWriteDataPacket(addr uint32, addrLen int, be bool, encryptFlag int, chunk []byte, useChecksum bool) Packet {
 	var pkt Packet
 	pos := 3
@@ -313,22 +310,24 @@ func BootWriteDataPacket(addr uint32, addrLen int, be bool, encryptFlag int, chu
 	pkt[0] = 0x02
 	pkt[1] = 0x02
 	pkt[2] = byte((pos - 3) & 255)
-	signBootPacket(&pkt, useChecksum)
+	if useChecksum {
+		SignPacketV1(&pkt)
+	}
 	return pkt
 }
 
-// BootVerifyPacket returns the 64-byte bootloader VERIFY (0x05 or 0x06) packet.
-func BootVerifyPacket(verifyCmd byte, verifyBytes uint32, be, useChecksum bool) Packet {
+// BootVerifyPacket returns the signed 64-byte bootloader VERIFY (0x05 or 0x06) packet.
+func BootVerifyPacket(verifyCmd byte, verifyBytes uint32, be bool) Packet {
 	pkt := Packet{0x02, verifyCmd, 0x04}
 	putBootUint32(pkt[3:7], verifyBytes, be)
-	signBootPacket(&pkt, useChecksum)
+	SignPacketV1(&pkt)
 	return pkt
 }
 
-// BootExecuteAppPacket returns the 64-byte bootloader EXECUTE_APP (0x03) packet.
-func BootExecuteAppPacket(useChecksum bool) Packet {
+// BootExecuteAppPacket returns the signed 64-byte bootloader EXECUTE_APP (0x03) packet.
+func BootExecuteAppPacket() Packet {
 	pkt := Packet{0x02, 0x03, 0x00}
-	signBootPacket(&pkt, useChecksum)
+	SignPacketV1(&pkt)
 	return pkt
 }
 
@@ -374,7 +373,6 @@ func (ops probeOps) flashFirmware(sysRoot, devRoot string, candidate DiscoveredC
 	if err := ops.revalidate(sysRoot, candidate); err != nil {
 		return result, err
 	}
-	useChecksum := manifest.UseChecksum()
 	var bootFD int
 	if !inBootloader {
 		if err := ops.enterBootloader(sysRoot, devRoot, candidate, proto, &result); err != nil {
@@ -398,7 +396,7 @@ func (ops probeOps) flashFirmware(sysRoot, devRoot string, candidate DiscoveredC
 	}()
 	result.WriteAttempted = true
 	if inBootloader {
-		if err := ops.bootStepGetVersion(bootFD, useChecksum, &result); err != nil {
+		if err := ops.bootStepGetVersion(bootFD, &result); err != nil {
 			return result, err
 		}
 	}
@@ -510,7 +508,6 @@ func (ops probeOps) clock() (func() time.Time, func(time.Duration)) {
 }
 
 func (ops probeOps) waitForBootloaderHidraw(sysRoot, devRoot string, prev DiscoveredCandidate, m FirmwareManifest, result *ApplyResult) (int, error) {
-	useChecksum := m.UseChecksum()
 	now, sleep := ops.clock()
 	wait := ops.bootWait
 	if wait <= 0 {
@@ -519,7 +516,7 @@ func (ops probeOps) waitForBootloaderHidraw(sysRoot, devRoot string, prev Discov
 	deadline := now().Add(wait)
 	for {
 		sleep(bootloaderPoll)
-		fd, stage, observed, err := ops.tryBootloaderHidraw(sysRoot, devRoot, prev, m, useChecksum, result)
+		fd, stage, observed, err := ops.tryBootloaderHidraw(sysRoot, devRoot, prev, m, result)
 		if err == nil {
 			return fd, nil
 		}
@@ -546,7 +543,7 @@ func (ops probeOps) waitForBootloaderHidraw(sysRoot, devRoot string, prev Discov
 
 // tryBootloaderHidraw inspects only prev.PhysicalPath, so an unrelated device cannot abort the wait.
 // On failure it returns the rejecting stage and a description of the device seen at that path.
-func (ops probeOps) tryBootloaderHidraw(sysRoot, devRoot string, prev DiscoveredCandidate, m FirmwareManifest, useChecksum bool, result *ApplyResult) (int, string, string, error) {
+func (ops probeOps) tryBootloaderHidraw(sysRoot, devRoot string, prev DiscoveredCandidate, m FirmwareManifest, result *ApplyResult) (int, string, string, error) {
 	c, err := ops.inspect(sysRoot, prev.PhysicalPath)
 	observed := describeObservedCandidate(c)
 	if err != nil {
@@ -565,7 +562,7 @@ func (ops probeOps) tryBootloaderHidraw(sysRoot, devRoot string, prev Discovered
 	if err != nil {
 		return -1, "hidraw", observed, err
 	}
-	if err := ops.bootStepGetVersion(fd, useChecksum, result); err != nil {
+	if err := ops.bootStepGetVersion(fd, result); err != nil {
 		_ = ops.close(fd)
 		return -1, "GET_BOOT_VERSION", observed, err
 	}
@@ -712,23 +709,22 @@ func (ops probeOps) queryFirmwareVersion(sysRoot, devRoot string, candidate Disc
 }
 
 func (ops probeOps) flashBootloader(bootFD int, m FirmwareManifest, entry FirmwareManifestEntry, fwBytes []byte, result ApplyResult, rebootIssued *bool, onProgress FirmwareProgressFunc) (ApplyResult, error) {
-	useChecksum := m.UseChecksum()
 	be := m.AddrByteOrderBE != 0
-	if err := ops.bootStepCheckFW(bootFD, m.HIDErrForSize, entry.ModelCode, useChecksum, &result); err != nil {
+	if err := ops.bootStepCheckFW(bootFD, m.HIDErrForSize, entry.ModelCode, &result); err != nil {
 		return result, err
 	}
 	if m.EraseFlash != 0 {
-		if err := ops.bootStepEraseFlash(bootFD, uint32(len(fwBytes)), be, m.HIDErrForSize, useChecksum, &result); err != nil { // #nosec G115 -- validated <= 4 MiB
+		if err := ops.bootStepEraseFlash(bootFD, uint32(len(fwBytes)), be, m.HIDErrForSize, &result); err != nil { // #nosec G115 -- validated <= 4 MiB
 			return result, err
 		}
 	}
-	if err := ops.bootStepWriteData(bootFD, m, fwBytes, useChecksum, &result, onProgress); err != nil {
+	if err := ops.bootStepWriteData(bootFD, m, fwBytes, &result, onProgress); err != nil {
 		return result, err
 	}
-	if err := ops.bootStepVerify(bootFD, m, uint32(len(fwBytes)-16), be, useChecksum, &result); err != nil { // #nosec G115 -- validated >= 64 and <= 4 MiB
+	if err := ops.bootStepVerify(bootFD, m, uint32(len(fwBytes)-16), be, &result); err != nil { // #nosec G115 -- validated >= 64 and <= 4 MiB
 		return result, err
 	}
-	execReq := BootExecuteAppPacket(useChecksum)
+	execReq := BootExecuteAppPacket()
 	if rebootIssued != nil {
 		*rebootIssued = true
 	}
@@ -745,8 +741,8 @@ func (ops probeOps) flashBootloader(bootFD int, m FirmwareManifest, entry Firmwa
 	return result, nil
 }
 
-func (ops probeOps) bootStepGetVersion(fd int, useChecksum bool, result *ApplyResult) error {
-	pkt := BootGetVersionPacket(useChecksum)
+func (ops probeOps) bootStepGetVersion(fd int, result *ApplyResult) error {
+	pkt := BootGetVersionPacket()
 	rx, err := ops.exchangeBootPacket(fd, pkt, bootGetVersionTimeoutMs, "GET_BOOT_VERSION", result)
 	if err != nil {
 		return err
@@ -757,8 +753,8 @@ func (ops probeOps) bootStepGetVersion(fd int, useChecksum bool, result *ApplyRe
 	return nil
 }
 
-func (ops probeOps) bootStepCheckFW(fd, errForSize int, wantModelCode uint16, useChecksum bool, result *ApplyResult) error {
-	pkt := BootCheckFWPacket(useChecksum)
+func (ops probeOps) bootStepCheckFW(fd, errForSize int, wantModelCode uint16, result *ApplyResult) error {
+	pkt := BootCheckFWPacket()
 	rx, err := ops.exchangeBootPacket(fd, pkt, bootCheckFWTimeoutMs, "CHECK_FW", result)
 	if err != nil {
 		return err
@@ -774,8 +770,8 @@ func (ops probeOps) bootStepCheckFW(fd, errForSize int, wantModelCode uint16, us
 	return nil
 }
 
-func (ops probeOps) bootStepEraseFlash(fd int, totalBytes uint32, be bool, errForSize int, useChecksum bool, result *ApplyResult) error {
-	pkt := BootEraseFlashPacket(totalBytes, be, useChecksum)
+func (ops probeOps) bootStepEraseFlash(fd int, totalBytes uint32, be bool, errForSize int, result *ApplyResult) error {
+	pkt := BootEraseFlashPacket(totalBytes, be)
 	rx, err := ops.exchangeBootPacket(fd, pkt, bootEraseFlashTimeoutMs, "ERASE_FLASH", result)
 	if err != nil {
 		return err
@@ -786,8 +782,9 @@ func (ops probeOps) bootStepEraseFlash(fd int, totalBytes uint32, be bool, errFo
 	return nil
 }
 
-func (ops probeOps) bootStepWriteData(fd int, m FirmwareManifest, fwBytes []byte, useChecksum bool, result *ApplyResult, onProgress FirmwareProgressFunc) error {
+func (ops probeOps) bootStepWriteData(fd int, m FirmwareManifest, fwBytes []byte, result *ApplyResult, onProgress FirmwareProgressFunc) error {
 	be := m.AddrByteOrderBE != 0
+	useChecksum := m.UseChecksum()
 	if onProgress != nil {
 		onProgress(0, len(fwBytes))
 	}
@@ -809,8 +806,8 @@ func (ops probeOps) bootStepWriteData(fd int, m FirmwareManifest, fwBytes []byte
 	return nil
 }
 
-func (ops probeOps) bootStepVerify(fd int, m FirmwareManifest, verifyBytes uint32, be, useChecksum bool, result *ApplyResult) error {
-	pkt := BootVerifyPacket(m.VerifyCmd(), verifyBytes, be, useChecksum)
+func (ops probeOps) bootStepVerify(fd int, m FirmwareManifest, verifyBytes uint32, be bool, result *ApplyResult) error {
+	pkt := BootVerifyPacket(m.VerifyCmd(), verifyBytes, be)
 	rx, err := ops.exchangeBootPacket(fd, pkt, bootVerifyTimeoutMs, "VERIFY", result)
 	if err != nil {
 		return err
