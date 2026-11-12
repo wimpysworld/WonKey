@@ -174,10 +174,12 @@ jobs:
         with:
           name: snapshot-${{ github.event.pull_request.number || github.sha }}
           path: |
+            dist/wonkey_linux_*/wonkey
             dist/*.tar.gz
             dist/*.deb
             dist/*.rpm
             dist/*.apk
+            dist/*.pkg.tar.zst
             dist/*_checksums.txt
           if-no-files-found: error
 

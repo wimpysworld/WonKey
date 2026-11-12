@@ -16,6 +16,11 @@ builds:
     ldflags: [-s -w]
 
 archives:
+  - id: bare
+    formats:
+      - binary
+    name_template: "wonkey-{{ .Os }}-{{ .Arch }}"
+
   - id: compressed
     formats:
       - tar.gz
@@ -25,9 +30,12 @@ nfpms:
   - id: packages
     ids: ["wonkey"]
     package_name: '{{ $name := replace (tolower .ProjectName) "_" "-" }}{{ if or (not (filter $name "^[a-z0-9]")) (lt (len $name) 2) }}pkg-{{ end }}{{ $name }}'
-    formats: [deb, rpm, apk]
-    maintainer: '{{ .Env.GITHUB_REPOSITORY_OWNER }}'
-    homepage: 'https://github.com/{{ .Env.GITHUB_REPOSITORY }}'
+    vendor: Martin Wimpress
+    maintainer: "Martin Wimpress <code@wimpress.io>"
+    description: "Macropad configuration tool for Linux."
+    homepage: https://github.com/wimpysworld/WonKey
+    license: BlueOak-1.0.0
+    formats: [deb, rpm, apk, archlinux]
     bindir: /usr/bin
 
 aurs:
@@ -36,7 +44,7 @@ aurs:
     name: xfkey-wonkey-bin
     provides: [wonkey]
     conflicts: [wonkey]
-    description: "Configure your XFKEY One Key Max on Linux."
+    description: "Macropad configuration tool for Linux."
     homepage: https://github.com/wimpysworld/WonKey
     maintainers:
       - "Martin Wimpress <code@wimpress.io>"
@@ -53,7 +61,7 @@ nix:
       name: nix-packages
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     path: pkgs/wonkey/default.nix
-    description: "Configure your XFKEY One Key Max on Linux."
+    description: "Macropad configuration tool for Linux."
     homepage: https://github.com/wimpysworld/WonKey
     license: blueOak100
 
