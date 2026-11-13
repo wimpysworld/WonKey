@@ -3,7 +3,7 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-26.05-darwin";
-    nix-packages.url = "github:wimpysworld/nix-packages";
+    nix-packages.url = "git+https://nix.wimpys.world/packages.git";
     nix-packages.inputs.nixpkgs.follows = "nixpkgs";
   };
 

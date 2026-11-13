@@ -54,17 +54,6 @@ aurs:
     package: |
       install -Dm755 wonkey "${pkgdir}/usr/bin/wonkey"
 
-nix:
-  - name: wonkey
-    repository:
-      owner: wimpysworld
-      name: nix-packages
-      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
-    path: pkgs/wonkey/default.nix
-    description: "Macropad configuration tool for Linux."
-    homepage: https://github.com/wimpysworld/WonKey
-    license: blueOak100
-
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
 
