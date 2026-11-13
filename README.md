@@ -20,46 +20,27 @@ Configure USB macropads and mini-keyboards from one Linux CLI. Inspect connected
 | SayoDevice Macropad | `8089:0002`, `0003`, `0004`, `0005`, `0009`, `000a`, `000b`, `000c`, `000e` | Up to 12 keys, 4 knobs, 5 layers | `key`, `macro`, `mouse`, `media`, `rgb`, `firmware` | Key bindings, lighting, and firmware version |
 | SayoDevice Bootloader (Recovery) | Application PID with product `Bootloader` (`8089:000c` for the 2x3P, confirmed by capture), or manifest `pid2` `8089:0006`, `0007`, `0008`, `0009` for HID v1 directories 2 to 5 (unconfirmed) | Bootloader mode only | `firmware` | Model, firmware version, and `CHECK_FW` reply bytes |
 
-## Get started
+## Install
 
-WonKey 0.1.1 is available for Linux. Download a package from the [release](https://github.com/wimpysworld/WonKey/releases/tag/v0.1.1), then run its command from the download directory.
-Build this checkout to use the newest device support and commands.
-For ARM64, replace `amd64` in the x86_64 examples with `arm64`.
+| | Platform | Repository |
+| :-: | --- | --- |
+| <img src="https://apt.wimpys.world/logo.svg" width="32" height="32" alt=""> | Debian and Ubuntu | [apt.wimpys.world](https://apt.wimpys.world/#wonkey) |
+| <img src="https://rpm.wimpys.world/logo.svg" width="32" height="32" alt=""> | Fedora and openSUSE | [rpm.wimpys.world](https://rpm.wimpys.world/#wonkey) |
+| <img src="https://pkg.wimpys.world/logo.svg" width="32" height="32" alt=""> | Arch Linux | [pkg.wimpys.world](https://pkg.wimpys.world/#wonkey) |
+| <img src="https://apk.wimpys.world/logo.svg" width="32" height="32" alt=""> | Alpine Linux | [apk.wimpys.world](https://apk.wimpys.world/#wonkey) |
+| <img src="https://nix.wimpys.world/logo.svg" width="32" height="32" alt=""> | Nix and NixOS | [nix.wimpys.world](https://nix.wimpys.world/#wonkey) |
 
-| Distribution | Package | Install |
-| --- | --- | --- |
-| Debian / Ubuntu | `.deb` | `sudo apt install ./wonkey_0.1.1_linux_amd64.deb` |
-| Fedora | `.rpm` | `sudo dnf install ./wonkey_0.1.1_linux_amd64.rpm` |
-| openSUSE | `.rpm` | `sudo zypper install ./wonkey_0.1.1_linux_amd64.rpm` |
-| Alpine | `.apk` | `sudo apk add --allow-untrusted ./wonkey_0.1.1_linux_amd64.apk` |
-| Arch Linux | [AUR](https://aur.archlinux.org/packages/xfkey-wonkey-bin) | `yay -S xfkey-wonkey-bin` (requires `yay`) |
+Each repository is signed, and its page gives the setup steps and keeps WonKey up to date.
 
-The Alpine package is unsigned, so `apk` requires `--allow-untrusted`.
-Compare downloads with the [SHA-256 checksums](https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/WonKey_0.1.1_checksums.txt) before installation.
+### Any Linux
 
-### Nix
-
-Trust the signed binary cache at [nix.wimpys.world](https://nix.wimpys.world/), then run or install WonKey:
+[bin](https://github.com/marcosnils/bin) installs and updates the release binary:
 
 ```sh
-sudo tee -a /etc/nix/nix.conf > /dev/null <<'EOF'
-extra-substituters = https://nix.wimpys.world
-extra-trusted-public-keys = nix.wimpys.world-1:fphFHD2f+iEG5G81lFRgU84MB6N9ScHGFvB6D64tLmo=
-EOF
-nix run github:wimpysworld/WonKey/latest#wonkey -- --help
-nix profile add github:wimpysworld/WonKey/latest#wonkey
+bin install github.com/wimpysworld/WonKey
 ```
 
-Available for `x86_64-linux` and `aarch64-linux`.
-
-### Binary archive
-
-Download the archive for [x86_64](https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/WonKey_0.1.1_linux_amd64.tar.gz) or [ARM64](https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/WonKey_0.1.1_linux_arm64.tar.gz), then extract and install it:
-
-```sh
-tar -xzf WonKey_0.1.1_linux_amd64.tar.gz
-sudo install -m 0755 wonkey /usr/local/bin/wonkey
-```
+Your user needs permission to access the macropad's USB or vendor `hidraw` device node.
 
 ### Build from source
 
@@ -69,14 +50,6 @@ Requires Git, Go 1.25 or later, and [just](https://just.systems/).
 just build
 sudo install -m 0755 ./bin/wonkey /usr/local/bin/wonkey
 ```
-
-### Check the installation
-
-```sh
-wonkey --help
-```
-
-Help commands do not access hardware. Your user needs permission to access the macropad's USB or vendor `hidraw` device node.
 
 ## Make it yours
 

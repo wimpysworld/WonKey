@@ -10,6 +10,7 @@
     <title>WonKey · Macropad configuration tool for Linux</title>
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <script src="theme.js"></script>
+    <script src="copy.js" defer></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@digicreon/mucss@1.4.9/dist/mu.css">
     <link rel="stylesheet" href="style.css">
   </head>
@@ -55,7 +56,7 @@
           <p class="lead">Configure supported USB macropads and mini-keyboards from one Linux CLI. Bind keys, rotary knobs, macros, mouse actions, media controls, and RGB or LED lighting.</p>
           <div class="site-hero-actions">
             <a href="#install" class="primary-action">Get WonKey <span class="octicon inline-icon arrow-down" aria-hidden="true"></span></a>
-            <a class="text-link" href="https://github.com/wimpysworld/WonKey?tab=readme-ov-file#get-started">Quick start <span class="octicon inline-icon link-external" aria-hidden="true"></span></a>
+            <a class="text-link" href="https://github.com/wimpysworld/WonKey?tab=readme-ov-file#make-it-yours">Quick start <span class="octicon inline-icon link-external" aria-hidden="true"></span></a>
           </div>
           <p class="hero-note">Open source. Linux only. Supports XFKEY One Key Max, CH57x Macropads, and SayoDevice Macropads. See <a href="#devices">supported devices</a>.</p>
         </div>
@@ -191,75 +192,87 @@
         </div>
       </section>
       <section id="install" class="install section-rule" aria-labelledby="install-title">
-        <div>
+        <div class="section-heading">
           <p class="eyebrow">Install</p>
           <h2 id="install-title">Get WonKey on Linux</h2>
-          <p>Install WonKey 0.1.1 with your Linux package manager. Choose a download for x86_64 or ARM64.</p>
-          <p>Compare downloads with the <a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/WonKey_0.1.1_checksums.txt">SHA-256 checksums</a> before installation.</p>
-          <p>After installation, run <code>wonkey --help</code>. Help does not access the device.</p>
-          <p class="muted">WonKey needs permission to access the macropad's USB or hidraw device node. WonKey does not install udev permission rules. See the <a href="https://github.com/wimpysworld/WonKey/wiki">Wiki</a> for hardware setup and all options.</p>
-          <div class="install-links">
-            <a class="text-link" href="https://github.com/wimpysworld/WonKey?tab=readme-ov-file#get-started">Getting started <span class="octicon inline-icon link-external" aria-hidden="true"></span></a>
-            <a class="text-link" href="https://github.com/wimpysworld/WonKey/releases">Releases <span class="octicon inline-icon link-external" aria-hidden="true"></span></a>
-          </div>
+          <p>Choose your distribution. Each repository is signed and keeps WonKey up to date.</p>
         </div>
-        <div class="accordion install-options">
-          <details open>
-            <summary><span class="distro-icon debian-icon" aria-hidden="true"></span><span class="distro-icon ubuntu-icon" aria-hidden="true"></span> Debian / Ubuntu</summary>
-            <p>Download the <code>.deb</code>, then run its command from the download directory.</p>
-            <p><a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/wonkey_0.1.1_linux_amd64.deb">x86_64 package</a></p>
-            <pre><code>sudo apt install ./wonkey_0.1.1_linux_amd64.deb</code></pre>
-            <p><a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/wonkey_0.1.1_linux_arm64.deb">ARM64 package</a></p>
-            <pre><code>sudo apt install ./wonkey_0.1.1_linux_arm64.deb</code></pre>
-          </details>
-          <details>
-            <summary><span class="distro-icon fedora-icon" aria-hidden="true"></span> Fedora</summary>
-            <p>Download the <code>.rpm</code>, then run its command from the download directory.</p>
-            <p><a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/wonkey_0.1.1_linux_amd64.rpm">x86_64 package</a></p>
-            <pre><code>sudo dnf install ./wonkey_0.1.1_linux_amd64.rpm</code></pre>
-            <p><a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/wonkey_0.1.1_linux_arm64.rpm">ARM64 package</a></p>
-            <pre><code>sudo dnf install ./wonkey_0.1.1_linux_arm64.rpm</code></pre>
-          </details>
-          <details>
-            <summary><span class="distro-icon opensuse-icon" aria-hidden="true"></span> openSUSE</summary>
-            <p>Download the <code>.rpm</code>, then run its command from the download directory.</p>
-            <p><a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/wonkey_0.1.1_linux_amd64.rpm">x86_64 package</a></p>
-            <pre><code>sudo zypper install ./wonkey_0.1.1_linux_amd64.rpm</code></pre>
-            <p><a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/wonkey_0.1.1_linux_arm64.rpm">ARM64 package</a></p>
-            <pre><code>sudo zypper install ./wonkey_0.1.1_linux_arm64.rpm</code></pre>
-          </details>
-          <details>
-            <summary><span class="distro-icon alpine-icon" aria-hidden="true"></span> Alpine</summary>
-            <p>Download the <code>.apk</code>, then run its command from the download directory. The package is unsigned, so <code>apk</code> requires <code>--allow-untrusted</code>.</p>
-            <p><a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/wonkey_0.1.1_linux_amd64.apk">x86_64 package</a></p>
-            <pre><code>sudo apk add --allow-untrusted ./wonkey_0.1.1_linux_amd64.apk</code></pre>
-            <p><a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/wonkey_0.1.1_linux_arm64.apk">ARM64 package</a></p>
-            <pre><code>sudo apk add --allow-untrusted ./wonkey_0.1.1_linux_arm64.apk</code></pre>
-          </details>
-          <details>
-            <summary><span class="distro-icon arch-icon" aria-hidden="true"></span> Arch Linux (AUR)</summary>
-            <p>Install <a href="https://aur.archlinux.org/packages/xfkey-wonkey-bin">xfkey-wonkey-bin</a> from the AUR. Requires <code>yay</code>.</p>
-            <pre><code>yay -S xfkey-wonkey-bin</code></pre>
-          </details>
-          <details>
-            <summary>Binary archive</summary>
-            <p>Download an archive, then extract and install it from the download directory.</p>
-            <p><a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/WonKey_0.1.1_linux_amd64.tar.gz">x86_64 archive</a></p>
-            <pre><code>tar -xzf WonKey_0.1.1_linux_amd64.tar.gz
-sudo install -m 0755 wonkey /usr/local/bin/wonkey</code></pre>
-            <p><a href="https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/WonKey_0.1.1_linux_arm64.tar.gz">ARM64 archive</a></p>
-            <pre><code>tar -xzf WonKey_0.1.1_linux_arm64.tar.gz
-sudo install -m 0755 wonkey /usr/local/bin/wonkey</code></pre>
-          </details>
-          <details>
-            <summary>Build from source</summary>
-            <p>Requires Git, Go 1.25 or later, and <a href="https://just.systems/">just</a>.</p>
-            <pre><code>git clone --branch v0.1.1 --depth 1 https://github.com/wimpysworld/WonKey.git
-cd WonKey
-just build
-sudo install -m 0755 ./wonkey /usr/local/bin/wonkey</code></pre>
-            <p>The build replaces <code>./wonkey</code> in the source directory.</p>
-          </details>
+        <!-- Install tiles: one per package repository, then one command tile for bin. -->
+        <ul class="install-grid">
+          <li class="install-distro">
+            <a class="install-tile" data-repo="apt" href="https://apt.wimpys.world/#wonkey">
+              <img class="install-logo" src="https://apt.wimpys.world/logo.svg" alt="" width="36" height="36" decoding="async">
+              <span class="install-text">
+                <span class="install-platform">Linux</span>
+                <span class="install-name">Debian and Ubuntu</span>
+                <span class="install-host" translate="no">apt.wimpys.world</span>
+              </span>
+              <span class="octicon inline-icon arrow-up-right" aria-hidden="true"></span>
+            </a>
+          </li>
+          <li class="install-distro">
+            <a class="install-tile" data-repo="rpm" href="https://rpm.wimpys.world/#wonkey">
+              <img class="install-logo" src="https://rpm.wimpys.world/logo.svg" alt="" width="36" height="36" decoding="async">
+              <span class="install-text">
+                <span class="install-platform">Linux</span>
+                <span class="install-name">Fedora and openSUSE</span>
+                <span class="install-host" translate="no">rpm.wimpys.world</span>
+              </span>
+              <span class="octicon inline-icon arrow-up-right" aria-hidden="true"></span>
+            </a>
+          </li>
+          <li class="install-distro">
+            <a class="install-tile" data-repo="pkg" href="https://pkg.wimpys.world/#wonkey">
+              <img class="install-logo" src="https://pkg.wimpys.world/logo.svg" alt="" width="36" height="36" decoding="async">
+              <span class="install-text">
+                <span class="install-platform">Linux</span>
+                <span class="install-name">Arch Linux</span>
+                <span class="install-host" translate="no">pkg.wimpys.world</span>
+              </span>
+              <span class="octicon inline-icon arrow-up-right" aria-hidden="true"></span>
+            </a>
+          </li>
+          <li class="install-distro">
+            <a class="install-tile" data-repo="apk" href="https://apk.wimpys.world/#wonkey">
+              <img class="install-logo" src="https://apk.wimpys.world/logo.svg" alt="" width="36" height="36" decoding="async">
+              <span class="install-text">
+                <span class="install-platform">Linux</span>
+                <span class="install-name">Alpine Linux</span>
+                <span class="install-host" translate="no">apk.wimpys.world</span>
+              </span>
+              <span class="octicon inline-icon arrow-up-right" aria-hidden="true"></span>
+            </a>
+          </li>
+          <li class="install-nix">
+            <a class="install-tile" data-repo="nix" href="https://nix.wimpys.world/#wonkey">
+              <img class="install-logo" src="https://nix.wimpys.world/logo.svg" alt="" width="36" height="36" decoding="async">
+              <span class="install-text">
+                <span class="install-platform">Nix</span>
+                <span class="install-name">Nix and NixOS</span>
+                <span class="install-host" translate="no">nix.wimpys.world</span>
+              </span>
+              <span class="octicon inline-icon arrow-up-right" aria-hidden="true"></span>
+            </a>
+          </li>
+          <li class="install-any">
+            <div class="install-tile install-command-tile">
+              <span class="octicon install-glyph" aria-hidden="true"></span>
+              <span class="install-text">
+                <span class="install-platform">Any Linux</span>
+                <a class="install-name" href="https://github.com/marcosnils/bin" translate="no">bin</a>
+              </span>
+              <code class="install-command" id="bin-command" translate="no">bin install github.com/wimpysworld/WonKey</code>
+              <button class="copy-button" type="button" data-copy="bin-command" aria-label="Copy the bin command" title="Copy" hidden>
+                <span class="octicon copy-icon" aria-hidden="true"></span>
+              </button>
+              <span class="visually-hidden" role="status"></span>
+            </div>
+          </li>
+        </ul>
+        <p class="install-note">WonKey needs permission to access the macropad's USB or vendor <code>hidraw</code> device node, and does not install udev permission rules. See the <a href="https://github.com/wimpysworld/WonKey/wiki">Wiki</a> for hardware setup and all options.</p>
+        <div class="install-links">
+          <a class="text-link" href="https://github.com/wimpysworld/WonKey?tab=readme-ov-file#build-from-source">Build from source <span class="octicon inline-icon link-external" aria-hidden="true"></span></a>
+          <a class="text-link" href="https://github.com/wimpysworld/WonKey/releases/latest">Download a release <span class="octicon inline-icon link-external" aria-hidden="true"></span></a>
         </div>
       </section>
 

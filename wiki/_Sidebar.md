@@ -11,5 +11,5 @@
 
 ## Project
 
-- [Build instructions](https://github.com/wimpysworld/WonKey/blob/main/README.md#get-started)
+- [Build instructions](https://github.com/wimpysworld/WonKey/blob/main/README.md#build-from-source)
 - [Source repository](https://github.com/wimpysworld/WonKey)
