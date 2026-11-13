@@ -37,6 +37,21 @@ For ARM64, replace `amd64` in the x86_64 examples with `arm64`.
 The Alpine package is unsigned, so `apk` requires `--allow-untrusted`.
 Compare downloads with the [SHA-256 checksums](https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/WonKey_0.1.1_checksums.txt) before installation.
 
+### Nix
+
+Trust the signed binary cache at [nix.wimpys.world](https://nix.wimpys.world/), then run or install WonKey:
+
+```sh
+sudo tee -a /etc/nix/nix.conf > /dev/null <<'EOF'
+extra-substituters = https://nix.wimpys.world
+extra-trusted-public-keys = nix.wimpys.world-1:fphFHD2f+iEG5G81lFRgU84MB6N9ScHGFvB6D64tLmo=
+EOF
+nix run github:wimpysworld/WonKey/latest#wonkey -- --help
+nix profile add github:wimpysworld/WonKey/latest#wonkey
+```
+
+Available for `x86_64-linux` and `aarch64-linux`.
+
 ### Binary archive
 
 Download the archive for [x86_64](https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/WonKey_0.1.1_linux_amd64.tar.gz) or [ARM64](https://github.com/wimpysworld/WonKey/releases/download/v0.1.1/WonKey_0.1.1_linux_arm64.tar.gz), then extract and install it:
