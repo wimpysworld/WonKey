@@ -16,6 +16,34 @@ import (
 	"wonkey/internal/sayo"
 )
 
+func TestPublicVersionFlagAvoidsDeviceAccess(t *testing.T) {
+	orig := buildVersion
+	SetVersion("0.2.0")
+	t.Cleanup(func() { buildVersion = orig })
+
+	access := publicAccess{
+		discover: func() ([]Candidate, error) {
+			t.Fatal("--version accessed devices")
+			return nil, nil
+		},
+	}
+
+	var out, errOut bytes.Buffer
+	if err := runPublic([]string{"--version"}, &cliRuntime{strings.NewReader(""), &out, &errOut}, access); err != nil {
+		t.Fatalf("--version failed: %v", err)
+	}
+	if out.String() != "wonkey 0.2.0\n" || errOut.Len() != 0 {
+		t.Fatalf("out=%q err=%q, want wonkey 0.2.0", out.String(), errOut.String())
+	}
+
+	out.Reset()
+	errOut.Reset()
+	err := runPublic([]string{"--version", "key"}, &cliRuntime{strings.NewReader(""), &out, &errOut}, access)
+	if err == nil || ExitCode(err) != 2 {
+		t.Fatalf("expected exit 2 for --version with extra args, got err=%v code=%d", err, ExitCode(err))
+	}
+}
+
 func checkPublicHeader(t *testing.T, text string) {
 	t.Helper()
 	if !strings.HasPrefix(text, "1️⃣ WonKey\n\n") || strings.Count(text, "WonKey\n") != 1 {

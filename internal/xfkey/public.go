@@ -34,6 +34,7 @@ Commands:
 Options:
   --layer N                     Select layer 1..15 on multi-layer devices (default: 1).
   --device N                    Select device N when multiple devices are connected.
+  --version                     Show version without device access.
   -h, --help                    Show help without device access.
 
 Examples:
@@ -253,6 +254,16 @@ type publicCommand struct {
 	macroCount                 int
 	macroStrokes               []ch57.Stroke
 	help                       bool
+	version                    bool
+}
+
+var buildVersion = "dev"
+
+// SetVersion records the build version injected into main.version.
+func SetVersion(v string) {
+	if v != "" {
+		buildVersion = v
+	}
 }
 
 func parseControlName(raw string) (ch57.Control, bool) {
@@ -281,6 +292,13 @@ func parsePublic(args []string) (publicCommand, error) {
 			return c, fmt.Errorf("help accepts no other arguments")
 		}
 		c.help = true
+		return c, nil
+	}
+	if args[0] == "--version" {
+		if len(args) != 1 {
+			return c, fmt.Errorf("version accepts no other arguments")
+		}
+		c.version = true
 		return c, nil
 	}
 	if args[0] == "--layer" || strings.HasPrefix(args[0], "--layer=") {
@@ -739,6 +757,12 @@ func RunIO(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 
 func runPublic(args []string, rt *cliRuntime, access publicAccess) error {
 	c, err := parsePublic(args)
+	if err == nil && c.version {
+		if _, writeErr := fmt.Fprintf(rt.out, "wonkey %s\n", buildVersion); writeErr != nil {
+			return &CLIError{Err: writeErr, Code: 1}
+		}
+		return nil
+	}
 	code := 2
 	out := rt.errOut
 	if err == nil {

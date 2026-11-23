@@ -1,5 +1,9 @@
 version: 2
 
+git:
+  ignore_tags:
+    - latest
+
 before:
   hooks:
     - >-
@@ -13,7 +17,9 @@ builds:
     env: [CGO_ENABLED=0]
     goos: [linux]
     goarch: [amd64, arm64]
-    ldflags: [-s -w]
+    flags: [-trimpath]
+    ldflags:
+      - "-s -w -X main.version={{ .Version }}"
 
 archives:
   - id: bare
