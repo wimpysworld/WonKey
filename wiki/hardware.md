@@ -24,19 +24,22 @@ Create `/etc/udev/rules.d/70-wonkey.rules` so that it runs before `73-seat-late.
 Add only the rule line that matches your verified macropad:
 
 ```udev
+# Populate USB vendor, product, and interface properties for hidraw devices
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", IMPORT{builtin}="usb_id"
+
 # XFKEY One Key Max (0112, vendor hidraw on interface 03)
-KERNEL=="hidraw*", SUBSYSTEM=="hidraw", IMPORT{builtin}="usb_id", ENV{ID_VENDOR_ID}=="af88", ENV{ID_MODEL_ID}=="6688", ENV{ID_USB_INTERFACE_NUM}=="03", TAG+="uaccess"
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ENV{ID_VENDOR_ID}=="af88", ENV{ID_MODEL_ID}=="6688", ENV{ID_USB_INTERFACE_NUM}=="03", TAG+="uaccess"
 
 # CH57x Macropad Gen 1 (/dev/bus/usb transport)
 SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="1189", ATTR{idProduct}=="8890", TAG+="uaccess"
 SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="514c", ATTR{idProduct}=="8890", TAG+="uaccess"
 
 # CH57x Macropad Gen 2 (vendor hidraw on interface 00; replace 8850 with your verified PID: 8830..8833, 8840, 8842, 8850, or 8851)
-KERNEL=="hidraw*", SUBSYSTEM=="hidraw", IMPORT{builtin}="usb_id", ENV{ID_VENDOR_ID}=="1189", ENV{ID_MODEL_ID}=="8850", ENV{ID_USB_INTERFACE_NUM}=="00", TAG+="uaccess"
-KERNEL=="hidraw*", SUBSYSTEM=="hidraw", IMPORT{builtin}="usb_id", ENV{ID_VENDOR_ID}=="514c", ENV{ID_MODEL_ID}=="8850", ENV{ID_USB_INTERFACE_NUM}=="00", TAG+="uaccess"
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ENV{ID_VENDOR_ID}=="1189", ENV{ID_MODEL_ID}=="8850", ENV{ID_USB_INTERFACE_NUM}=="00", TAG+="uaccess"
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ENV{ID_VENDOR_ID}=="514c", ENV{ID_MODEL_ID}=="8850", ENV{ID_USB_INTERFACE_NUM}=="00", TAG+="uaccess"
 
 # SayoDevice 2x3P and bootloader (vendor hidraw on interface 00; replace 000c and interface number if your verified SayoDevice model differs)
-KERNEL=="hidraw*", SUBSYSTEM=="hidraw", IMPORT{builtin}="usb_id", ENV{ID_VENDOR_ID}=="8089", ENV{ID_MODEL_ID}=="000c", ENV{ID_USB_INTERFACE_NUM}=="00", TAG+="uaccess"
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ENV{ID_VENDOR_ID}=="8089", ENV{ID_MODEL_ID}=="000c", ENV{ID_USB_INTERFACE_NUM}=="00", TAG+="uaccess"
 ```
 
 Reload `udev` rules after you save the file:
