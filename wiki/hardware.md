@@ -21,7 +21,7 @@ Do not guess a device from its hidraw or USB bus number.
 Do not run `wonkey` as `root`.
 Do not change ownership on `/dev/bus/usb` or `/dev/hidraw*` manually, because Linux resets those nodes on reconnect.
 Create `/etc/udev/rules.d/70-wonkey.rules` so that it runs before `73-seat-late.rules`.
-Add only the rule line that matches your verified macropad:
+For `hidraw` macropads, include the `IMPORT{builtin}="usb_id"` rule alongside the rule line(s) that match your verified macropad:
 
 ```udev
 # Populate USB vendor, product, and interface properties for hidraw devices
@@ -38,8 +38,9 @@ SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="514c", ATTR{idPro
 KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ENV{ID_VENDOR_ID}=="1189", ENV{ID_MODEL_ID}=="8850", ENV{ID_USB_INTERFACE_NUM}=="00", TAG+="uaccess"
 KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ENV{ID_VENDOR_ID}=="514c", ENV{ID_MODEL_ID}=="8850", ENV{ID_USB_INTERFACE_NUM}=="00", TAG+="uaccess"
 
-# SayoDevice 2x3P and bootloader (vendor hidraw on interface 00; replace 000c and interface number if your verified SayoDevice model differs)
-KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ENV{ID_VENDOR_ID}=="8089", ENV{ID_MODEL_ID}=="000c", ENV{ID_USB_INTERFACE_NUM}=="00", TAG+="uaccess"
+# SayoDevice 2x3P (vendor hidraw on interface 01 in application mode, and interface 00 in bootloader mode; replace 000c if your verified SayoDevice model differs)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ENV{ID_VENDOR_ID}=="8089", ENV{ID_MODEL_ID}=="000c", ENV{ID_USB_INTERFACE_NUM}=="01", TAG+="uaccess"
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ENV{ID_VENDOR_ID}=="8089", ENV{ID_MODEL_ID}=="000c", ENV{ID_USB_INTERFACE_NUM}=="00", ENV{ID_USB_MODEL}=="Bootloader", TAG+="uaccess"
 ```
 
 Reload `udev` rules after you save the file:
