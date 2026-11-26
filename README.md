@@ -40,7 +40,8 @@ Each repository is signed, and its page gives the setup steps and keeps WonKey u
 bin install github.com/wimpysworld/WonKey
 ```
 
-Your user needs permission to access the macropad's USB or vendor `hidraw` device node.
+Your user needs a `udev` `uaccess` rule to access the macropad's USB or vendor `hidraw` device node.
+Follow [Device selection and access](wiki/hardware.md#device-selection-and-access) to add a rule for your verified device without running `wonkey` as `root`.
 
 ### Build from source
 

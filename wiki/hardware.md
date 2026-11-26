@@ -16,6 +16,39 @@ Ask an administrator to configure access for the verified device.
 The 2x3P bootloader keeps `8089:000c` and creates a new hidraw node, so the access rule must match the VID and PID, not one node name.
 Do not guess a device from its hidraw or USB bus number.
 
+### Configure `udev` access
+
+Do not run `wonkey` as `root`.
+Do not change ownership on `/dev/bus/usb` or `/dev/hidraw*` manually, because Linux resets those nodes on reconnect.
+Create `/etc/udev/rules.d/70-wonkey.rules` so that it runs before `73-seat-late.rules`.
+Add only the rule line that matches your verified macropad:
+
+```udev
+# XFKEY One Key Max (0112)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="af88", ATTRS{idProduct}=="6688", TAG+="uaccess"
+
+# CH57x Macropad Gen 1 (/dev/bus/usb transport)
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="1189", ATTR{idProduct}=="8890", TAG+="uaccess"
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="514c", ATTR{idProduct}=="8890", TAG+="uaccess"
+
+# CH57x Macropad Gen 2 (replace 8850 with your verified PID: 8830..8833, 8840, 8842, 8850, or 8851)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1189", ATTRS{idProduct}=="8850", TAG+="uaccess"
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="514c", ATTRS{idProduct}=="8850", TAG+="uaccess"
+
+# SayoDevice Macropad and bootloader (replace 000c with your verified PID, and add its bootloader PID if different)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="8089", ATTRS{idProduct}=="000c", TAG+="uaccess"
+```
+
+Reload `udev` rules after you save the file:
+
+```sh
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+When `wonkey` still reports `permission denied`, unplug and reconnect the macropad.
+That reconnect lets `systemd-logind` apply the access list to the active local session.
+
 WonKey enumerates both supported device families automatically:
 
 - **XFKEY One Key Max (`0112`)**: Requires VID/PID `af88:6688`, revision `0100`, and exact USB/configuration bytes. All four report descriptors must match (62, 114, 25, and 34 bytes). The device must have interfaces 0 to 3 and one vendor hidraw mapping on interface 3 (usage page `FF00`, usage `01`, endpoints `84`/`04`, 64-byte payloads, and no report IDs). The shared serial `XFKEY` is not unique.

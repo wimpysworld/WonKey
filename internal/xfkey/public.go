@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"reflect"
 	"slices"
 	"strconv"
@@ -320,27 +321,11 @@ func parsePublic(args []string) (publicCommand, error) {
 		case arg == "--help" || arg == "-h":
 			c.help = true
 		case arg == "--layer" || strings.HasPrefix(arg, "--layer="):
-			if c.name != "key" && c.name != "macro" && c.name != "mouse" && c.name != "media" {
-				return c, fmt.Errorf("--layer is supported on key, macro, mouse and media only")
+			var err error
+			args, err = parseLayerOption(&c, arg, args)
+			if err != nil {
+				return c, err
 			}
-			if c.seenLayer {
-				return c, fmt.Errorf("--layer is accepted once")
-			}
-			var value string
-			if arg == "--layer" {
-				if len(args) == 0 {
-					return c, fmt.Errorf("--layer needs 1..15")
-				}
-				value, args = args[0], args[1:]
-			} else {
-				value = strings.TrimPrefix(arg, "--layer=")
-			}
-			layer, ok := parseBoundedInt(value, 1, 15)
-			if !ok {
-				return c, fmt.Errorf("--layer needs 1..15")
-			}
-			c.layer = layer
-			c.seenLayer = true
 		case arg == "--device" || strings.HasPrefix(arg, "--device="):
 			if c.device != 0 {
 				return c, fmt.Errorf("--device is accepted once")
@@ -370,6 +355,31 @@ func parsePublic(args []string) (publicCommand, error) {
 		}
 	}
 	return c.parsePositionals(positional, options)
+}
+
+func parseLayerOption(c *publicCommand, arg string, args []string) ([]string, error) {
+	if c.name != "key" && c.name != "macro" && c.name != "mouse" && c.name != "media" {
+		return nil, fmt.Errorf("--layer is supported on key, macro, mouse and media only")
+	}
+	if c.seenLayer {
+		return nil, fmt.Errorf("--layer is accepted once")
+	}
+	var value string
+	if arg == "--layer" {
+		if len(args) == 0 {
+			return nil, fmt.Errorf("--layer needs 1..15")
+		}
+		value, args = args[0], args[1:]
+	} else {
+		value = strings.TrimPrefix(arg, "--layer=")
+	}
+	layer, ok := parseBoundedInt(value, 1, 15)
+	if !ok {
+		return nil, fmt.Errorf("--layer needs 1..15")
+	}
+	c.layer = layer
+	c.seenLayer = true
+	return args, nil
 }
 
 func parseDeviceNumber(value string) (int, error) {
@@ -810,7 +820,13 @@ func runPublic(args []string, rt *cliRuntime, access publicAccess) error {
 				fmt.Fprintln(errH.out, escapeHuman(line))
 			}
 		}
-		fmt.Fprintln(rt.errOut, `Run "wonkey --help" for commands.`)
+		if errors.Is(err, fs.ErrPermission) {
+			if !strings.Contains(err.Error(), "udev rule") {
+				fmt.Fprintln(rt.errOut, "Grant read and write access to the device node with a udev uaccess rule. See https://github.com/wimpysworld/WonKey/blob/main/wiki/hardware.md#device-selection-and-access")
+			}
+		} else {
+			fmt.Fprintln(rt.errOut, `Run "wonkey --help" for commands.`)
+		}
 		return &CLIError{Err: err, Code: code}
 	}
 	return nil
