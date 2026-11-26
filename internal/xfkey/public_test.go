@@ -2416,3 +2416,54 @@ func TestPublicBareListingOfBootloader(t *testing.T) {
 		}
 	})
 }
+
+func TestPublicPermissionDeniedUdevHint(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "eacces", err: syscall.EACCES},
+		{name: "eperm", err: fmt.Errorf("open /dev/bus/usb/001/021: %w", syscall.EPERM)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			access := ch57TestAccess(t)
+			access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
+				return []ch57.DiscoveredCandidate{{Candidate: ch57.Candidate{PhysicalPath: "1-1.1"}}}, nil
+			}
+			access.probeCH57 = func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
+				return ch57.ProbeResult{Status: ch57.ProbeRefused}, tc.err
+			}
+			var out, diagnostic bytes.Buffer
+			err := runPublic(nil, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
+			if !errors.Is(err, tc.err) || ExitCode(err) != 1 {
+				t.Fatalf("err=%v code=%d", err, ExitCode(err))
+			}
+			diag := diagnostic.String()
+			if !strings.Contains(diag, "udev uaccess rule") || !strings.Contains(diag, "wiki/hardware.md#device-selection-and-access") {
+				t.Fatalf("missing udev hint in diagnostic: %q", diag)
+			}
+			if strings.Contains(diag, `Run "wonkey --help" for commands.`) {
+				t.Fatalf("unexpected help footer on permission error: %q", diag)
+			}
+		})
+	}
+
+	t.Run("does-not-duplicate-existing-udev-hint", func(t *testing.T) {
+		access := ch57TestAccess(t)
+		access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
+			return []ch57.DiscoveredCandidate{{Candidate: ch57.Candidate{PhysicalPath: "1-1.1"}}}, nil
+		}
+		wrapped := fmt.Errorf("rejected at hidraw: %w. Check that a udev rule gives your user read and write access to the bootloader hidraw node", syscall.EACCES)
+		access.probeCH57 = func(string, string, ch57.DiscoveredCandidate) (ch57.ProbeResult, error) {
+			return ch57.ProbeResult{Status: ch57.ProbeRefused}, wrapped
+		}
+		var out, diagnostic bytes.Buffer
+		err := runPublic(nil, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
+		if !errors.Is(err, syscall.EACCES) || ExitCode(err) != 1 {
+			t.Fatalf("err=%v code=%d", err, ExitCode(err))
+		}
+		if strings.Contains(diagnostic.String(), "udev uaccess rule") {
+			t.Fatalf("duplicated udev hint in diagnostic: %q", diagnostic.String())
+		}
+	})
+}
