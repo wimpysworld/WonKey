@@ -820,7 +820,8 @@ func runPublic(args []string, rt *cliRuntime, access publicAccess) error {
 				fmt.Fprintln(errH.out, escapeHuman(line))
 			}
 		}
-		if errors.Is(err, fs.ErrPermission) {
+		var discErr *discoveryError
+		if errors.Is(err, fs.ErrPermission) && !errors.As(err, &discErr) {
 			if !strings.Contains(err.Error(), "udev rule") {
 				fmt.Fprintln(rt.errOut, "Grant read and write access to the device node with a udev uaccess rule. See https://github.com/wimpysworld/WonKey/blob/main/wiki/hardware.md#device-selection-and-access")
 			}
@@ -831,6 +832,11 @@ func runPublic(args []string, rt *cliRuntime, access publicAccess) error {
 	}
 	return nil
 }
+
+type discoveryError struct{ err error }
+
+func (e *discoveryError) Error() string { return e.err.Error() }
+func (e *discoveryError) Unwrap() error { return e.err }
 
 func comparePhysicalPath(a, b string) int {
 	split := func(r rune) bool { return r == '-' || r == '.' }
@@ -909,7 +915,7 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 		var err error
 		candidates, err = access.discover()
 		if err != nil {
-			return err
+			return &discoveryError{err: err}
 		}
 	}
 	var chCandidates []ch57.DiscoveredCandidate
@@ -917,7 +923,7 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 		var err error
 		chCandidates, err = access.discoverCH57(sysRoot)
 		if err != nil {
-			return err
+			return &discoveryError{err: err}
 		}
 	}
 	byCH57Path := make(map[string]ch57.DiscoveredCandidate, len(chCandidates))
@@ -933,7 +939,7 @@ func (c publicCommand) run(rt *cliRuntime, access publicAccess) error {
 		var err error
 		sayoCandidates, err = access.discoverSayo(sysRoot)
 		if err != nil {
-			return err
+			return &discoveryError{err: err}
 		}
 	}
 	bySayoPath := make(map[string]sayo.DiscoveredCandidate, len(sayoCandidates))

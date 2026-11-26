@@ -2466,4 +2466,23 @@ func TestPublicPermissionDeniedUdevHint(t *testing.T) {
 			t.Fatalf("duplicated udev hint in diagnostic: %q", diagnostic.String())
 		}
 	})
+
+	t.Run("skips-udev-hint-on-sysfs-discovery-permission-error", func(t *testing.T) {
+		access := ch57TestAccess(t)
+		access.discoverCH57 = func(string) ([]ch57.DiscoveredCandidate, error) {
+			return nil, fmt.Errorf("read /sys/bus/usb/devices: %w", syscall.EACCES)
+		}
+		var out, diagnostic bytes.Buffer
+		err := runPublic(nil, &cliRuntime{strings.NewReader(""), &out, &diagnostic}, access)
+		if !errors.Is(err, syscall.EACCES) || ExitCode(err) != 1 {
+			t.Fatalf("err=%v code=%d", err, ExitCode(err))
+		}
+		diag := diagnostic.String()
+		if strings.Contains(diag, "udev uaccess rule") {
+			t.Fatalf("unexpected udev hint on sysfs discovery error: %q", diag)
+		}
+		if !strings.Contains(diag, `Run "wonkey --help" for commands.`) {
+			t.Fatalf("missing help footer on sysfs discovery error: %q", diag)
+		}
+	})
 }
