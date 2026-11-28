@@ -82,6 +82,8 @@ h3 { font-size: 1.2rem; line-height: 1.3; letter-spacing: -0.01em; font-weight: 
 .terminal-dots i:nth-child(1) { background: var(--mu-error); }
 .terminal-dots i:nth-child(2) { background: var(--mu-warning); }
 .terminal-dots i:nth-child(3) { background: var(--mu-success); }
+.terminal picture { display: block; padding: 0; background: #1a1f28; }
+.terminal-demo { display: block; width: 100%; height: auto; }
 .terminal pre { background: transparent; padding: 1.35rem 1.5rem; margin: 0; border: 0; border-radius: 0; font-size: 0.85rem; line-height: 1.75; }
 .terminal code { color: var(--mu-color); padding: 0; background: transparent; }
 .terminal-comment { color: var(--mu-muted-color); }
@@ -208,7 +210,21 @@ a.install-tile:is(:hover, :focus-visible) > .arrow-up-right { color: var(--tile-
 .footer-links h3 { margin: 0 0 1rem; font-size: 0.95rem; }
 .footer-links a { display: inline; padding: 0; margin: 0; }
 .footer-bottom { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; border-top: 1px solid var(--mu-muted-border-color); margin-top: 2.5rem; padding-top: 1.5rem; }
-.footer-bottom > p { flex-shrink: 0; }
+.footer-bottom > p { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-width: 0; }
+.colophon-sep { color: var(--mu-muted-color); font-size: 0.8rem; opacity: 0.5; user-select: none; }
+.tailor-colophon { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--mu-muted-color); font-size: 0.8rem; text-decoration: none; opacity: 0.78; transition: opacity 0.2s ease, color 0.2s ease; }
+.tailor-colophon:is(:hover, :focus-visible) { opacity: 1; color: var(--mu-color); text-decoration: none; }
+.tailor-colophon-shears { flex: 0 0 auto; display: block; transform-origin: center; }
+.tailor-colophon:is(:hover, :focus-visible) .tailor-colophon-shears { animation: tailor-colophon-snip 0.45s ease-in-out; }
+@keyframes tailor-colophon-snip {
+  0%, 100% { transform: rotate(0deg); }
+  30% { transform: rotate(-10deg); }
+  65% { transform: rotate(6deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tailor-colophon { transition: none; }
+  .tailor-colophon:is(:hover, :focus-visible) .tailor-colophon-shears { animation: none; }
+}
 .footer-bottom .connection-links { justify-content: flex-end; margin-left: auto; }
 .site-footer p { margin: 0; }
 .site-footer small { color: var(--mu-muted-color); font-size: 0.8rem; }

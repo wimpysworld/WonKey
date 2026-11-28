@@ -8,6 +8,17 @@
     <meta name="theme-color" content="rgb(19, 22.5, 30.5)" media="(prefers-color-scheme: dark)">
     <meta name="description" content="Macropad configuration tool for Linux. Configure keys, rotary knobs, macros, media controls, mouse actions, and RGB or LED lighting. One key, to rule them all.">
     <title>WonKey · Macropad configuration tool for Linux</title>
+    <link rel="canonical" href="https://wonkey.wimpys.world/">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="WonKey">
+    <meta property="og:title" content="WonKey · Macropad configuration tool for Linux">
+    <meta property="og:description" content="Macropad configuration tool for Linux. Configure keys, rotary knobs, macros, media controls, mouse actions, and RGB or LED lighting. One key, to rule them all.">
+    <meta property="og:url" content="https://wonkey.wimpys.world/">
+    <meta property="og:image" content="https://wonkey.wimpys.world/og.png">
+    <meta property="og:image:alt" content="WonKey: Macropad configuration tool for Linux showing a connected XFKEY One Key Max macropad">
+    <meta property="og:image:width" content="1280">
+    <meta property="og:image:height" content="640">
+    <meta name="twitter:card" content="summary_large_image">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <script src="theme.js"></script>
     <script src="copy.js" defer></script>
@@ -56,23 +67,16 @@
           <p class="lead">Configure supported USB macropads and mini-keyboards from one Linux CLI. Bind keys, rotary knobs, macros, mouse actions, media controls, and RGB or LED lighting.</p>
           <div class="site-hero-actions">
             <a href="#install" class="primary-action">Get WonKey <span class="octicon inline-icon arrow-down" aria-hidden="true"></span></a>
-            <a class="text-link" href="https://github.com/wimpysworld/WonKey?tab=readme-ov-file#make-it-yours">Quick start <span class="octicon inline-icon link-external" aria-hidden="true"></span></a>
+            <a class="text-link" href="https://github.com/wimpysworld/WonKey?tab=readme-ov-file#quick-start">Quick start <span class="octicon inline-icon link-external" aria-hidden="true"></span></a>
           </div>
           <p class="hero-note">Open source. Linux only. Supports XFKEY One Key Max, CH57x Macropads, and SayoDevice Macropads. See <a href="#devices">supported devices</a>.</p>
         </div>
-        <figure class="terminal" aria-label="WonKey command examples">
+        <figure class="terminal">
           <figcaption><span class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></span>wonkey · Linux</figcaption>
-          <pre><code><span class="terminal-comment"># Inspect connected devices</span>
-<span class="prompt">$ </span><span class="terminal-command">wonkey</span>
-
-<span class="terminal-comment"># Set a key combination</span>
-<span class="prompt">$ </span><span class="terminal-command">wonkey key</span> <span class="terminal-argument">ctrl+shift+f13</span>
-
-<span class="terminal-comment"># Bind a rotary knob to volume up</span>
-<span class="prompt">$ </span><span class="terminal-command">wonkey media</span> <span class="terminal-argument">knob-right volumeup</span>
-
-<span class="terminal-comment"># Choose static blue RGB lighting</span>
-<span class="prompt">$ </span><span class="terminal-command">wonkey rgb</span> <span class="terminal-argument">static 0000ff</span></code></pre>
+          <picture>
+            <source srcset="demo-still.png" media="(prefers-reduced-motion: reduce)">
+            <img class="terminal-demo" src="demo.webp" alt="Terminal demo showing wonkey inspecting a connected XFKEY One Key Max macropad with its key binding and RGB colour swatch, followed by trigger, LED, and firmware command help" width="920" height="502" decoding="async" fetchpriority="high">
+          </picture>
         </figure>
       </section>
       <section id="features" class="features section-rule" aria-labelledby="features-title">
@@ -310,7 +314,7 @@
         </nav>
       </div>
       <div class="footer-bottom">
-        <p><small>© <span id="copyright-year">2026</span> <a href="https://github.com/flexiondotorg">Martin Wimpress <span class="octicon inline-icon link-external" aria-hidden="true"></span></a></small></p>
+        <p><small>© <span id="copyright-year">2026</span> <a href="https://github.com/flexiondotorg">Martin Wimpress <span class="octicon inline-icon link-external" aria-hidden="true"></span></a></small><span class="colophon-sep" aria-hidden="true">·</span><a class="tailor-colophon" href="https://tailor.wimpys.world" target="_blank" rel="noopener noreferrer"><svg class="tailor-colophon-shears" width="14" height="14" viewBox="0 0 40 40" aria-hidden="true"><path d="M14 27 17.5 19.5 31 3 25 19.5 20 29Z" fill="#b88a44"/><path d="M17.5 19.5 31 3 23 18.5Z" fill="#f0cb78"/><path fill="#f0cb78" fill-rule="evenodd" d="M22 31a8 5.6 0 1 0-16 0 8 5.6 0 1 0 16 0Zm-3 0a5 2.8 0 1 1-10 0 5 2.8 0 1 1 10 0Z" transform="rotate(-40 14 31)"/><path d="M11 18.5 19 19 37 9 25 21.5Q20 25 12 23Z" fill="#b88a44"/><path d="M11 18.5 19 19 37 9 22 19.5Z" fill="#f0cb78"/><path fill="#b88a44" fill-rule="evenodd" d="M14 20a6 5.5 0 1 0-12 0 6 5.5 0 1 0 12 0Zm-3 0a3 2.7 0 1 1-6 0 3 2.7 0 1 1 6 0Z" transform="rotate(-20 8 20)"/><circle cx="20.5" cy="21" r="2.1" fill="#594020"/><circle cx="20.5" cy="21" r="0.9" fill="#f5efe6"/></svg><span>Fitted by Tailor</span></a></p>
         <!-- tailor:links:start -->
         <nav class="connection-links" aria-label="Connect" style="display:flex;flex-wrap:wrap;gap:0.4rem">
           <a class="icon-button" href="https://wimpys.world/" aria-label="Website" title="Website" style="display:inline-flex;padding:10px;color:inherit"><span aria-hidden="true" style="display:block;width:24px;height:24px;background-color:currentColor;-webkit-mask:url('https://cdn.jsdelivr.net/npm/@primer/octicons@19.36.0/build/svg/globe-24.svg') center/contain no-repeat;mask:url('https://cdn.jsdelivr.net/npm/@primer/octicons@19.36.0/build/svg/globe-24.svg') center/contain no-repeat"></span></a>

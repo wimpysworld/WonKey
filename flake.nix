@@ -3,14 +3,12 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-26.05-darwin";
-    tailor.url = "github:wimpysworld/tailor/latest";
   };
 
   outputs =
     {
       self,
       nixpkgs,
-      tailor,
       ...
     }:
     let
@@ -47,8 +45,6 @@
         system:
         let
           pkgs = import nixpkgs { inherit system; };
-          # Keep the development shell available when Tailor has no package for this system.
-          tailorPkgs = tailor.packages.${system} or { };
           browsers = pkgs.playwright-driver.browsers-chromium;
           playwright-test = pkgs.playwright-test.overrideAttrs (old: {
             installPhase = builtins.replaceStrings
@@ -81,7 +77,6 @@
                 just
                 playwright-mcp
               ]
-              ++ (if tailorPkgs ? tailor then [ tailorPkgs.tailor ] else [ ])
               ++ import ./nix/loader.nix { inherit pkgs; };
           };
         }

@@ -1,12 +1,11 @@
-# Refitted by tailor on 2026-09-12
+# Refitted by tailor on 2026-11-28
 license: BlueOak-1.0.0
 
 languages:
   go: true
 
 repository:
-  description: >-
-    Macropad configuration tool for Linux. One key, to rule them all 1️⃣
+  description: Macropad configuration tool for Linux. One key, to rule them all 1️⃣
   homepage: https://wonkey.wimpys.world/
   has_wiki: true
   has_discussions: false
@@ -170,6 +169,40 @@ pages:
   #   website: https://example.com
   #   email: hello@example.com
 
+# Social assets are opt-in. Omission or enabled: false leaves social assets unmanaged.
+social:
+  enabled: true
+  theme: dark
+  og:
+    output: pages/og.png
+    include_preview: true
+    image: pages/demo-still.png
+  readme:
+    header: true
+    preferred_links:
+      - bluesky
+      - mastodon
+      - linkedin
+    community: auto
+    packages:
+      - apt
+      - rpm
+      - pkg
+      - apk
+      - nix
+    demo: true
+    stats: true
+    star_history:
+      enabled: true
+      min_stars: 25
+      min_days: 30
+    sponsors: auto
+    contributors: true
+    footer: true
+  live:
+    branch: social-assets
+    schedule: "0 4 * * *"
+
 labels:
   - name: bug
     color: d20f39
@@ -314,3 +347,6 @@ swatches:
 
   - path: .github/workflows/build-go.yml
     alteration: first-fit
+
+  - path: .github/workflows/tailor-vendor-hash.yml
+    alteration: always
